@@ -674,16 +674,17 @@ function promptTextToHtml(text: string): string {
 
 // 初始化
 onMounted(async () => {
-  if (editableRef.value && localPrompt.value) {
-    editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
-  }
-  // 从持久化数据恢复本地上传的素材（文件路径 → file:/// URL）
+  // 先从持久化数据恢复本地上传的素材（必须在 promptTextToHtml 之前，否则查不到资产）
   const saved = (props.data as any)._uploads as Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }> | undefined
   if (saved?.length) {
     uploadedAssets.value = saved.map(a => ({
       ...a,
-      url: filePathToUrl(a.url), // 存的是磁盘路径，转 file:/// URL 才能显示
+      url: filePathToUrl(a.url),
     }))
+  }
+  // 恢复提示词中的 @[name](id) 徽章（此时 allAssets 已包含上传的素材）
+  if (editableRef.value && localPrompt.value) {
+    editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
   }
   // 节点装载后兜底：providerId 不在 store 中就用默认；模型不在中转站里就用第一个
   const isImage = props.type === 'ai-image'
