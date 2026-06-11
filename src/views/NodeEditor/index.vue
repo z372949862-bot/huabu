@@ -10,6 +10,8 @@
       :snap-grid="[15, 15]"
       :is-valid-connection="isValidConnection"
       :default-edge-options="{ type: 'animated' }"
+      :selection-key="'Shift'"
+      :multi-selection-key="'Shift'"
       @pane-context-menu="onPaneContextMenu"
       @node-context-menu="onNodeContextMenu"
       @node-click="onNodeClick"
@@ -21,6 +23,17 @@
       <Controls />
       <MiniMap :pannable="true" :zoomable="true" />
     </VueFlow>
+
+    <!-- 空画布引导 -->
+    <div v-if="nodes.length === 0" class="canvas-hint">
+      <div class="canvas-hint-icon">🎨</div>
+      <div class="canvas-hint-text">右键画布添加节点开始创作</div>
+      <div class="canvas-hint-keys">
+        <kbd>Delete</kbd> 删除节点 &nbsp;·&nbsp;
+        <kbd>滚轮</kbd> 缩放 &nbsp;·&nbsp;
+        <kbd>拖拽</kbd> 平移
+      </div>
+    </div>
 
     <!-- 对齐辅助线（跟随 vue-flow viewport 一起 transform） -->
     <div class="alignment-overlay" :style="overlayStyle">
@@ -61,11 +74,9 @@ import { useRoute, useRouter } from 'vue-router'
 import ContextMenu from '@/components/ContextMenu.vue'
 import CustomNode from '@/components/CustomNode.vue'
 import AnimatedEdge from '@/components/AnimatedEdge.vue'
-// import NodeProperties from '@/components/NodeProperties.vue' // 已移除
 import { useNodeStore } from '@/stores/node'
 
 const nodeStore = useNodeStore()
-// const showProperties = ref(false) // 已移除
 
 // 对齐辅助线
 const alignmentLines = ref<Array<{ id: string; type: 'horizontal' | 'vertical'; position: number }>>([])
@@ -194,7 +205,7 @@ let savedViewport: { x: number; y: number; zoom: number } | null = null
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
-const { project, onConnect, setNodes, setEdges, viewport } = useVueFlow({
+const { project, onConnect, setNodes, setEdges, viewport, getSelectedNodes } = useVueFlow({
   nodeTypes: {
     'ai-image': markRaw(CustomNode),
     'ai-video': markRaw(CustomNode),
@@ -293,6 +304,32 @@ onConnectEnd((event) => {
   connectingFrom.value = null
 })
 
+// 键盘删除监听 — 必须在 onMounted 最前面注册，否则 early return 会跳过
+const handleKeyDown = (event: KeyboardEvent) => {
+  if (event.key === 'Delete') {
+    const target = event.target as HTMLElement
+    if (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest('[contenteditable="true"]') ||
+        target.closest('.generator-input')) {
+      return
+    }
+    const sel = getSelectedNodes.value
+    if (sel.length > 0) {
+      sel.forEach(n => nodeStore.removeNode(n.id))
+    } else if (nodeStore.selectedNodeId) {
+      nodeStore.removeNode(nodeStore.selectedNodeId)
+    }
+    event.preventDefault()
+  }
+}
+window.addEventListener('keydown', handleKeyDown)
+onUnmounted(() => {
+  savedViewport = { x: viewport.value.x, y: viewport.value.y, zoom: viewport.value.zoom }
+  window.removeEventListener('keydown', handleKeyDown)
+})
+
 // 初始化示例节点
 onMounted(async () => {
   // 检查是否有新建项目请求 / 打开项目请求
@@ -371,37 +408,7 @@ onMounted(async () => {
     nodeStore.addEdge(edge)
   }
 
-  // 键盘删除监听
-  const handleKeyDown = (event: KeyboardEvent) => {
-    // 只允许Delete键删除节点，禁用Backspace
-    if (event.key === 'Delete') {
-      // 检查是否在输入框中
-      const target = event.target as HTMLElement
-      if (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable ||
-          target.closest('[contenteditable="true"]') ||
-          target.closest('.generator-input')) {
-        return
-      }
-
-      if (nodeStore.selectedNodeId) {
-        nodeStore.removeNode(nodeStore.selectedNodeId)
-        // showProperties.value = false
-        event.preventDefault()
-      }
-    }
-  }
-
-  window.addEventListener('keydown', handleKeyDown)
-
   // 视角位置已通过 :default-viewport 恢复，无需额外操作
-
-  // 清理
-  onUnmounted(() => {
-    savedViewport = { x: viewport.value.x, y: viewport.value.y, zoom: viewport.value.zoom }
-    window.removeEventListener('keydown', handleKeyDown)
-  })
 })
 
 interface ContextMenuState {
@@ -578,41 +585,7 @@ const addNodeByType = (type: string) => {
 // 节点点击
 const onNodeClick = (event: { event: MouseEvent; node: Node }) => {
   nodeStore.selectNode(event.node.id)
-  // 不再显示属性面板
-  // showProperties.value = true
 }
-
-// 键盘删除
-onMounted(() => {
-  const handleKeyDown = (event: KeyboardEvent) => {
-    // 只允许Delete键删除节点，禁用Backspace
-    if (event.key === 'Delete') {
-      // 如果焦点在输入元素中，不处理删除
-      const target = event.target as HTMLElement
-
-      // 检查目标元素本身或其父元素是否为输入元素
-      if (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable ||
-          target.closest('[contenteditable="true"]') ||
-          target.closest('.generator-input')) {
-        return
-      }
-
-      if (nodeStore.selectedNodeId) {
-        nodeStore.removeNode(nodeStore.selectedNodeId)
-        // showProperties.value = false
-      }
-    }
-  }
-
-  window.addEventListener('keydown', handleKeyDown)
-
-  // 清理
-  return () => {
-    window.removeEventListener('keydown', handleKeyDown)
-  }
-})
 
 // 节点操作
 const handleNodeAction = (action: string) => {
@@ -707,5 +680,40 @@ const getNodeLabel = (type: string): string => {
 
 :deep(.vue-flow__controls button:hover) {
   background: rgba(0, 217, 255, 0.2);
+}
+
+/* 框选矩形 */
+:deep(.vue-flow__selection) {
+  background: rgba(0, 217, 255, 0.08);
+  border: 1px solid rgba(0, 217, 255, 0.5);
+}
+
+/* 被选中的节点高亮 */
+:deep(.vue-flow__node.selected) > .custom-node .node-main {
+  border-color: #00D9FF !important;
+  box-shadow: 0 0 12px rgba(0, 217, 255, 0.4), inset 0 0 0 2px #00D9FF !important;
+}
+
+/* 空画布引导 */
+.canvas-hint {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  z-index: 5;
+}
+.canvas-hint-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.6; }
+.canvas-hint-text { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 10px; }
+.canvas-hint-keys { font-size: 12px; color: rgba(255,255,255,0.3); }
+.canvas-hint kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 11px;
+  border: 1px solid rgba(0,217,255,0.3);
+  border-radius: 3px;
+  color: #00D9FF;
+  background: rgba(0,217,255,0.08);
+  font-family: inherit;
 }
 </style>

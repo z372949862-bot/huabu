@@ -19,7 +19,7 @@
         <template v-else-if="type === 'ai-image'">
           <!-- 错误态 - 显示报错信息 -->
           <div v-if="data.status === 'error' && data.error" class="error-display">
-            <div class="error-icon">⚠</div>
+            <div class="error-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="1.5"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" fill="rgba(255,68,68,0.15)"/></svg></div>
             <div class="error-text">{{ data.error }}</div>
           </div>
           <!-- 生成中 - 显示进度 -->
@@ -49,7 +49,7 @@
         <template v-else-if="type === 'ai-video'">
           <!-- 错误态 - 显示报错信息 -->
           <div v-if="data.status === 'error' && data.error" class="error-display">
-            <div class="error-icon">⚠</div>
+            <div class="error-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="1.5"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" fill="rgba(255,68,68,0.15)"/></svg></div>
             <div class="error-text">{{ data.error }}</div>
           </div>
           <!-- 生成中 - 显示进度 -->
@@ -88,10 +88,16 @@
         </template>
       </div>
 
+      <!-- 节点类型标签 -->
+      <div class="node-type-label">{{ typeLabel }}</div>
+
       <!-- 状态指示 -->
       <div v-if="data.status !== 'idle'" class="node-status-badge" :class="'status-' + data.status">
         {{ statusText }}
       </div>
+
+      <!-- 生成中边框光效 -->
+      <div v-if="data.status === 'running'" class="node-glow"></div>
     </div>
 
     <!-- 生成卡片 - 选中时在底部展开 -->
@@ -411,9 +417,6 @@ const selectedProviderId = ref<string>(
 )
 // 模型 ID 从节点 data.model 或所选中转站的第一个模型推导
 const selectedModel = ref<string>((props.data as any).model || '')
-const selectedStyle = ref('realistic')
-void selectedStyle
-
 // 视频节点的模型列表跟随当前选中的中转站
 const availableModels = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
@@ -473,7 +476,6 @@ watch(
     }
   }
 )
-// 旧的 ai-image 模型列表已迁移到 store，这里不再保留独立 ref
 const uploadedAssets = ref<Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>>([])
 
 // @ 提及功能
@@ -701,7 +703,6 @@ onMounted(async () => {
   }
 })
 
-// （原 ai-image 加载逻辑已合并到上方初始化块）
 
 // 监听选中状态，选中时聚焦输入框
 watch(() => isSelected.value, (selected) => {
@@ -1206,6 +1207,15 @@ const statusText = computed(() => {
   }
   return statuses[props.data.status || ''] || ''
 })
+
+const typeLabel = computed(() => {
+  const labels: Record<string, string> = {
+    'ai-image': 'AI 绘图',
+    'ai-video': 'AI 视频',
+    'asset-ref': '素材',
+  }
+  return labels[props.type] || ''
+})
 </script>
 
 <style scoped>
@@ -1245,7 +1255,7 @@ const statusText = computed(() => {
 }
 
 .node-icon-large {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1319,10 +1329,12 @@ const statusText = computed(() => {
 }
 
 .error-icon {
-  font-size: 56px;
-  color: #ff4444;
-  text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.error-icon svg {
+  filter: drop-shadow(0 0 12px rgba(255, 68, 68, 0.5));
 }
 
 .error-text {
@@ -1382,16 +1394,20 @@ const statusText = computed(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 80px;
-  height: 80px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 217, 255, 0.3);
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(255,255,255,0.3);
   border-radius: 50%;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
   transition: all 0.3s;
   pointer-events: none;
+}
+.play-overlay svg {
+  width: 24px; height: 24px;
 }
 
 .video-thumbnail:hover .play-overlay {
@@ -1635,6 +1651,37 @@ const statusText = computed(() => {
   font-size: 16px;
 }
 
+.node-type-label {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(0, 217, 255, 0.12);
+  color: rgba(0, 217, 255, 0.8);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.node-glow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, #00D9FF, #B432FF, #00D9FF) border-box;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: glowPulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 .node-status-badge {
   position: absolute;
   top: 12px;
@@ -1666,7 +1713,8 @@ const statusText = computed(() => {
   top: calc(100% + 16px);
   left: 50%;
   transform: translateX(-50%);
-  width: 720px;
+  max-width: 720px;
+  width: calc(100vw - 60px);
   background: #262626;
   border: 1px solid rgba(0, 217, 255, 0.3);
   border-radius: 12px;

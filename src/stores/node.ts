@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { Node, Edge } from '@vue-flow/core'
+import { ElMessage } from 'element-plus'
 import { useAIStore } from '@/stores/ai'
 import { useAssetStore } from '@/stores/asset'
 import { ensureRemoteAssetUrl } from '@/services/imageHost'
@@ -61,9 +62,16 @@ export const useNodeStore = defineStore('node', () => {
   const edges = ref<Edge[]>([])
   const selectedNodeId = ref<string | null>(null)
   const runningTasks = new Map<string, RunningTask>()
+  // 图片节点的假进度定时器（不同于视频轮询，单独管理）
+  const imageTimers = new Map<string, number>()
   const initialized = ref(false)
-  /** 当前打开的项目 ID。null = 还没初始化好。空字符串 = 没有项目（不应该出现）。 */
   const currentProjectId = ref<string | null>(null)
+
+  /** 设置节点错误状态并弹出 toast */
+  function failNode(nodeId: string, error: string) {
+    updateNodeData(nodeId, { status: 'error', error })
+    ElMessage.error(error)
+  }
 
   // ============ 持久化 ============
   let persistTimer: number | null = null
@@ -291,6 +299,11 @@ export const useNodeStore = defineStore('node', () => {
       clearInterval(t.intervalId)
       runningTasks.delete(nodeId)
     }
+    const ti = imageTimers.get(nodeId)
+    if (ti) {
+      clearInterval(ti)
+      imageTimers.delete(nodeId)
+    }
   }
 
   async function executeNode(nodeId: string) {
@@ -312,27 +325,18 @@ export const useNodeStore = defineStore('node', () => {
     const data = node.data as NodeData
     const providerId = data.providerId || aiStore.defaultProviderId
     if (!providerId) {
-      updateNodeData(nodeId, {
-        status: 'error',
-        error: '请先在「设置」中添加中转站',
-      })
+      failNode(nodeId, '请先在「设置」中添加中转站')
       return
     }
     const providerConfig = aiStore.getProviderConfig(providerId)
     if (!providerConfig) {
-      updateNodeData(nodeId, {
-        status: 'error',
-        error: '原中转站已被删除，请在节点上重新选择',
-      })
+      failNode(nodeId, '原中转站已被删除，请在节点上重新选择')
       return
     }
     const provider = aiStore.getProvider(providerId)
     const apiKey = providerConfig.apiKey
     if (!provider || !apiKey) {
-      updateNodeData(nodeId, {
-        status: 'error',
-        error: `「${providerConfig.name}」未配置 API Key`,
-      })
+      failNode(nodeId, `「${providerConfig.name}」未配置 API Key`)
       return
     }
 
@@ -366,11 +370,11 @@ export const useNodeStore = defineStore('node', () => {
     const promptText = (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
 
     if (!promptText && mode === 't2v') {
-      updateNodeData(nodeId, { status: 'error', error: '请输入提示词' })
+      failNode(nodeId, '请输入提示词')
       return
     }
     if (mode === 'edit' && !promptText) {
-      updateNodeData(nodeId, { status: 'error', error: '视频编辑需要写明修改意见' })
+      failNode(nodeId, '视频编辑需要写明修改意见')
       return
     }
 
@@ -442,10 +446,7 @@ export const useNodeStore = defineStore('node', () => {
       })
       taskId = res.taskId
     } catch (err) {
-      updateNodeData(nodeId, {
-        status: 'error',
-        error: err instanceof Error ? err.message : '创建任务失败',
-      })
+      failNode(nodeId, err instanceof Error ? err.message : '创建任务失败')
       return
     }
 
@@ -459,7 +460,7 @@ export const useNodeStore = defineStore('node', () => {
       // 超时保护
       if (Date.now() - startedAt > MAX_RUNTIME_MS) {
         cancelExecution(nodeId)
-        updateNodeData(nodeId, { status: 'error', error: '生成超时（超过 10 分钟）' })
+        failNode(nodeId, '生成超时（超过 10 分钟）')
         return
       }
 
@@ -565,7 +566,7 @@ export const useNodeStore = defineStore('node', () => {
     // 清理 prompt 里的 @[name](id) 标记，避免 AI 按文字生成而非按参考图
     const promptText = (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
     if (!promptText) {
-      updateNodeData(nodeId, { status: 'error', error: '请输入提示词（不含 @ 标记的有效文字）' })
+      failNode(nodeId, '请输入提示词（不含 @ 标记的有效文字）')
       return
     }
 
@@ -595,6 +596,7 @@ export const useNodeStore = defineStore('node', () => {
       const p = (cur?.data?.progress as number) || 0
       if (p < 90) updateNodeData(nodeId, { progress: Math.min(90, p + 5) })
     }, 800)
+    imageTimers.set(nodeId, fallbackTimer)
 
     try {
       const modelMeta = providerConfig.models.find((m) => m.id === data.model)
@@ -610,6 +612,7 @@ export const useNodeStore = defineStore('node', () => {
         },
       })
       window.clearInterval(fallbackTimer)
+      imageTimers.delete(nodeId)
       const url = result.imageUrls[0]
       if (!url) throw new Error('未拿到图片 URL')
       updateNodeData(nodeId, {
@@ -634,10 +637,8 @@ export const useNodeStore = defineStore('node', () => {
       })
     } catch (err) {
       window.clearInterval(fallbackTimer)
-      updateNodeData(nodeId, {
-        status: 'error',
-        error: err instanceof Error ? err.message : '生成图片失败',
-      })
+      imageTimers.delete(nodeId)
+      failNode(nodeId, err instanceof Error ? err.message : '生成图片失败')
     }
   }
 

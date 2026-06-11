@@ -2,7 +2,7 @@
   <div id="app" class="app-container">
     <div class="top-bar">
       <div class="top-bar-left">
-        <span class="logo">🎬 AI Video Canvas</span>
+        <span class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><polygon points="22 7 18 7 18 17 22 17"/><circle cx="8" cy="10" r="2"/></svg> AI Video Canvas</span>
         <input
           v-if="isEditingName"
           ref="nameInputRef"
@@ -29,19 +29,25 @@
       </div>
       <div class="top-bar-right">
         <div class="ai-status" title="点击查看AI服务配置" @click="navigateTo('/settings')">
-          <span
-            v-for="indicator in aiStatusIndicators"
-            :key="indicator.key"
-            :class="['status-indicator', getStatusClass(indicator.status)]"
-            :title="indicator.name + ': ' + indicator.status"
-          ></span>
+          <template v-for="indicator in aiStatusIndicators" :key="indicator.key">
+            <span
+              :class="['status-dot', getStatusClass(indicator.status)]"
+              :title="indicator.name + ': ' + indicator.status"
+            ></span>
+            <span class="status-label">{{ indicator.name }}</span>
+          </template>
+          <span v-if="aiStatusIndicators.length > 0" class="status-divider">|</span>
+          <span class="status-count">{{ configuredCount }} 个中转站</span>
         </div>
-        <span class="user-section">用户</span>
       </div>
     </div>
 
     <div class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </div>
 
     <div class="bottom-nav">
@@ -51,7 +57,7 @@
         :class="['nav-item', { active: currentRoute === nav.path }]"
         @click="navigateTo(nav.path)"
       >
-        <span class="nav-icon">{{ nav.icon }}</span>
+        <span class="nav-icon" v-html="navIcons[nav.path]"></span>
         <span class="nav-label">{{ nav.label }}</span>
       </button>
     </div>
@@ -120,6 +126,10 @@ const aiStatusIndicators = computed(() => {
   }))
 })
 
+const configuredCount = computed(() =>
+  aiStore.providers.filter((p) => p.apiKey).length
+)
+
 // 底部导航：非项目上下文（主页 / 从主页进入的素材库）不显示"节点"入口
 const hideNodesTab = computed(() => {
   if (route.path === '/home') return true
@@ -129,17 +139,24 @@ const hideNodesTab = computed(() => {
 
 const navItems = computed(() => {
   const items = [
-    { path: '/home', icon: '🏠', label: '主页' },
+    { path: '/home', label: '主页' },
   ]
   if (!hideNodesTab.value) {
-    items.push({ path: '/nodes', icon: '🔷', label: '节点' })
+    items.push({ path: '/nodes', label: '画布' })
   }
   items.push(
-    { path: '/assets', icon: '📦', label: '资产' },
-    { path: '/settings', icon: '⚙️', label: '设置' },
+    { path: '/assets', label: '资产' },
+    { path: '/settings', label: '设置' },
   )
   return items
 })
+
+const navIcons: Record<string, string> = {
+  '/home': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5"/><path d="M5 11v8a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-8"/></svg>`,
+  '/nodes': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="8" height="8" rx="1.5"/><rect x="14" y="2" width="8" height="8" rx="1.5"/><rect x="2" y="14" width="8" height="8" rx="1.5"/><rect x="14" y="14" width="8" height="8" rx="1.5"/></svg>`,
+  '/assets': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`,
+  '/settings': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>`,
+}
 
 const navigateTo = (path: string) => {
   // 已在当前页面，不重复导航
@@ -195,7 +212,11 @@ const getStatusClass = (status: string): string => {
   font-size: 18px;
   font-weight: 600;
   color: #00D9FF;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
+.logo svg { flex-shrink: 0; }
 
 .project-name {
   font-size: 14px;
@@ -248,43 +269,32 @@ const getStatusClass = (status: string): string => {
 
 .ai-status {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
   padding: 5px 10px;
   border-radius: 6px;
   transition: background 0.3s;
 }
+.ai-status:hover { background: rgba(0, 217, 255, 0.1); }
 
-.ai-status:hover {
-  background: rgba(0, 217, 255, 0.1);
-}
-
-.status-indicator {
-  width: 10px;
-  height: 10px;
+.status-dot {
+  width: 8px; height: 8px;
   border-radius: 50%;
-  box-shadow: 0 0 8px currentColor;
+  flex-shrink: 0;
 }
+.status-dot.green  { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+.status-dot.yellow { background: #ffcc00; box-shadow: 0 0 6px #ffcc00; }
+.status-dot.red    { background: #ff4444; box-shadow: 0 0 6px #ff4444; }
+.status-dot.gray   { background: #666; }
 
-.status-indicator.green {
-  background: #00ff88;
-  color: #00ff88;
+.status-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  white-space: nowrap;
 }
-
-.status-indicator.yellow {
-  background: #ffcc00;
-  color: #ffcc00;
-}
-
-.status-indicator.red {
-  background: #ff4444;
-  color: #ff4444;
-}
-
-.status-indicator.gray {
-  background: #666;
-  color: #666;
-}
+.status-divider { color: rgba(255,255,255,0.2); margin: 0 4px; }
+.status-count { font-size: 11px; color: rgba(255,255,255,0.35); white-space: nowrap; }
 
 .main-content {
   flex: 1;
@@ -333,11 +343,28 @@ const getStatusClass = (status: string): string => {
 }
 
 .nav-icon {
-  font-size: 20px;
+  width: 20px;
+  height: 20px;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nav-icon :deep(svg) {
+  display: block;
 }
 
 .nav-label {
   font-size: 12px;
+}
+
+/* 页面切换过渡 */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.15s ease;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
 }
 </style>

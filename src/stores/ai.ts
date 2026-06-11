@@ -255,7 +255,7 @@ export const useAIStore = defineStore('ai', () => {
     if (!p) return
     if (patch.name !== undefined) p.name = patch.name
     if (patch.type !== undefined) p.type = patch.type
-    if (patch.baseUrl !== undefined) p.baseUrl = patch.baseUrl || DEFAULT_BASE_URL
+    if (patch.baseUrl !== undefined) p.baseUrl = patch.baseUrl
     if (patch.apiKey !== undefined) {
       p.apiKey = patch.apiKey
       p.status = patch.apiKey ? (p.status === 'error' ? 'connected' : p.status) : 'unconfigured'
@@ -309,7 +309,7 @@ export const useAIStore = defineStore('ai', () => {
             description: override?.description,
             capabilities: override?.capabilities || { ratios: ['1:1', '16:9', '9:16'] },
             endpointStyle: override?.endpointStyle || 'openai',
-            supportsReferenceImage: override?.supportsReferenceImage ?? false,
+            supportsReferenceImage: override?.supportsReferenceImage ?? true,
           }
       p.models.push(model)
     } else {

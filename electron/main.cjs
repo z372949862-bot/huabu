@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, protocol, net } = require('electron')
+const { app, BrowserWindow, ipcMain, safeStorage, protocol, net, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const Store = require('electron-store')
@@ -116,6 +116,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // 隐藏菜单栏
+  Menu.setApplicationMenu(null)
+
   // 自动更新（仅在打包后的 app 中生效，dev 模式跳过）
   if (app.isPackaged) {
     autoUpdater.autoDownload = true

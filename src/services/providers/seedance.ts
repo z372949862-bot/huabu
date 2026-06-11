@@ -59,7 +59,7 @@ export class SeedanceProvider implements AIProvider {
 
   constructor(apiKey?: string, baseUrl?: string) {
     if (apiKey) this.apiKey = apiKey
-    if (baseUrl) this.baseUrl = baseUrl
+    if (baseUrl) this.baseUrl = this.normalizeBaseUrl(baseUrl)
   }
 
   setApiKey(apiKey: string) {
@@ -67,7 +67,11 @@ export class SeedanceProvider implements AIProvider {
   }
 
   setBaseUrl(baseUrl: string) {
-    this.baseUrl = baseUrl || DEFAULT_BASE_URL
+    this.baseUrl = this.normalizeBaseUrl(baseUrl || DEFAULT_BASE_URL)
+  }
+
+  private normalizeBaseUrl(url: string): string {
+    return url.trim().replace(/\/+$/, '')
   }
 
   /**

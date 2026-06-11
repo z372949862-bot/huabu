@@ -454,10 +454,15 @@ const getStatusText = (status: ProviderStatus): string => ({
 
 .provider-card {
   background: rgba(2, 3, 8, 0.6);
-  border: 1px solid #00D9FF;
+  border: 1px solid rgba(0, 217, 255, 0.3);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 4px 20px rgba(0, 217, 255, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 217, 255, 0.1);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.provider-card:has(.star) {
+  border-color: #00D9FF;
+  box-shadow: 0 4px 24px rgba(0, 217, 255, 0.3);
 }
 
 .provider-header {

@@ -94,6 +94,7 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
 
   const errorMsg =
     raw?.error?.message
+    || raw?.message
     || (typeof raw?.error === 'string' ? raw.error : undefined)
     || undefined
 
@@ -167,7 +168,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       if (params.ratio && params.ratio !== 'auto') {
         body.size = ratioToSize(params.ratio, params.resolution)
       }
-      if (params.duration != null) body.duration = Number(params.duration)
+      if (params.duration && params.duration > 0) body.duration = Number(params.duration)
       body.n = 1
       body.response_format = 'url'
 
@@ -187,7 +188,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       const resolution = normalizeResolution(params.resolution)
       if (resolution) body.resolution = resolution
 
-      if (params.duration != null) body.seconds = String(params.duration)
+      if (params.duration && params.duration > 0) body.seconds = String(params.duration)
 
       if (refs.length) {
         body.reference_images = Array.from(new Set(refs))
