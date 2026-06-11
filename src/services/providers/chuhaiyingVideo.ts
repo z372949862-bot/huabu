@@ -23,6 +23,7 @@ import type {
   TextToVideoParams,
   TaskStatus,
 } from '../ai-provider'
+import { urlToBase64 } from '../imageProviderUtils'
 
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const DEFAULT_MODEL = 'grok-imagine-video-1.5-preview'
@@ -65,10 +66,13 @@ function ratioToSize(ratio: string, resolution?: string): string {
  * 出海营状态枚举：queued / in_progress / completed / failed。
  */
 export function mapVideoTaskResponse(raw: any): TaskStatus {
-  const rawStatus: string = raw?.status ?? 'queued'
+  // Qiling 返回格式：{ status: "QUEUED", data: { status: "queued", progress: 0, metadata: { url: "" } } }
+  const dataObj = raw?.data || raw
+  const rawStatus: string = (raw?.status || dataObj?.status || 'queued').toLowerCase()
   const statusMap: Record<string, TaskStatus['status']> = {
     queued: 'pending',
     in_progress: 'processing',
+    processing: 'processing',
     completed: 'completed',
     complete: 'completed',
     succeeded: 'completed',
@@ -81,21 +85,21 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
   }
   const status = statusMap[rawStatus] || 'processing'
 
-  // doc 写"完成后优先使用返回中的 video_url"
   const videoUrl: string | undefined =
-    raw?.video_url
+    dataObj?.metadata?.url
+    || dataObj?.video_url
+    || dataObj?.url
+    || raw?.video_url
     || raw?.url
     || (typeof raw?.output === 'object' && !Array.isArray(raw.output) ? raw.output.url : undefined)
     || raw?.output?.[0]?.url
     || raw?.output?.[0]?.video_url
-    || raw?.data?.video_url
-    || raw?.data?.url
     || raw?.detail?.url
-    || raw?.metadata?.url
     || undefined
 
-  const progressRaw = raw?.progress
-  const progressNum = typeof progressRaw === 'number' ? progressRaw : parseInt(progressRaw, 10)
+  const progressRaw = dataObj?.progress ?? raw?.progress
+  const progressStr = typeof progressRaw === 'string' ? progressRaw.replace('%', '') : progressRaw
+  const progressNum = typeof progressStr === 'number' ? progressStr : parseFloat(progressStr)
   const progress = Number.isFinite(progressNum)
     ? progressNum
     : status === 'completed'
@@ -150,7 +154,8 @@ export class ChuhaiyingVideoProvider implements AIProvider {
 
   async createTask(params: CreateTaskParams): Promise<{ taskId: string }> {
     const model = params.model || DEFAULT_MODEL
-    const isOmniOrVeo = model.startsWith('gemini-omni') || model.startsWith('veo') || model.startsWith('sd2-')
+    const isOmniOrVeo = model.startsWith('gemini-omni') || model.startsWith('veo')
+    const isSd2 = model.startsWith('sd2-')
     const isEdit = params.mode === 'edit'
 
     // 从 content / 各字段里提取图片和视频 URL
@@ -175,10 +180,29 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       prompt: params.prompt,
     }
 
-    if (isOmniOrVeo) {
-      // Sora 兼容格式：平铺字段，不用 content 数组
+    if (isSd2) {
+      // Qiling sd2 专用格式：metadata 嵌套 + base64 参考图
+      body.metadata = {
+        modeType: isEdit ? 'video-edit' : refs.length ? 'image-to-video' : 'text-to-video',
+        ratio: (params.ratio && params.ratio !== 'auto') ? params.ratio : '16:9',
+        resolution: (params.resolution || '720p').toUpperCase(),
+        enableSound: params.generate_audio ? 'on' : 'off',
+      }
+      if (params.duration && params.duration > 0) body.duration = Number(params.duration)
+      if (refs.length) {
+        body.images = []
+        for (const url of refs) {
+          try {
+            const { base64, mimeType } = await urlToBase64(url)
+            body.images.push(`data:${mimeType};base64,${base64}`)
+          } catch { /* skip */ }
+        }
+      }
+    } else if (isOmniOrVeo) {
+      // Sora 兼容格式：size + aspect_ratio 双保险
       if (params.ratio && params.ratio !== 'auto') {
         body.size = ratioToSize(params.ratio, params.resolution)
+        body.aspect_ratio = params.ratio
       }
       if (params.duration && params.duration > 0) body.duration = Number(params.duration)
       body.n = 1
@@ -192,6 +216,8 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       if (refs.length) {
         body.image = refs[0]
       }
+      // 音频生成
+      if (params.generate_audio) body.generate_audio = true
     } else {
       // Grok 兼容格式
       const aspectRatio = normalizeRatio(params.ratio)

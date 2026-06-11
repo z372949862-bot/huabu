@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, safeStorage, protocol, net, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, safeStorage, protocol, net, Menu, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { spawn } = require('child_process')
 const Store = require('electron-store')
 const { autoUpdater } = require('electron-updater')
 
@@ -45,6 +46,39 @@ ipcMain.handle('upload:read', (_event, filePath) => {
     console.error('upload:read failed:', err)
     return null
   }
+})
+
+// ---- 视频拼接导出 ----
+ipcMain.handle('video:export', async (_event, fileUrls, outputDir) => {
+  // 尝试找 ffmpeg，找不到则生成 HTML 播放器
+  const ffmpegExe = path.join(path.dirname(app.getPath('exe')), 'ffmpeg.exe')
+  const hasFfmpeg = fs.existsSync(ffmpegExe)
+
+  if (!hasFfmpeg) {
+    // 生成 HTML 顺序播放器
+    const htmlPath = path.join(outputDir, 'playlist.html')
+    const items = fileUrls.map((u, i) => `<video src="${u}" controls width="100%"></video><p>片段 ${i+1}</p>`).join('\n<hr>\n')
+    const html = `<html><head><meta charset="utf-8"><title>视频拼接</title><style>body{background:#000;color:#fff;max-width:800px;margin:0 auto;padding:20px;font-family:sans-serif}video{display:block;margin:10px 0}p{color:#888;text-align:center}</style></head><body><h2>视频拼接预览</h2>${items}</body></html>`
+    fs.writeFileSync(htmlPath, html)
+    return htmlPath
+  }
+
+  // FFmpeg concat
+  return new Promise((resolve, reject) => {
+    const outPath = path.join(outputDir, `export_${Date.now()}.mp4`)
+    const listPath = outPath + '.list.txt'
+    const list = fileUrls.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n')
+    fs.writeFileSync(listPath, list, 'utf-8')
+
+    const proc = spawn(ffmpegExe, ['-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', '-y', outPath], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stderr = ''
+    proc.stderr.on('data', d => { stderr += d.toString() })
+    proc.on('close', code => {
+      try { fs.unlinkSync(listPath) } catch {}
+      code === 0 ? resolve(outPath) : reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-200)}`))
+    })
+    proc.on('error', err => { try { fs.unlinkSync(listPath) } catch {}; reject(err) })
+  })
 })
 
 ipcMain.handle('store:get', (_event, key) => {

@@ -73,7 +73,7 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   chuhaiying: 'https://api.aiid.edu.kg',
   qiling: 'https://api.qilingze.com',
 }
-const CURRENT_MIGRATION = 3
+const CURRENT_MIGRATION = 4
 
 declare global {
   interface Window {
@@ -506,11 +506,15 @@ export const useAIStore = defineStore('ai', () => {
       })
     }
 
-    // 3) 迁移：Seedance 2.0 时长上限 10 → 15，GPT Image 2K/4K 参考图支持
-    if (migrationVersion.value < 3) {
+    // 3) 迁移：Seedance 2.0 / Qiling sd2 时长上限 10 → 15，GPT Image 2K/4K 参考图支持
+    if (migrationVersion.value < 4) {
       for (const p of providers.value) {
         for (const m of p.models) {
           if (m.id === 'doubao-seedance-2-0-260128' && m.capabilities?.durationRange?.max < 15) {
+            m.capabilities.durationRange.max = 15
+          }
+          // Qiling sd2 系列时长上限 10 → 15
+          if (m.id?.startsWith('sd2-') && m.capabilities?.durationRange?.max < 15) {
             m.capabilities.durationRange.max = 15
           }
           // GPT Image 2-2K / 2-4K 参考图

@@ -64,7 +64,7 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
     capabilities: {
       ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
       resolutions: ['720p'],
-      durationRange: { min: 4, max: 10 },
+      durationRange: { min: 4, max: 15 },
       audioGeneration: true,
     },
   },
@@ -75,7 +75,7 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
     capabilities: {
       ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
       resolutions: ['720p'],
-      durationRange: { min: 4, max: 10 },
+      durationRange: { min: 4, max: 15 },
       audioGeneration: true,
     },
   },
@@ -86,7 +86,7 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
     capabilities: {
       ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
       resolutions: ['1080p'],
-      durationRange: { min: 4, max: 10 },
+      durationRange: { min: 4, max: 15 },
       audioGeneration: true,
     },
   },
@@ -97,7 +97,7 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
     capabilities: {
       ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
       resolutions: ['1080p'],
-      durationRange: { min: 4, max: 10 },
+      durationRange: { min: 4, max: 15 },
       audioGeneration: true,
     },
   },

@@ -37,6 +37,11 @@ const router = createRouter({
       component: () => import('@/views/ChatView/index.vue')
     },
     {
+      path: '/editor',
+      name: 'VideoEditor',
+      component: () => import('@/views/VideoEditor/index.vue')
+    },
+    {
       path: '/settings',
       name: 'Settings',
       component: () => import('@/views/Settings/index.vue')
