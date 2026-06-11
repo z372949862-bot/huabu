@@ -4,8 +4,15 @@ const fs = require('fs')
 const { spawn } = require('child_process')
 const Store = require('electron-store')
 const { autoUpdater } = require('electron-updater')
+const log = require('electron-log')
 
 const store = new Store({ name: 'ai-video-canvas-config' })
+
+// 更新日志写文件，方便排查（Windows: %USERPROFILE%\AppData\Roaming\AI Video Canvas\logs\main.log）
+log.transports.file.level = 'info'
+autoUpdater.logger = log
+
+let mainWindow = null
 
 // ---- 本地上传文件落盘 ----
 let uploadsDir = ''
@@ -111,7 +118,7 @@ ipcMain.handle('store:delete', (_event, key) => {
 })
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1200,
@@ -154,14 +161,47 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
 
   // 自动更新（仅在打包后的 app 中生效，dev 模式跳过）
+  // 可见式更新：不自动下载，把事件推给渲染端由用户确认
   if (app.isPackaged) {
-    autoUpdater.logger = console
-    autoUpdater.autoDownload = true
+    autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-      console.warn('auto-update check failed:', err.message)
-    })
+
+    const send = (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, payload)
+      }
+    }
+
+    autoUpdater.on('checking-for-update', () => send('updater:checking'))
+    autoUpdater.on('update-available', (info) => send('updater:available', { version: info.version, releaseNotes: info.releaseNotes, releaseDate: info.releaseDate }))
+    autoUpdater.on('update-not-available', (info) => send('updater:not-available', { version: info.version }))
+    autoUpdater.on('download-progress', (p) => send('updater:progress', { percent: p.percent, transferred: p.transferred, total: p.total, bytesPerSecond: p.bytesPerSecond }))
+    autoUpdater.on('update-downloaded', (info) => send('updater:downloaded', { version: info.version }))
+    autoUpdater.on('error', (err) => send('updater:error', { message: err == null ? 'unknown' : (err.message || String(err)) }))
+
+    // 启动后静默自检（发现新版才会通过 update-available 弹窗）
+    autoUpdater.checkForUpdates().catch((err) => log.warn('auto-update check failed:', err && err.message))
   }
+
+  // 渲染端触发的更新操作
+  ipcMain.handle('updater:check', async () => {
+    if (!app.isPackaged) return { ok: false, reason: 'dev-mode' }
+    try {
+      const r = await autoUpdater.checkForUpdates()
+      return { ok: true, version: r && r.updateInfo && r.updateInfo.version }
+    } catch (err) {
+      return { ok: false, reason: (err && err.message) || String(err) }
+    }
+  })
+  ipcMain.handle('updater:download', async () => {
+    try { await autoUpdater.downloadUpdate(); return { ok: true } }
+    catch (err) { return { ok: false, reason: (err && err.message) || String(err) } }
+  })
+  ipcMain.handle('updater:install', () => {
+    // 退出并安装；isSilent=false 显示安装界面，isForceRunAfter=true 装完自动重开
+    autoUpdater.quitAndInstall(false, true)
+  })
+
   // 注册自定义协议，绕开 Chromium 的 file:// 跨目录安全限制
   // 同时提供正确的 MIME 类型和 Range 支持，视频/音频才能正常播放
   protocol.handle('local-upload', (request) => {

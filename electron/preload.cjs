@@ -15,4 +15,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   video: {
     export: (fileUrls, outputDir) => ipcRenderer.invoke('video:export', fileUrls, outputDir),
   },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    download: () => ipcRenderer.invoke('updater:download'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    // 订阅主进程推送的更新事件，返回取消订阅函数
+    on: (event, callback) => {
+      const channel = `updater:${event}`
+      const handler = (_e, payload) => callback(payload)
+      ipcRenderer.on(channel, handler)
+      return () => ipcRenderer.removeListener(channel, handler)
+    },
+  },
 })

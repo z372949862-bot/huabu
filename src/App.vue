@@ -39,8 +39,66 @@
           <span v-if="aiStatusIndicators.length > 0" class="status-divider">|</span>
           <span class="status-count">{{ configuredCount }} 个中转站</span>
         </div>
+        <button
+          class="update-btn"
+          :class="{ checking: updateState === 'checking' }"
+          :title="updateBtnTitle"
+          @click="manualCheckUpdate"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 2v6h-6"></path>
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+            <path d="M3 22v-6h6"></path>
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+          </svg>
+        </button>
       </div>
     </div>
+
+    <!-- 更新对话框 -->
+    <el-dialog
+      v-model="updateDialogVisible"
+      :title="updateDialogTitle"
+      width="420px"
+      :close-on-click-modal="false"
+      :show-close="updateState !== 'downloading'"
+      class="update-dialog"
+    >
+      <div v-if="updateState === 'available'" class="update-body">
+        <p>发现新版本 <strong>v{{ updateInfo.version }}</strong>，当前版本 v{{ currentVersion }}。</p>
+        <p class="update-hint">是否现在下载更新？下载完成后会提示你重启安装。</p>
+      </div>
+      <div v-else-if="updateState === 'downloading'" class="update-body">
+        <p>正在下载 v{{ updateInfo.version }}…</p>
+        <el-progress :percentage="downloadPercent" :stroke-width="14" />
+        <p class="update-hint">{{ downloadSpeedText }}</p>
+      </div>
+      <div v-else-if="updateState === 'downloaded'" class="update-body">
+        <p>v{{ updateInfo.version }} 已下载完成。</p>
+        <p class="update-hint">点击「立即重启安装」会关闭软件并安装新版本，安装后自动重新打开。</p>
+      </div>
+      <div v-else-if="updateState === 'not-available'" class="update-body">
+        <p>当前已是最新版本 v{{ currentVersion }}。</p>
+      </div>
+      <div v-else-if="updateState === 'error'" class="update-body">
+        <p>检查更新失败。</p>
+        <p class="update-hint">{{ updateError }}</p>
+      </div>
+
+      <template #footer>
+        <template v-if="updateState === 'available'">
+          <el-button @click="updateDialogVisible = false">稍后</el-button>
+          <el-button type="primary" @click="startDownload">立即更新</el-button>
+        </template>
+        <template v-else-if="updateState === 'downloaded'">
+          <el-button @click="updateDialogVisible = false">稍后</el-button>
+          <el-button type="primary" @click="installNow">立即重启安装</el-button>
+        </template>
+        <template v-else-if="updateState === 'not-available' || updateState === 'error'">
+          <el-button type="primary" @click="updateDialogVisible = false">知道了</el-button>
+        </template>
+      </template>
+    </el-dialog>
 
     <div class="main-content">
       <router-view v-slot="{ Component }">
@@ -67,6 +125,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAIStore } from '@/stores/ai'
 
 const router = useRouter()
@@ -77,6 +136,103 @@ const projectName = ref('未命名项目')
 const isEditingName = ref(false)
 const nameInputRef = ref<HTMLInputElement>()
 const previousName = ref('')
+
+// ---- 应用更新 ----
+type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
+const currentVersion = ref(__APP_VERSION__)
+const updateState = ref<UpdateState>('idle')
+const updateInfo = ref<{ version: string }>({ version: '' })
+const updateDialogVisible = ref(false)
+const downloadPercent = ref(0)
+const downloadSpeed = ref(0)
+const updateError = ref('')
+let manualTriggered = false
+const updaterUnsubs: Array<() => void> = []
+
+const updateBtnTitle = computed(() =>
+  updateState.value === 'checking' ? '正在检查更新…' : `检查更新（当前 v${currentVersion.value}）`
+)
+const updateDialogTitle = computed(() => {
+  switch (updateState.value) {
+    case 'available': return '发现新版本'
+    case 'downloading': return '正在下载更新'
+    case 'downloaded': return '更新已就绪'
+    case 'not-available': return '检查更新'
+    case 'error': return '检查更新'
+    default: return '检查更新'
+  }
+})
+const downloadSpeedText = computed(() => {
+  const s = downloadSpeed.value
+  if (!s) return `${downloadPercent.value}%`
+  const mb = s / 1024 / 1024
+  return `${downloadPercent.value}% · ${mb.toFixed(1)} MB/s`
+})
+
+const manualCheckUpdate = async () => {
+  const api = window.electronAPI?.updater
+  if (!api) {
+    ElMessage.info('更新功能仅在桌面客户端中可用')
+    return
+  }
+  if (updateState.value === 'checking' || updateState.value === 'downloading') return
+  manualTriggered = true
+  updateState.value = 'checking'
+  const r = await api.check()
+  if (!r.ok && r.reason !== 'dev-mode') {
+    updateState.value = 'error'
+    updateError.value = r.reason || '未知错误'
+    updateDialogVisible.value = true
+  }
+  // available / not-available / error 由事件回调处理
+}
+
+const startDownload = async () => {
+  const api = window.electronAPI?.updater
+  if (!api) return
+  updateState.value = 'downloading'
+  downloadPercent.value = 0
+  const r = await api.download()
+  if (!r.ok) {
+    updateState.value = 'error'
+    updateError.value = r.reason || '下载失败'
+  }
+}
+
+const installNow = () => {
+  window.electronAPI?.updater?.install()
+}
+
+const setupUpdater = () => {
+  const api = window.electronAPI?.updater
+  if (!api) return
+  updaterUnsubs.push(
+    api.on('available', (info) => {
+      updateInfo.value = { version: info.version }
+      updateState.value = 'available'
+      updateDialogVisible.value = true
+    }),
+    api.on('not-available', () => {
+      updateState.value = 'not-available'
+      // 仅手动检查时提示"已是最新"，启动自检不打扰
+      if (manualTriggered) updateDialogVisible.value = true
+    }),
+    api.on('progress', (p) => {
+      downloadPercent.value = Math.round(p.percent || 0)
+      downloadSpeed.value = p.bytesPerSecond || 0
+    }),
+    api.on('downloaded', (info) => {
+      updateInfo.value = { version: info.version }
+      updateState.value = 'downloaded'
+      updateDialogVisible.value = true
+    }),
+    api.on('error', (e) => {
+      updateState.value = 'error'
+      updateError.value = e.message || '未知错误'
+      if (manualTriggered) updateDialogVisible.value = true
+    }),
+  )
+}
 
 // 监听项目名称变化事件
 const handleProjectNameChange = (event: Event) => {
@@ -90,10 +246,13 @@ onMounted(() => {
   if ((window as any).__projectName) {
     projectName.value = (window as any).__projectName
   }
+  // 注册更新事件监听（启动自检由主进程发起，有新版会自动弹窗）
+  setupUpdater()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('project-name-change', handleProjectNameChange)
+  updaterUnsubs.forEach((un) => un())
 })
 
 const startEditing = async () => {
@@ -279,6 +438,40 @@ const getStatusClass = (status: string): string => {
   display: flex;
   align-items: center;
   gap: 20px;
+}
+
+.update-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(100, 180, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(20, 30, 55, 0.5);
+  color: #7fb4ff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.update-btn:hover {
+  border-color: rgba(120, 200, 255, 0.6);
+  color: #acd4ff;
+  box-shadow: 0 0 10px rgba(100, 180, 255, 0.35);
+}
+.update-btn.checking svg {
+  animation: update-spin 1s linear infinite;
+}
+@keyframes update-spin {
+  to { transform: rotate(360deg); }
+}
+.update-body p {
+  margin: 0 0 10px;
+  line-height: 1.6;
+}
+.update-hint {
+  font-size: 13px;
+  color: var(--el-text-color-secondary, #8a94a6);
 }
 
 .ai-status {
