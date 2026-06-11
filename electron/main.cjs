@@ -121,6 +121,7 @@ app.whenReady().then(() => {
 
   // 自动更新（仅在打包后的 app 中生效，dev 模式跳过）
   if (app.isPackaged) {
+    autoUpdater.logger = console
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.checkForUpdatesAndNotify().catch((err) => {
