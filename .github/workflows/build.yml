@@ -23,9 +23,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: npx electron-builder --win --publish always
-      - name: Verify latest.yml
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          echo "=== Release files ==="
-          dir release\*.exe release\*.yml release\*.blockmap 2>nul
-          if exist release\latest.yml (echo latest.yml EXISTS) else (echo latest.yml MISSING)
