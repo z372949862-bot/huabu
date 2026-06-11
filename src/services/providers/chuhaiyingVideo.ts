@@ -23,7 +23,7 @@ import type {
   TextToVideoParams,
   TaskStatus,
 } from '../ai-provider'
-import { urlToBase64 } from '../imageProviderUtils'
+import { urlToBase64, compressImageToDataUrl } from '../imageProviderUtils'
 
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const DEFAULT_MODEL = 'grok-imagine-video-1.5-preview'
@@ -218,11 +218,19 @@ export class ChuhaiyingVideoProvider implements AIProvider {
         body.duration = Math.max(4, Math.min(15, Math.round(Number(params.duration))))
       }
       if (refs.length) {
+        // 器灵 sd2 参考图最多 9 张；超出会增大请求体。
         body.images = []
         for (const url of refs) {
+          if (body.images.length >= 9) break
+          // 远程 URL 直接透传，不下载内联（与参考插件一致，避免请求体膨胀）
+          if (/^https?:\/\//i.test(url)) {
+            body.images.push(url)
+            continue
+          }
           try {
             const { base64, mimeType } = await urlToBase64(url)
-            body.images.push(`data:${mimeType};base64,${base64}`)
+            // 压缩到最长边 1024 / JPEG 0.85，避免多张原图内联导致 413
+            body.images.push(await compressImageToDataUrl(base64, mimeType))
           } catch { /* skip */ }
         }
       }

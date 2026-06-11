@@ -44,3 +44,46 @@ export async function urlToBase64(url: string): Promise<{ base64: string; mimeTy
     reader.readAsDataURL(blob)
   })
 }
+
+/**
+ * 把图片压缩成 JPEG data URL，避免多张参考图原图内联导致请求体过大（413）。
+ * 策略对齐参考插件 _image_to_data_url：最长边缩到 maxSize（默认 1024），
+ * 重编码为 JPEG（默认质量 0.85）。透明区填白，避免 PNG 透明在 JPEG 里发黑。
+ * 任何失败都回退到原始 data URL，保证不影响主流程。
+ */
+export async function compressImageToDataUrl(
+  base64: string,
+  mimeType: string,
+  maxSize = 1024,
+  quality = 0.85,
+): Promise<string> {
+  const srcDataUrl = `data:${mimeType};base64,${base64}`
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('图片解码失败'))
+      el.src = srcDataUrl
+    })
+    const sw = img.naturalWidth || img.width
+    const sh = img.naturalHeight || img.height
+    if (!sw || !sh) return srcDataUrl
+    let w = sw, h = sh
+    if (Math.max(w, h) > maxSize) {
+      const scale = maxSize / Math.max(w, h)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return srcDataUrl
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.drawImage(img, 0, 0, w, h)
+    return canvas.toDataURL('image/jpeg', quality)
+  } catch {
+    return srcDataUrl
+  }
+}
