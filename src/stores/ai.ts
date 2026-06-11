@@ -4,6 +4,7 @@ import { SeedanceProvider } from '@/services/providers/seedance'
 import { ChuhaiyingVideoProvider } from '@/services/providers/chuhaiyingVideo'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
+import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
 import type { AIProvider } from '@/services/ai-provider'
 import {
   getModelTemplatesByKind,
@@ -15,12 +16,16 @@ import {
   type ImageModelTemplate,
   type ImageProviderKind,
 } from '@/services/imageModelTemplates'
+import {
+  getChatTemplatesByKind,
+  type ChatModelTemplate,
+  type TextProviderKind,
+} from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
-export type ProviderType = 'video' | 'image'
-/** kind 在 video / image 各自命名空间里独立判断（'chuhaiying' 在两类里都有，靠 type 区分）。 */
-export type ProviderKind = ImageProviderKind | VideoProviderKind
+export type ProviderType = 'video' | 'image' | 'text'
+export type ProviderKind = ImageProviderKind | VideoProviderKind | TextProviderKind
 
 export interface ProviderModel {
   id: string
@@ -32,6 +37,7 @@ export interface ProviderModel {
   supportsReferenceImage?: boolean
   supportsImageSize2K?: boolean
   asyncEndpoint?: boolean
+  supportsReasoning?: boolean
 }
 
 export interface Provider {
@@ -51,6 +57,7 @@ interface PersistShape {
   providers: Provider[]
   defaultProviderId: string | null
   defaultImageProviderId?: string | null
+  defaultTextProviderId?: string | null
   migrationVersion: number
 }
 
@@ -128,13 +135,13 @@ export const useAIStore = defineStore('ai', () => {
   const providers = ref<Provider[]>([])
   const defaultProviderId = ref<string | null>(null)
   const defaultImageProviderId = ref<string | null>(null)
+  const defaultTextProviderId = ref<string | null>(null)
   const migrationVersion = ref(0)
   const initialized = ref(false)
 
-  // Provider 实例缓存：按 id 懒构建。改 baseUrl/apiKey 时立即清掉对应实例。
-  // video → SeedanceProvider | ChuhaiyingVideoProvider；image → GeekNowImageProvider | ChuhaiyingImageProvider
   const videoCache = new Map<string, AIProvider>()
   const imageCache = new Map<string, ImageProvider>()
+  const textCache = new Map<string, LLMProvider>()
 
   const configuredProviders = computed(() =>
     providers.value.filter((p) => p.apiKey)
@@ -150,6 +157,10 @@ export const useAIStore = defineStore('ai', () => {
 
   const imageProviders = computed(() =>
     providers.value.filter((p) => p.type === 'image')
+  )
+
+  const textProviders = computed(() =>
+    providers.value.filter((p) => p.type === 'text')
   )
 
   function getProviderConfig(id: string | null | undefined): Provider | undefined {
@@ -191,9 +202,25 @@ export const useAIStore = defineStore('ai', () => {
     return inst
   }
 
+  function getTextProvider(id: string): LLMProvider | null {
+    const conf = getProviderConfig(id)
+    if (!conf || conf.type !== 'text') return null
+    let inst = textCache.get(id)
+    if (!inst) {
+      const kind = (conf.kind || 'openaichat') as TextProviderKind
+      inst = new OpenAIChatProvider(conf.apiKey, conf.baseUrl, kind)
+      textCache.set(id, inst)
+    } else {
+      inst.setApiKey(conf.apiKey)
+      inst.setBaseUrl(conf.baseUrl)
+    }
+    return inst
+  }
+
   function invalidateInstance(id: string) {
     videoCache.delete(id)
     imageCache.delete(id)
+    textCache.delete(id)
   }
 
   // ---------- CRUD ----------
@@ -223,6 +250,21 @@ export const useAIStore = defineStore('ai', () => {
       defaultBase = IMAGE_DEFAULT_BASE_URL[imgKind]
       defaultModels = defaultImageModelSet(imgKind)
       defaultName = imgKind === 'chuhaiying' ? '出海营' : 'GeekNow'
+    } else if (type === 'text') {
+      const textKind: TextProviderKind =
+        (input.kind === 'deepseek' || input.kind === 'openaichat')
+          ? input.kind
+          : 'openaichat'
+      kind = textKind
+      const bases: Record<TextProviderKind, string> = { openaichat: 'https://api.geeknow.ai', deepseek: 'https://api.deepseek.com' }
+      defaultBase = input.baseUrl || bases[textKind]
+      defaultModels = getChatTemplatesByKind(textKind).map((t: ChatModelTemplate): ProviderModel => ({
+        id: t.id, name: t.name, description: t.description,
+        capabilities: { ...t.capabilities },
+        supportsReferenceImage: true,
+        supportsReasoning: t.supportsReasoning,
+      } as any))
+      defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
         (input.kind === 'chuhaiying' || input.kind === 'seedance')
@@ -246,6 +288,7 @@ export const useAIStore = defineStore('ai', () => {
     })
     if (type === 'video' && !defaultProviderId.value) defaultProviderId.value = id
     if (type === 'image' && !defaultImageProviderId.value) defaultImageProviderId.value = id
+    if (type === 'text' && !defaultTextProviderId.value) defaultTextProviderId.value = id
     persist()
     return id
   }
@@ -279,6 +322,9 @@ export const useAIStore = defineStore('ai', () => {
     if (defaultImageProviderId.value === id) {
       defaultImageProviderId.value = providers.value.find((p) => p.type === 'image')?.id ?? null
     }
+    if (defaultTextProviderId.value === id) {
+      defaultTextProviderId.value = providers.value.find((p) => p.type === 'text')?.id ?? null
+    }
     void removed
     persist()
   }
@@ -288,6 +334,8 @@ export const useAIStore = defineStore('ai', () => {
     if (!p) return
     if (p.type === 'image') {
       defaultImageProviderId.value = id
+    } else if (p.type === 'text') {
+      defaultTextProviderId.value = id
     } else {
       defaultProviderId.value = id
     }
@@ -298,7 +346,13 @@ export const useAIStore = defineStore('ai', () => {
     const p = getProviderConfig(providerId)
     if (!p) return
     if (p.models.find((m) => m.id === modelId)) return
-    if (p.type === 'image') {
+    if (p.type === 'text') {
+      const tpl = getChatTemplatesByKind('openaichat').find((t) => t.id === modelId)
+      const model: any = tpl
+        ? { id: tpl.id, name: tpl.name, description: tpl.description, capabilities: { ...tpl.capabilities }, supportsReasoning: tpl.supportsReasoning, ...override }
+        : { id: modelId, name: override?.name || modelId, capabilities: override?.capabilities || { ratios: [], resolutions: [] } }
+      p.models.push(model)
+    } else if (p.type === 'image') {
       const kind = imageKindOf(p)
       const tpl = getImageTemplatesByKind(kind).find((t) => t.id === modelId)
       const model: ProviderModel = tpl
@@ -348,7 +402,7 @@ export const useAIStore = defineStore('ai', () => {
       return { ok: false, error: '未配置 API Key' }
     }
     const inst: { testAuth: (k: string) => Promise<{ success: boolean; error?: string }> } | null =
-      p.type === 'image' ? getImageProvider(id) : getProvider(id)
+      p.type === 'image' ? getImageProvider(id) : p.type === 'text' ? getTextProvider(id) : getProvider(id)
     if (!inst) return { ok: false, error: '初始化 provider 失败' }
     try {
       const result = await inst.testAuth(p.apiKey)
@@ -378,6 +432,7 @@ export const useAIStore = defineStore('ai', () => {
           providers: providers.value,
           defaultProviderId: defaultProviderId.value,
           defaultImageProviderId: defaultImageProviderId.value,
+          defaultTextProviderId: defaultTextProviderId.value,
           migrationVersion: migrationVersion.value,
         }
         await electronStore.set(STORE_KEY, JSON.stringify(payload))
@@ -421,6 +476,10 @@ export const useAIStore = defineStore('ai', () => {
         defaultImageProviderId.value =
           parsed.defaultImageProviderId
           ?? providers.value.find((p) => p.type === 'image')?.id
+          ?? null
+        defaultTextProviderId.value =
+          parsed.defaultTextProviderId
+          ?? providers.value.find((p) => p.type === 'text')?.id
           ?? null
         migrationVersion.value = parsed.migrationVersion ?? 0
       }
@@ -469,13 +528,16 @@ export const useAIStore = defineStore('ai', () => {
     providers,
     defaultProviderId,
     defaultImageProviderId,
+    defaultTextProviderId,
     videoProviders,
     imageProviders,
+    textProviders,
     configuredProviders,
     connectedProviders,
     getProviderConfig,
     getProvider,
     getImageProvider,
+    getTextProvider,
     addProvider,
     updateProvider,
     deleteProvider,

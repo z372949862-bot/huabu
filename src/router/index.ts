@@ -32,6 +32,11 @@ const router = createRouter({
       component: AssetLibrary
     },
     {
+      path: '/chat',
+      name: 'ChatView',
+      component: () => import('@/views/ChatView/index.vue')
+    },
+    {
       path: '/settings',
       name: 'Settings',
       component: () => import('@/views/Settings/index.vue')

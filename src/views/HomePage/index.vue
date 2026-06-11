@@ -343,6 +343,13 @@ const quickCards = [
     icon: '📦',
     color: 'linear-gradient(135deg, #FFC371 0%, #00D9FF 100%)',
   },
+  {
+    type: 'ai-chat',
+    title: 'AI 对话助手',
+    description: 'AI 智能问答与创作',
+    icon: '💬',
+    color: 'linear-gradient(135deg, #00ff88 0%, #00D9FF 100%)',
+  },
 ]
 
 // 最近项目（从localStorage加载）
@@ -401,6 +408,8 @@ const createNode = (type: string) => {
     })
   } else if (type === 'asset-library') {
     router.push({ path: '/assets', query: { from: 'home' } })
+  } else if (type === 'ai-chat') {
+    router.push('/chat')
   } else {
     router.push({ path: '/nodes', query: { create: type } })
   }

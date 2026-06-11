@@ -80,6 +80,25 @@
           </div>
         </template>
 
+        <!-- AI文本节点 -->
+        <template v-else-if="type === 'ai-text'">
+          <div v-if="data.status === 'error' && data.error" class="error-display">
+            <div class="error-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="1.5"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" fill="rgba(255,68,68,0.15)"/></svg></div>
+            <div class="error-text">{{ data.error }}</div>
+          </div>
+          <div v-else-if="data.status === 'running'" class="progress-display">
+            <div class="progress-number">{{ data.progress || 0 }}%</div>
+            <div class="progress-text">思考中...</div>
+          </div>
+          <div v-else-if="data.status === 'completed' && data.outputText" class="text-result-display" @click.stop="showTextModal = true">
+            <div class="text-result-content">{{ truncateText(data.outputText, 150) }}</div>
+            <div class="text-result-hint">查看全文 →</div>
+          </div>
+          <div v-else class="node-icon-large">
+            <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h14"/></svg>
+          </div>
+        </template>
+
         <!-- 其他节点类型 -->
         <template v-else>
           <div class="node-icon-large">
@@ -261,6 +280,12 @@
                 <RatioSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" />
               </template>
 
+              <!-- 文本节点：中转站 + 模型选择 -->
+              <template v-else-if="type === 'ai-text'">
+                <ProviderSelector v-model="selectedProviderId" :providers="textProviderOptions" />
+                <ModelSelector v-model="selectedModel" :models="availableTextModels" label="文本模型" />
+              </template>
+
               <!-- 其他节点：简单按钮 -->
               <button v-else class="option-btn">
                 <span>选项</span>
@@ -325,6 +350,21 @@
             :src="data.outputImage"
             class="image-modal-preview"
           />
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 文本查看弹窗 -->
+    <Teleport to="body">
+      <div v-if="showTextModal" class="text-modal-overlay" @click="showTextModal = false">
+        <div class="text-modal-content" @click.stop>
+          <div class="modal-toolbar">
+            <button class="modal-download" @click="copyTextToClipboard(data.outputText)">📋 复制全文</button>
+            <button class="text-modal-close" @click="showTextModal = false">
+              <svg viewBox="0 0 16 16" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+            </button>
+          </div>
+          <div class="text-modal-body">{{ data.outputText }}</div>
         </div>
       </div>
     </Teleport>
@@ -476,6 +516,32 @@ watch(
     }
   }
 )
+// 文本节点
+const showTextModal = ref(false)
+const textProviderOptions = computed(() =>
+  aiStore.textProviders.map((p) => ({
+    id: p.id,
+    name: p.name,
+    baseUrl: p.baseUrl,
+    status: p.status,
+    isDefault: p.id === aiStore.defaultTextProviderId,
+  }))
+)
+const availableTextModels = computed(() => {
+  const config = aiStore.getProviderConfig(selectedProviderId.value)
+  return config?.models ?? []
+})
+
+function truncateText(text: string | undefined, maxLen: number): string {
+  if (!text) return ''
+  return text.length > maxLen ? text.slice(0, maxLen) + '...' : text
+}
+
+async function copyTextToClipboard(text: string | undefined) {
+  if (!text) return
+  try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
+}
+
 const uploadedAssets = ref<Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>>([])
 
 // @ 提及功能
@@ -691,6 +757,16 @@ onMounted(async () => {
   // 节点装载后兜底：providerId 不在 store 中就用默认；模型不在中转站里就用第一个
   const isImage = props.type === 'ai-image'
   const isVideo = props.type === 'ai-video'
+  const isText = props.type === 'ai-text'
+  if (isText) {
+    if (!aiStore.getProviderConfig(selectedProviderId.value)) {
+      selectedProviderId.value = aiStore.defaultTextProviderId || ''
+    }
+    const models = aiStore.getProviderConfig(selectedProviderId.value)?.models ?? []
+    if (!models.find((m) => m.id === selectedModel.value)) {
+      selectedModel.value = models[0]?.id ?? ''
+    }
+  }
   if (isImage || isVideo) {
     if (!aiStore.getProviderConfig(selectedProviderId.value)) {
       selectedProviderId.value =
@@ -1193,6 +1269,7 @@ const icon = computed(() => {
   const icons: Record<string, string> = {
     'ai-image': '🎨',
     'ai-video': '🎬',
+    'ai-text': '💬',
     'asset-ref': '📦',
     'post-process': '⚡',
   }
@@ -1212,6 +1289,7 @@ const typeLabel = computed(() => {
   const labels: Record<string, string> = {
     'ai-image': 'AI 绘图',
     'ai-video': 'AI 视频',
+    'ai-text': 'AI 文本',
     'asset-ref': '素材',
   }
   return labels[props.type] || ''
@@ -2310,5 +2388,76 @@ const typeLabel = computed(() => {
 .expand-leave-to {
   opacity: 0;
   transform: translateY(-20px);
+}
+
+/* 文本节点 */
+.text-result-display {
+  position: relative;
+  width: 100%; height: 100%;
+  padding: 14px;
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.text-result-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.85);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+}
+.text-result-hint {
+  position: absolute;
+  bottom: 6px; right: 10px;
+  font-size: 11px;
+  color: #00D9FF;
+  opacity: 0.6;
+  padding: 2px 8px;
+  background: rgba(2,3,8,0.85);
+  border-radius: 8px;
+}
+
+.text-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.92);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+}
+.text-modal-content {
+  position: relative;
+  max-width: 700px; max-height: 85vh;
+  display: flex; flex-direction: column;
+}
+.text-modal-body {
+  overflow-y: auto;
+  padding: 28px;
+  color: #e0e0e0;
+  font-size: 15px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(2,3,8,0.95);
+  border: 1px solid rgba(0,217,255,0.2);
+  border-radius: 12px;
+}
+.text-modal-close {
+  width: 40px; height: 40px;
+  background: rgba(0,217,255,0.2);
+  border: 1px solid #00D9FF;
+  border-radius: 50%;
+  color: #00D9FF;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+  line-height: 1; padding: 0;
+}
+.text-modal-close:hover {
+  background: rgba(0,217,255,0.4);
+  transform: rotate(90deg);
 }
 </style>

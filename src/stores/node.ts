@@ -16,6 +16,7 @@ export interface NodeData {
   outputImage?: string
   outputVideo?: string
   outputAudio?: string
+  outputText?: string
   // AI绘图节点参数
   prompt?: string
   negativePrompt?: string
@@ -315,6 +316,10 @@ export const useNodeStore = defineStore('node', () => {
     if (node.type === 'ai-image') {
       console.log('[executeNode] → 走 executeImageNode')
       return executeImageNode(nodeId)
+    }
+    if (node.type === 'ai-text') {
+      console.log('[executeNode] → 走 executeTextNode')
+      return executeTextNode(nodeId)
     }
     if (node.type !== 'ai-video') {
       console.log('[executeNode] → 走 executeMock（占位）')
@@ -639,6 +644,61 @@ export const useNodeStore = defineStore('node', () => {
       window.clearInterval(fallbackTimer)
       imageTimers.delete(nodeId)
       failNode(nodeId, err instanceof Error ? err.message : '生成图片失败')
+    }
+  }
+
+  /** 文本节点：发送 prompt 到 LLM chat 端点，返回文字结果 */
+  async function executeTextNode(nodeId: string) {
+    const node = nodes.value.find((n) => n.id === nodeId)
+    if (!node) return
+
+    const aiStore = useAIStore()
+    const data = node.data as NodeData & { systemPrompt?: string; maxTokens?: number; temperature?: number }
+    const providerId = data.providerId || aiStore.defaultTextProviderId
+    if (!providerId) {
+      failNode(nodeId, '请先在「设置」里添加文本中转站')
+      return
+    }
+    const providerConfig = aiStore.getProviderConfig(providerId)
+    if (!providerConfig) {
+      failNode(nodeId, '原文本中转站已被删除，请重新选择')
+      return
+    }
+    const provider = aiStore.getTextProvider(providerId)
+    if (!provider || !providerConfig.apiKey) {
+      failNode(nodeId, `「${providerConfig.name}」未配置 API Key`)
+      return
+    }
+
+    const promptText = (data.prompt || '').trim()
+    if (!promptText) {
+      failNode(nodeId, '请输入提示词')
+      return
+    }
+
+    cancelExecution(nodeId)
+    updateNodeData(nodeId, { status: 'running', progress: 10, error: undefined, outputText: undefined })
+
+    try {
+      const result = await provider.chat({
+        model: data.model || providerConfig.models[0]?.id || 'gemini-2.5-flash',
+        prompt: promptText,
+        systemPrompt: (data as any).systemPrompt || undefined,
+        maxTokens: (data as any).maxTokens,
+        temperature: (data as any).temperature,
+        onProgress: ({ progress }) => {
+          updateNodeData(nodeId, { progress: Math.min(99, progress) })
+        },
+      })
+
+      updateNodeData(nodeId, {
+        status: 'completed',
+        progress: 100,
+        outputText: result.text,
+        output: { text: result.text, timestamp: Date.now() },
+      })
+    } catch (err) {
+      failNode(nodeId, err instanceof Error ? err.message : '生成文本失败')
     }
   }
 

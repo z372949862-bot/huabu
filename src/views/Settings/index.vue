@@ -21,6 +21,13 @@
         >
           🎨 图片中转站 ({{ aiStore.imageProviders.length }})
         </button>
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'text' }"
+          @click="activeTab = 'text'"
+        >
+          💬 文本中转站 ({{ aiStore.textProviders.length }})
+        </button>
         <div class="tab-spacer" />
         <select
           v-if="activeTab === 'image'"
@@ -32,7 +39,7 @@
           <option value="geeknow">GeekNow (geeknow.ai)</option>
         </select>
         <select
-          v-else
+          v-else-if="activeTab === 'video'"
           v-model="newVideoKind"
           class="kind-select"
           title="选择要添加的中转站类型"
@@ -40,13 +47,22 @@
           <option value="seedance">Seedance (火山方舟)</option>
           <option value="chuhaiying">出海营 (Sora 兼容)</option>
         </select>
+        <select
+          v-else-if="activeTab === 'text'"
+          v-model="newTextKind"
+          class="kind-select"
+          title="选择文本中转站类型"
+        >
+          <option value="deepseek">DeepSeek (api.deepseek.com)</option>
+          <option value="openaichat">OpenAI 兼容 (geeknow.ai)</option>
+        </select>
         <button class="btn-primary add-btn" @click="addProviderClick">
-          + 添加{{ activeTab === 'video' ? '视频' : '图片' }}中转站
+          + 添加{{ activeTab === 'video' ? '视频' : activeTab === 'text' ? '文本' : '图片' }}中转站
         </button>
       </div>
 
       <div v-if="visibleProviders.length === 0" class="empty-tip">
-        还没有{{ activeTab === 'video' ? '视频' : '图片' }}中转站，点右上角添加
+        还没有{{ activeTab === 'video' ? '视频' : activeTab === 'image' ? '图片' : '文本' }}中转站，点右上角添加
       </div>
 
       <div class="settings-content">
@@ -59,7 +75,7 @@
             <div class="provider-info">
               <span class="provider-name">
                 <span v-if="isDefault(provider)" class="star" title="默认中转站">⭐</span>
-                <span class="type-tag" :class="provider.type">{{ provider.type === 'image' ? '图片' : '视频' }}</span>
+                <span class="type-tag" :class="provider.type">{{ provider.type === 'image' ? '图片' : provider.type === 'text' ? '文本' : '视频' }}</span>
                 {{ provider.name || '未命名中转站' }}
               </span>
               <span class="status-indicator" :class="getStatusClass(provider.status)"></span>
@@ -212,18 +228,22 @@ onErrorCaptured((err) => {
 
 const aiStore = useAIStore()
 
-const activeTab = ref<'video' | 'image'>('video')
+const activeTab = ref<'video' | 'image' | 'text'>('video')
 // 添加图片中转站时选哪种 kind；默认 chuhaiying（最新接入）
 const newImageKind = ref<'geeknow' | 'chuhaiying'>('chuhaiying')
+// 添加文本中转站时选哪种 kind
+const newTextKind = ref<'deepseek' | 'openaichat'>('deepseek')
 // 添加视频中转站时选哪种 kind；默认 seedance（最常用）
 const newVideoKind = ref<'seedance' | 'chuhaiying'>('seedance')
 
 const visibleProviders = computed(() =>
-  activeTab.value === 'video' ? aiStore.videoProviders : aiStore.imageProviders
+  activeTab.value === 'video' ? aiStore.videoProviders
+  : activeTab.value === 'image' ? aiStore.imageProviders
+  : aiStore.textProviders
 )
 
 const isDefault = (p: Provider) =>
-  (p.type === 'image' ? aiStore.defaultImageProviderId : aiStore.defaultProviderId) === p.id
+  (p.type === 'image' ? aiStore.defaultImageProviderId : p.type === 'text' ? aiStore.defaultTextProviderId : aiStore.defaultProviderId) === p.id
 
 const showKeys = reactive<Record<string, boolean>>({})
 const testing = reactive<Record<string, boolean>>({})
@@ -289,6 +309,15 @@ const addProviderClick = () => {
     aiStore.addProvider({
       name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,
       type: 'image',
+      kind,
+    })
+  } else if (activeTab.value === 'text') {
+    const kind = newTextKind.value
+    const baseName = kind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
+    const existingCount = aiStore.textProviders.filter((p) => p.kind === kind).length
+    aiStore.addProvider({
+      name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,
+      type: 'text',
       kind,
     })
   } else {
@@ -414,6 +443,7 @@ const getStatusText = (status: ProviderStatus): string => ({
 
 .add-btn {
   height: 38px;
+  white-space: nowrap;
 }
 
 .kind-select {

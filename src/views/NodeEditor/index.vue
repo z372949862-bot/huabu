@@ -209,6 +209,7 @@ const { project, onConnect, setNodes, setEdges, viewport, getSelectedNodes } = u
   nodeTypes: {
     'ai-image': markRaw(CustomNode),
     'ai-video': markRaw(CustomNode),
+    'ai-text': markRaw(CustomNode),
     'asset-ref': markRaw(CustomNode),
     'post-process': markRaw(CustomNode),
   },
@@ -291,6 +292,7 @@ onConnectEnd((event) => {
       contextMenu.items = [
         { label: '添加AI绘图节点', icon: '🎨', action: 'add-ai-image' },
         { label: '添加AI视频节点', icon: '🎬', action: 'add-ai-video' },
+        { label: '添加AI文本节点', icon: '💬', action: 'add-ai-text' },
         { label: '添加资产引用节点', icon: '📦', action: 'add-asset-ref' },
         { label: '添加后处理节点', icon: '⚡', action: 'add-post-process' },
       ]
@@ -437,6 +439,7 @@ const onPaneContextMenu = (event: MouseEvent) => {
   contextMenu.items = [
     { label: '添加AI绘图节点', icon: '🎨', action: 'add-ai-image' },
     { label: '添加AI视频节点', icon: '🎬', action: 'add-ai-video' },
+        { label: '添加AI文本节点', icon: '💬', action: 'add-ai-text' },
     { label: '添加资产引用节点', icon: '📦', action: 'add-asset-ref' },
     { label: '添加后处理节点', icon: '⚡', action: 'add-post-process' },
     { label: '上传素材', icon: '📤', action: 'upload-asset' },
@@ -613,6 +616,7 @@ const getNodeLabel = (type: string): string => {
   const labels: Record<string, string> = {
     'ai-image': 'AI绘图',
     'ai-video': 'AI视频',
+    'ai-text': 'AI文本',
     'asset-ref': '资产引用',
     'post-process': '后处理',
   }

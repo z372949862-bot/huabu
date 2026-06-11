@@ -164,7 +164,7 @@ onUnmounted(() => {
 
 .model-dropdown {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
   min-width: 320px;
   background: #262626;
