@@ -1,6 +1,6 @@
 {
   "name": "ai-video-canvas",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "AI Video Creation Canvas - Desktop application for AI-powered video creation workflow",
   "main": "electron/main.cjs",
   "type": "module",
