@@ -75,6 +75,10 @@
     "canvas"
   ],
   "author": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sancedoknore-create/huabu"
+  },
   "license": "MIT",
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.0",
