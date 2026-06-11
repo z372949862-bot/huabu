@@ -147,8 +147,16 @@
       </section>
     </div>
 
-    <!-- 右下角版本号 -->
-    <div class="version-tag">v{{ appVersion }}</div>
+    <!-- 右下角版本号 + 检查更新 -->
+    <div class="version-tag" @click="checkUpdate" title="点击检查更新">
+      <svg class="version-update-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 2v6h-6"></path>
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+        <path d="M3 22v-6h6"></path>
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+      </svg>
+      v{{ appVersion }}
+    </div>
 
     <!-- 左下角背景设置齿轮 -->
     <div class="bg-settings">      <button class="bg-gear-btn" @click="toggleBgMenu" title="主页设置">
@@ -274,8 +282,13 @@ const showChangelog = ref(false)
 const okReady = ref(false)
 const countdown = ref(3)
 const isAutoPopup = ref(false)
-const appVersion = '0.2.0'
+const appVersion = __APP_VERSION__
 const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') === appVersion)
+
+// 点击版本号触发更新检查（更新逻辑在 App.vue 全局处理）
+const checkUpdate = () => {
+  window.dispatchEvent(new CustomEvent('trigger-update-check'))
+}
 
 // 新建项目弹窗
 const showNewProjectDialog = ref(false)
@@ -981,7 +994,25 @@ const formatDate = (timestamp: number) => {
   bottom: 20px; right: 24px;
   font-size: 11px; color: rgba(255,255,255,0.2);
   z-index: 50;
-  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+.version-tag:hover {
+  color: rgba(127, 180, 255, 0.9);
+  background: rgba(20, 30, 55, 0.5);
+  text-shadow: 0 0 8px rgba(100, 180, 255, 0.5);
+}
+.version-update-icon {
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+.version-tag:hover .version-update-icon {
+  opacity: 1;
 }
 
 /* 左下角背景设置 */

@@ -85,6 +85,9 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
     failed: 'failed',
     failure: 'failed',
     error: 'failed',
+    cancelled: 'failed',
+    canceled: 'failed',
+    timeout: 'failed',
   }
   const status = statusMap[rawStatus] || 'processing'
 
@@ -102,19 +105,31 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
     || raw?.detail?.url
     || undefined
 
-  const progressRaw = dataObj?.progress ?? raw?.progress
-  const progressStr = typeof progressRaw === 'string' ? progressRaw.replace('%', '') : progressRaw
-  const progressNum = typeof progressStr === 'number' ? progressStr : parseFloat(progressStr)
-  const progress = Number.isFinite(progressNum)
-    ? progressNum
-    : status === 'completed'
-      ? 100
-      : status === 'pending'
-        ? 5
-        : undefined
+  // 进度：器灵把主进度放在 detail.pending_info.progress_pct（0~1 的小数，需 ×100）
+  // 其次才是顶层 progress 字段。
+  const detail = raw?.detail || dataObj?.detail
+  const pctRaw = detail?.pending_info?.progress_pct
+  let progress: number | undefined
+  if (typeof pctRaw === 'number' && Number.isFinite(pctRaw)) {
+    progress = Math.round(pctRaw <= 1 ? pctRaw * 100 : pctRaw)
+  } else {
+    const progressRaw = dataObj?.progress ?? raw?.progress
+    const progressStr = typeof progressRaw === 'string' ? progressRaw.replace('%', '') : progressRaw
+    const progressNum = typeof progressStr === 'number' ? progressStr : parseFloat(progressStr)
+    progress = Number.isFinite(progressNum)
+      ? progressNum
+      : status === 'completed'
+        ? 100
+        : status === 'pending'
+          ? 5
+          : undefined
+  }
 
+  // 失败原因：器灵真实原因常在 detail.pending_info.failure_reason / detail.failure_reason
   const errorMsg =
-    raw?.error?.message
+    detail?.pending_info?.failure_reason
+    || detail?.failure_reason
+    || raw?.error?.message
     || raw?.message
     || (typeof raw?.error === 'string' ? raw.error : undefined)
     || undefined
@@ -188,13 +203,20 @@ export class ChuhaiyingVideoProvider implements AIProvider {
 
     if (isSd2) {
       // Qiling sd2 专用格式：metadata 嵌套 + base64 参考图
+      // modeType 取值必须与器灵后端一致（无连字符）：
+      //   text2video（无参考图）/ image2video（单图）/ mixed2video（多图参考）
+      // 器灵 sd2 不支持视频编辑，故不再发 video-edit。
+      const sd2Mode = refs.length >= 2 ? 'mixed2video' : refs.length === 1 ? 'image2video' : 'text2video'
       body.metadata = {
-        modeType: isEdit ? 'video-edit' : refs.length ? 'image-to-video' : 'text-to-video',
+        modeType: sd2Mode,
         ratio: (params.ratio && params.ratio !== 'auto') ? params.ratio : '16:9',
         resolution: (params.resolution || '720p').toUpperCase(),
         enableSound: params.generate_audio ? 'on' : 'off',
       }
-      if (params.duration && params.duration > 0) body.duration = Number(params.duration)
+      // 器灵 sd2 时长范围 4–15 秒，超界会被后端拒绝
+      if (params.duration && params.duration > 0) {
+        body.duration = Math.max(4, Math.min(15, Math.round(Number(params.duration))))
+      }
       if (refs.length) {
         body.images = []
         for (const url of refs) {
@@ -239,12 +261,14 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       }
     }
 
-    const data = await this.request<{ id?: string }>('/v1/videos', {
+    const data = await this.request<{ id?: string; request_id?: string; task_id?: string }>('/v1/videos', {
       method: 'POST',
       body: JSON.stringify(body),
     })
-    if (!data?.id) throw new Error('创建视频任务失败：未返回任务 ID')
-    return { taskId: data.id }
+    // 器灵返回任务 ID 的字段不固定：id / request_id / task_id 都可能（与参考插件一致）
+    const taskId = data?.id || data?.request_id || data?.task_id
+    if (!taskId) throw new Error('创建视频任务失败：未返回任务 ID（id/request_id/task_id）')
+    return { taskId }
   }
 
   async getTaskStatus(taskId: string): Promise<TaskStatus> {

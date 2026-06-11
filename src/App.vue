@@ -39,19 +39,6 @@
           <span v-if="aiStatusIndicators.length > 0" class="status-divider">|</span>
           <span class="status-count">{{ configuredCount }} 个中转站</span>
         </div>
-        <button
-          class="update-btn"
-          :class="{ checking: updateState === 'checking' }"
-          :title="updateBtnTitle"
-          @click="manualCheckUpdate"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 2v6h-6"></path>
-            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-            <path d="M3 22v-6h6"></path>
-            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-          </svg>
-        </button>
       </div>
     </div>
 
@@ -149,9 +136,6 @@ const updateError = ref('')
 let manualTriggered = false
 const updaterUnsubs: Array<() => void> = []
 
-const updateBtnTitle = computed(() =>
-  updateState.value === 'checking' ? '正在检查更新…' : `检查更新（当前 v${currentVersion.value}）`
-)
 const updateDialogTitle = computed(() => {
   switch (updateState.value) {
     case 'available': return '发现新版本'
@@ -248,10 +232,13 @@ onMounted(() => {
   }
   // 注册更新事件监听（启动自检由主进程发起，有新版会自动弹窗）
   setupUpdater()
+  // 主页右下角版本号点击时触发检查
+  window.addEventListener('trigger-update-check', manualCheckUpdate)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('project-name-change', handleProjectNameChange)
+  window.removeEventListener('trigger-update-check', manualCheckUpdate)
   updaterUnsubs.forEach((un) => un())
 })
 
@@ -440,31 +427,6 @@ const getStatusClass = (status: string): string => {
   gap: 20px;
 }
 
-.update-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid rgba(100, 180, 255, 0.25);
-  border-radius: 8px;
-  background: rgba(20, 30, 55, 0.5);
-  color: #7fb4ff;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.update-btn:hover {
-  border-color: rgba(120, 200, 255, 0.6);
-  color: #acd4ff;
-  box-shadow: 0 0 10px rgba(100, 180, 255, 0.35);
-}
-.update-btn.checking svg {
-  animation: update-spin 1s linear infinite;
-}
-@keyframes update-spin {
-  to { transform: rotate(360deg); }
-}
 .update-body p {
   margin: 0 0 10px;
   line-height: 1.6;
