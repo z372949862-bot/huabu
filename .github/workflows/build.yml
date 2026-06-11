@@ -22,15 +22,7 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Package
+      - name: Package & Publish
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: npx electron-builder --win --publish always
-
-      - name: Ensure Release Assets
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          dir release\
-          gh release upload ${{ github.ref_name }} release/*.exe release/*.blockmap release/latest.yml --clobber
