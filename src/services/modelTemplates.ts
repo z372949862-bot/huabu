@@ -9,7 +9,7 @@
 
 import type { VideoModelCapabilities } from './videoModelService'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling'
 
 export interface ModelTemplate {
   id: string
@@ -55,6 +55,54 @@ export const SEEDANCE_MODEL_TEMPLATES: ModelTemplate[] = [
   },
 ]
 
+/** 器灵中转站默认模型（仅 Seedance 系列） */
+export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
+  {
+    id: 'sd2-720p-fast',
+    name: 'Seedance 2 · 720P Fast',
+    description: '快速生成',
+    capabilities: {
+      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
+      resolutions: ['720p'],
+      durationRange: { min: 4, max: 10 },
+      audioGeneration: true,
+    },
+  },
+  {
+    id: 'sd2-720p',
+    name: 'Seedance 2 · 720P',
+    description: '标准画质',
+    capabilities: {
+      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
+      resolutions: ['720p'],
+      durationRange: { min: 4, max: 10 },
+      audioGeneration: true,
+    },
+  },
+  {
+    id: 'sd2-1080p-fast',
+    name: 'Seedance 2 · 1080P Fast',
+    description: '高画质快速',
+    capabilities: {
+      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
+      resolutions: ['1080p'],
+      durationRange: { min: 4, max: 10 },
+      audioGeneration: true,
+    },
+  },
+  {
+    id: 'sd2-1080p',
+    name: 'Seedance 2 · 1080P',
+    description: '最高画质',
+    capabilities: {
+      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
+      resolutions: ['1080p'],
+      durationRange: { min: 4, max: 10 },
+      audioGeneration: true,
+    },
+  },
+]
+
 /** 出海营中转站默认模型 */
 export const CHUHAIYING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
   {
@@ -84,13 +132,14 @@ export const CHUHAIYING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
 const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   seedance: SEEDANCE_MODEL_TEMPLATES,
   chuhaiying: CHUHAIYING_VIDEO_MODEL_TEMPLATES,
+  qiling: QILING_VIDEO_MODEL_TEMPLATES,
 }
 
 /** 兼容旧代码：返回全部去重模板（按 id）。新代码用 getModelTemplatesByKind。 */
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

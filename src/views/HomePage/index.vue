@@ -1,5 +1,40 @@
 <template>
   <div class="home-page">
+    <!-- 右上角公告按钮 -->
+    <button class="announce-btn" @click="openChangelog" title="更新公告">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="announce-dot" v-if="!hasSeenLatest"></span>
+    </button>
+
+    <!-- 版本更新弹窗 -->
+    <Teleport to="body">
+      <div v-if="showChangelog" class="changelog-overlay" @click.self="dismissChangelog">
+        <div class="changelog-modal">
+          <h3>更新公告 · v{{ appVersion }}</h3>
+          <div class="changelog-body">
+            <div class="changelog-date">{{ formatDateStr(Date.now()) }}</div>
+            <ul>
+              <li>💬 新增 AI 文本对话助手（支持 DeepSeek 等大模型）</li>
+              <li>🎬 新增器灵视频中转站（Seedance 系列）</li>
+              <li>🖱️ 画布 Shift+拖拽 框选多个节点</li>
+              <li>💾 本地上传素材重启后保留（磁盘存储）</li>
+              <li>🎨 底部导航图标升级为 SVG 风格</li>
+              <li>⚡ 页面切换过渡动画 & 节点生成光效</li>
+              <li>🔧 多项 UI 优化和 Bug 修复</li>
+            </ul>
+          </div>
+          <button
+            class="changelog-ok"
+            :class="{ ready: okReady }"
+            :disabled="!okReady"
+            @click="dismissChangelog"
+          >
+            {{ okReady ? '我知道了' : `请阅读 (${countdown}s)` }}
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- 自定义背景层 -->
     <div class="background-layer" :style="backgroundStyle">
       <video
@@ -62,7 +97,7 @@
       <section class="recent-section">
         <div class="section-header">
           <h2 class="section-title">最近项目</h2>
-          <button class="section-link" @click="navigateTo('/nodes')">
+          <button class="section-link" @click="showProjectsModal = true">
             查看全部
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9 18 15 12 9 6"></polyline>
@@ -112,6 +147,9 @@
       </section>
     </div>
 
+    <!-- 右下角版本号 -->
+    <div class="version-tag">v{{ appVersion }}</div>
+
     <!-- 左下角背景设置齿轮 -->
     <div class="bg-settings">      <button class="bg-gear-btn" @click="toggleBgMenu" title="主页设置">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -150,6 +188,36 @@
         </div>
       </transition>
     </div>
+
+    <!-- 项目列表弹窗 -->
+    <Teleport to="body">
+      <transition name="modal">
+        <div v-if="showProjectsModal" class="modal-overlay" @click="showProjectsModal = false">
+          <div class="modal-content modal-wide" @click.stop>
+            <div class="modal-header">
+              <h3 class="modal-title">全部项目</h3>
+              <button class="modal-close" @click="showProjectsModal = false">×</button>
+            </div>
+            <div class="modal-body" style="max-height:50vh;overflow-y:auto">
+              <div v-if="recentProjects.length === 0" class="empty-state" style="border:none;padding:40px">
+                <div class="empty-icon">📂</div>
+                <p class="empty-text">还没有项目</p>
+              </div>
+              <div v-else class="projects-list">
+                <div v-for="p in recentProjects" :key="p.id" class="project-list-item" @click="openProjectFromModal(p)">
+                  <div class="project-list-name">{{ p.name }}</div>
+                  <div class="project-list-meta">
+                    <span>{{ formatDate(p.updatedAt) }}</span>
+                    <span>{{ p.nodeCount }} 个节点</span>
+                  </div>
+                  <button class="project-list-delete" @click.stop="deleteProjectFromModal(p.id)" title="删除">🗑</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </Teleport>
 
     <!-- 新建项目弹窗 -->
     <Teleport to="body">
@@ -202,9 +270,16 @@ const bgInputRef = ref<HTMLInputElement>()
 const customBackground = ref<string>('')
 const customBackgroundType = ref<'image' | 'video'>('image')
 const showBgMenu = ref(false)
+const showChangelog = ref(false)
+const okReady = ref(false)
+const countdown = ref(3)
+const isAutoPopup = ref(false)
+const appVersion = '0.2.0'
+const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') === appVersion)
 
 // 新建项目弹窗
 const showNewProjectDialog = ref(false)
+const showProjectsModal = ref(false)
 const newProjectName = ref('')
 const projectNameInputRef = ref<HTMLInputElement>()
 
@@ -222,14 +297,23 @@ const closeNewProjectDialog = () => {
   newProjectName.value = ''
 }
 
+function uniqueProjectName(base: string): string {
+  const existing = new Set(recentProjects.value.map(p => p.name))
+  if (!existing.has(base)) return base
+  let i = 2
+  while (existing.has(`${base}${i}`)) i++
+  return `${base}${i}`
+}
+
 const confirmNewProject = () => {
   const name = newProjectName.value.trim()
   if (!name) return
 
   // 创建新项目
+  const uniqueName = uniqueProjectName(name)
   const newProject: Project = {
     id: `project_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    name,
+    name: uniqueName,
     updatedAt: Date.now(),
     nodeCount: 0,
   }
@@ -251,22 +335,63 @@ const confirmNewProject = () => {
   showNewProjectDialog.value = false
 }
 
+function openChangelog() {
+  showChangelog.value = true
+  isAutoPopup.value = false
+  okReady.value = true
+  countdown.value = 0
+}
+
+function startCountdown() {
+  isAutoPopup.value = true
+  countdown.value = 3
+  okReady.value = false
+  const timer = setInterval(() => {
+    countdown.value--
+    if (countdown.value <= 0) {
+      clearInterval(timer)
+      okReady.value = true
+    }
+  }, 1000)
+}
+
+function dismissChangelog() {
+  if (!okReady.value) return
+  showChangelog.value = false
+  localStorage.setItem('lastSeenVersion', appVersion)
+}
+
+function formatDateStr(ts: number) {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
 const toggleBgMenu = () => {
   showBgMenu.value = !showBgMenu.value
 }
 
 // 初始化
 onMounted(() => {
+  // 版本更新公告：首次打开该版本时弹窗
+  const lastSeen = localStorage.getItem('lastSeenVersion')
+  if (lastSeen !== appVersion) {
+    showChangelog.value = true
+    startCountdown()
+  }
+
   // 加载项目列表
   loadProjects()
 
-  // 从localStorage恢复背景设置
-  const savedBg = localStorage.getItem('homepage_background')
-  const savedType = localStorage.getItem('homepage_background_type') as 'image' | 'video'
-  if (savedBg) {
-    customBackground.value = savedBg
-    customBackgroundType.value = savedType || 'image'
-  }
+  // 从磁盘恢复背景设置
+  try {
+    const savedPath = localStorage.getItem('homepage_background_path')
+    const savedType = localStorage.getItem('homepage_background_type') as 'image' | 'video'
+    if (savedPath) {
+      const normalized = savedPath.replace(/\\/g, '/')
+      customBackground.value = /^[A-Za-z]:\//.test(normalized) ? 'local-upload:///' + normalized : savedPath
+      customBackgroundType.value = savedType || 'image'
+    }
+  } catch { /* ignore */ }
 
   // 点击外部关闭菜单
   document.addEventListener('click', (e: MouseEvent) => {
@@ -304,17 +429,23 @@ const handleBackgroundUpload = (event: Event) => {
   if (!file) return
 
   const reader = new FileReader()
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     const dataUrl = e.target?.result as string
     customBackground.value = dataUrl
     customBackgroundType.value = file.type.startsWith('video/') ? 'video' : 'image'
 
-    // 保存到localStorage
-    try {
-      localStorage.setItem('homepage_background', dataUrl)
-      localStorage.setItem('homepage_background_type', customBackgroundType.value)
-    } catch (err) {
-      console.warn('图片过大，无法保存到localStorage:', err)
+    // 落盘到磁盘（local-upload:/// + IPC）
+    const base64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl
+    if (window.electronAPI?.upload?.save) {
+      try {
+        const savedPath = await window.electronAPI.upload.save(base64, file.name)
+        if (savedPath) {
+          localStorage.setItem('homepage_background_path', savedPath)
+          localStorage.setItem('homepage_background_type', customBackgroundType.value)
+          const normalized = savedPath.replace(/\\/g, '/')
+          customBackground.value = 'local-upload:///' + normalized
+        }
+      } catch { /* 落盘失败回退 data URL */ }
     }
   }
   reader.readAsDataURL(file)
@@ -323,7 +454,7 @@ const handleBackgroundUpload = (event: Event) => {
 // 重置背景
 const resetBackground = () => {
   customBackground.value = ''
-  localStorage.removeItem('homepage_background')
+  localStorage.removeItem('homepage_background_path')
   localStorage.removeItem('homepage_background_type')
 }
 
@@ -392,7 +523,7 @@ const createNode = (type: string) => {
     const id = `project_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     const proj: Project = {
       id,
-      name: 'AI短剧',
+      name: uniqueProjectName('AI短剧'),
       updatedAt: Date.now(),
       nodeCount: 0,
     }
@@ -418,6 +549,16 @@ const createNode = (type: string) => {
 // 打开项目
 const openProject = (project: Project) => {
   router.push({ path: '/nodes', query: { project: project.id } })
+}
+
+function openProjectFromModal(p: Project) {
+  showProjectsModal.value = false
+  openProject(p)
+}
+
+function deleteProjectFromModal(projectId: string) {
+  deleteProject(projectId)
+  if (recentProjects.value.length === 0) showProjectsModal.value = false
 }
 
 // 删除项目
@@ -835,6 +976,14 @@ const formatDate = (timestamp: number) => {
   box-shadow: 0 0 16px rgba(0, 217, 255, 0.3);
 }
 
+.version-tag {
+  position: fixed;
+  bottom: 20px; right: 24px;
+  font-size: 11px; color: rgba(255,255,255,0.2);
+  z-index: 50;
+  pointer-events: none;
+}
+
 /* 左下角背景设置 */
 .bg-settings {
   position: fixed;
@@ -843,28 +992,84 @@ const formatDate = (timestamp: number) => {
   z-index: 100;
 }
 
-.bg-gear-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(2, 3, 8, 0.85);
-  border: 1px solid rgba(0, 217, 255, 0.3);
-  color: rgba(255, 255, 255, 0.7);
+/* 公告按钮 */
+.announce-btn {
+  position: fixed;
+  top: 64px; right: 24px;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.2);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  z-index: 100;
   transition: all 0.3s;
-  backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+}
+.announce-btn:hover {
+  color: rgba(255,255,255,0.5);
+}
+.announce-dot {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #ff4444;
+  opacity: 0.8;
 }
 
-.bg-gear-btn:hover {
-  background: rgba(0, 217, 255, 0.15);
-  border-color: #00D9FF;
-  color: #00D9FF;
-  transform: rotate(90deg);
-  box-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
+/* 更新弹窗 */
+.changelog-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
 }
+.changelog-modal {
+  background: rgba(2,3,8,0.98);
+  border: 1px solid rgba(0,217,255,0.4);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 480px; width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.changelog-modal h3 {
+  color: #00D9FF; font-size: 20px; font-weight: 500;
+  margin: 0 0 20px;
+}
+.changelog-date { font-size: 12px; color: rgba(255,255,255,0.3); margin-bottom: 16px; }
+.changelog-body ul { padding-left: 18px; margin: 0; }
+.changelog-body li {
+  color: rgba(255,255,255,0.7); font-size: 14px;
+  line-height: 2; margin-bottom: 2px;
+}
+.changelog-ok {
+  display: block; margin: 24px auto 0;
+  padding: 10px 40px;
+  border-radius: 8px; border: 1px solid #00D9FF;
+  background: rgba(0,217,255,0.1);
+  color: #00D9FF; font-size: 14px; cursor: pointer;
+  transition: all 0.3s;
+}
+.changelog-ok:disabled { opacity: 0.4; cursor: not-allowed; }
+.changelog-ok.ready { background: rgba(0,217,255,0.25); }
+.changelog-ok.ready:hover {
+  background: rgba(0,217,255,0.4);
+  box-shadow: 0 0 16px rgba(0,217,255,0.4);
+}
+
+.bg-gear-btn {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.2);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.3s;
+}
+.bg-gear-btn:hover { color: rgba(255,255,255,0.5); }
 
 .bg-menu {
   position: absolute;
@@ -930,6 +1135,29 @@ const formatDate = (timestamp: number) => {
   justify-content: center;
   z-index: 9999;
 }
+
+.modal-wide { max-width: 640px; }
+.projects-list { display: flex; flex-direction: column; gap: 4px; }
+.project-list-item {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 16px; border-radius: 8px;
+  cursor: pointer; transition: background 0.2s;
+}
+.project-list-item:hover { background: rgba(0,217,255,0.06); }
+.project-list-name {
+  flex: 1; font-size: 15px; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.project-list-meta {
+  display: flex; gap: 12px;
+  font-size: 12px; color: rgba(255,255,255,0.4); white-space: nowrap;
+}
+.project-list-delete {
+  background: none; border: none; font-size: 14px; cursor: pointer;
+  opacity: 0; transition: opacity 0.2s; padding: 4px;
+}
+.project-list-item:hover .project-list-delete { opacity: 0.5; }
+.project-list-delete:hover { opacity: 1 !important; }
 
 .modal-content {
   background: rgba(2, 3, 8, 0.98);

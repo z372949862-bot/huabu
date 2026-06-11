@@ -71,6 +71,7 @@ const IMAGE_DEFAULT_BASE_URL: Record<ImageProviderKind, string> = {
 const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   seedance: 'https://api.aiid.edu.kg',
   chuhaiying: 'https://api.aiid.edu.kg',
+  qiling: 'https://api.qilingze.com',
 }
 const CURRENT_MIGRATION = 3
 
@@ -128,7 +129,9 @@ function imageKindOf(conf: Provider): ImageProviderKind {
 
 /** 把存档里宽松的 kind 收窄成 video kind（未知 / undefined → 'seedance'）。 */
 function videoKindOf(conf: Provider): VideoProviderKind {
-  return conf.kind === 'chuhaiying' ? 'chuhaiying' : 'seedance'
+  if (conf.kind === 'chuhaiying') return 'chuhaiying'
+  if (conf.kind === 'qiling') return 'qiling'
+  return 'seedance'
 }
 
 export const useAIStore = defineStore('ai', () => {
@@ -174,7 +177,7 @@ export const useAIStore = defineStore('ai', () => {
     let inst = videoCache.get(id)
     if (!inst) {
       const kind = videoKindOf(conf)
-      inst = kind === 'chuhaiying'
+      inst = (kind === 'chuhaiying' || kind === 'qiling')
         ? new ChuhaiyingVideoProvider(conf.apiKey, conf.baseUrl)
         : new SeedanceProvider(conf.apiKey, conf.baseUrl)
       videoCache.set(id, inst)
@@ -267,13 +270,13 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling')
           ? input.kind
           : 'seedance'
       kind = vidKind
       defaultBase = VIDEO_DEFAULT_BASE_URL[vidKind]
       defaultModels = defaultVideoModelSet(vidKind)
-      defaultName = vidKind === 'chuhaiying' ? '出海营视频' : 'Seedance'
+      defaultName = vidKind === 'chuhaiying' ? '出海营视频' : vidKind === 'qiling' ? '器灵' : 'Seedance'
     }
 
     providers.value.push({

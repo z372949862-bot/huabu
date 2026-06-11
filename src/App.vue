@@ -134,6 +134,7 @@ const configuredCount = computed(() =>
 const hideNodesTab = computed(() => {
   if (route.path === '/home') return true
   if (route.path === '/assets' && route.query.from === 'home') return true
+  if (route.path === '/chat') return true
   return false
 })
 
@@ -144,9 +145,15 @@ const navItems = computed(() => {
   if (!hideNodesTab.value) {
     items.push({ path: '/nodes', label: '画布' })
   }
+  // 对话入口：仅主页和对话页面显示
+  if (route.path === '/home' || route.path === '/chat') {
+    items.push({ path: '/chat', label: '对话' })
+  }
+  // 资产入口：对话页面不显示
+  if (route.path !== '/chat') {
+    items.push({ path: '/assets', label: '资产' })
+  }
   items.push(
-    { path: '/assets', label: '资产' },
-    { path: '/chat', label: '对话' },
     { path: '/settings', label: '设置' },
   )
   return items

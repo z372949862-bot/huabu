@@ -46,6 +46,7 @@
         >
           <option value="seedance">Seedance (火山方舟)</option>
           <option value="chuhaiying">出海营 (Sora 兼容)</option>
+          <option value="qiling">器灵 (api.qilingze.com)</option>
         </select>
         <select
           v-else-if="activeTab === 'text'"
@@ -234,7 +235,7 @@ const newImageKind = ref<'geeknow' | 'chuhaiying'>('chuhaiying')
 // 添加文本中转站时选哪种 kind
 const newTextKind = ref<'deepseek' | 'openaichat'>('deepseek')
 // 添加视频中转站时选哪种 kind；默认 seedance（最常用）
-const newVideoKind = ref<'seedance' | 'chuhaiying'>('seedance')
+const newVideoKind = ref<'seedance' | 'chuhaiying' | 'qiling'>('seedance')
 
 const visibleProviders = computed(() =>
   activeTab.value === 'video' ? aiStore.videoProviders
@@ -322,7 +323,7 @@ const addProviderClick = () => {
     })
   } else {
     const kind = newVideoKind.value
-    const baseName = kind === 'chuhaiying' ? '出海营视频' : 'Seedance'
+    const baseName = kind === 'chuhaiying' ? '出海营视频' : kind === 'qiling' ? '器灵' : 'Seedance'
     const existingCount = aiStore.videoProviders.filter((p) => (p.kind || 'seedance') === kind).length
     aiStore.addProvider({
       name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,

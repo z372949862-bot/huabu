@@ -39,7 +39,7 @@ export interface NodeData {
 }
 
 const POLL_INTERVAL_MS = 3000
-const MAX_RUNTIME_MS = 10 * 60 * 1000 // 10 分钟
+const MAX_RUNTIME_MS = 30 * 60 * 1000 // 30 分钟
 
 // ============ 多项目持久化 ============
 //   每个项目的画布独立存：key 长这样 `nodeCanvas:{projectId}`

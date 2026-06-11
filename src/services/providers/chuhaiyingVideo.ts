@@ -70,7 +70,14 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
     queued: 'pending',
     in_progress: 'processing',
     completed: 'completed',
+    complete: 'completed',
+    succeeded: 'completed',
+    success: 'completed',
+    done: 'completed',
+    finished: 'completed',
     failed: 'failed',
+    failure: 'failed',
+    error: 'failed',
   }
   const status = statusMap[rawStatus] || 'processing'
 
@@ -78,8 +85,13 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
   const videoUrl: string | undefined =
     raw?.video_url
     || raw?.url
+    || (typeof raw?.output === 'object' && !Array.isArray(raw.output) ? raw.output.url : undefined)
     || raw?.output?.[0]?.url
     || raw?.output?.[0]?.video_url
+    || raw?.data?.video_url
+    || raw?.data?.url
+    || raw?.detail?.url
+    || raw?.metadata?.url
     || undefined
 
   const progressRaw = raw?.progress
@@ -138,7 +150,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
 
   async createTask(params: CreateTaskParams): Promise<{ taskId: string }> {
     const model = params.model || DEFAULT_MODEL
-    const isOmniOrVeo = model.startsWith('gemini-omni') || model.startsWith('veo')
+    const isOmniOrVeo = model.startsWith('gemini-omni') || model.startsWith('veo') || model.startsWith('sd2-')
     const isEdit = params.mode === 'edit'
 
     // 从 content / 各字段里提取图片和视频 URL
