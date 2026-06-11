@@ -68,7 +68,10 @@ function ratioToSize(ratio: string, resolution?: string): string {
 export function mapVideoTaskResponse(raw: any): TaskStatus {
   // Qiling 返回格式：{ status: "QUEUED", data: { status: "queued", progress: 0, metadata: { url: "" } } }
   const dataObj = raw?.data || raw
-  const rawStatus: string = (raw?.status || dataObj?.status || 'queued').toLowerCase()
+  // Qiling 顶层 status 和 data.status 可能不一致，优先取顶层（完成时是 "success"）
+  const topStatus = (raw?.status || '').toLowerCase()
+  const innerStatus = (dataObj?.status || '').toLowerCase()
+  const rawStatus: string = (topStatus === 'success' ? topStatus : innerStatus || topStatus || 'queued')
   const statusMap: Record<string, TaskStatus['status']> = {
     queued: 'pending',
     in_progress: 'processing',
@@ -86,7 +89,9 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
   const status = statusMap[rawStatus] || 'processing'
 
   const videoUrl: string | undefined =
-    dataObj?.metadata?.url
+    dataObj?.result_url
+    || dataObj?.metadata?.url
+    || dataObj?.data?.metadata?.url
     || dataObj?.video_url
     || dataObj?.url
     || raw?.video_url
