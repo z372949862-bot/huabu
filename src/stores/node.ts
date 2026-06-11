@@ -438,11 +438,17 @@ export const useNodeStore = defineStore('node', () => {
 
     let taskId: string
     try {
+      // 收集所有参考图 URL（inputImages + resolveAssets 的 imageUrl）
+      const allImageUrls: string[] = []
+      if (Array.isArray((data as any).inputImages)) allImageUrls.push(...(data as any).inputImages)
+      if (imageUrl && !allImageUrls.includes(imageUrl)) allImageUrls.push(imageUrl)
+
       const res = await provider.createTask({
         model: modelId,
         prompt: promptText,
         mode,
         ...(content.length ? { content } : {}),
+        image_urls: allImageUrls.length > 0 ? allImageUrls : undefined,
         ratio: data.ratio,
         resolution: data.resolution,
         duration: data.duration,

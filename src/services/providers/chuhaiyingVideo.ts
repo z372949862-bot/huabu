@@ -114,6 +114,7 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
     || (typeof raw?.error === 'string' ? raw.error : undefined)
     || undefined
 
+  console.log('[mapVideoTask] rawStatus=', rawStatus, 'videoUrl=', videoUrl, 'raw keys=', Object.keys(raw||{}).join(','), 'data keys=', Object.keys(dataObj||{}).join(','))
   return { status, progress, videoUrl, error: errorMsg }
 }
 
