@@ -18,7 +18,9 @@
     "appId": "com.sanshiman.aivideo-canvas",
     "productName": "AI Video Canvas",
     "publish": {
-      "provider": "github"
+      "provider": "github",
+      "owner": "sancedoknore-create",
+      "repo": "huabu"
     },
     "directories": {
       "output": "release",
