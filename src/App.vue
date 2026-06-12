@@ -2,42 +2,38 @@
   <div id="app" class="app-container">
     <div class="top-bar">
       <div class="top-bar-left">
-        <span class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><polygon points="22 7 18 7 18 17 22 17"/><circle cx="8" cy="10" r="2"/></svg> AI Video Canvas</span>
-        <input
-          v-if="isEditingName"
-          ref="nameInputRef"
-          v-model="projectName"
-          type="text"
-          class="project-name-input"
-          @blur="finishEditing"
-          @keyup.enter="finishEditing"
-          @keyup.escape="cancelEditing"
-          maxlength="50"
-        />
-        <span
-          v-else
-          class="project-name"
-          @click="startEditing"
-          title="点击修改项目名称"
-        >
-          {{ projectName }}
-          <svg class="edit-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 20h9"></path>
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-          </svg>
-        </span>
+        <span class="logo" v-if="currentRoute !== '/nodes'"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><polygon points="22 7 18 7 18 17 22 17"/><circle cx="8" cy="10" r="2"/></svg> AI Video Canvas</span>
+        <!-- 项目名改名只在画布节点显示 -->
+        <template v-if="currentRoute === '/nodes'">
+          <input
+            v-if="isEditingName"
+            ref="nameInputRef"
+            v-model="projectName"
+            type="text"
+            class="project-name-input"
+            @blur="finishEditing"
+            @keyup.enter="finishEditing"
+            @keyup.escape="cancelEditing"
+            maxlength="50"
+          />
+          <span
+            v-else
+            class="project-name"
+            @click="startEditing"
+            title="点击修改项目名称"
+          >
+            {{ projectName }}
+            <svg class="edit-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            </svg>
+          </span>
+        </template>
       </div>
       <div class="top-bar-right">
-        <div class="ai-status" title="点击查看AI服务配置" @click="navigateTo('/settings')">
-          <template v-for="indicator in aiStatusIndicators" :key="indicator.key">
-            <span
-              :class="['status-dot', getStatusClass(indicator.status)]"
-              :title="indicator.name + ': ' + indicator.status"
-            ></span>
-            <span class="status-label">{{ indicator.name }}</span>
-          </template>
-          <span v-if="aiStatusIndicators.length > 0" class="status-divider">|</span>
-          <span class="status-count">{{ configuredCount }} 个中转站</span>
+        <div class="ai-status" :title="aiStatusTitle" @click="navigateTo('/settings')">
+          <span :class="['status-dot', aiAggregateClass]"></span>
+          <span class="status-summary">中转站 · {{ aiStatusText }}</span>
         </div>
       </div>
     </div>
@@ -264,17 +260,27 @@ const cancelEditing = () => {
 
 const currentRoute = computed(() => route.path)
 
-const aiStatusIndicators = computed(() => {
-  return aiStore.providers.map((config) => ({
-    key: config.id,
-    name: config.name,
-    status: config.status,
-  }))
+// 顶栏 AI 状态汇总：聚合所有中转站为一个徽章，避免一排发光圆点+名字显得突兀
+const providerTotal = computed(() => aiStore.providers.length)
+const providerOnline = computed(() => aiStore.providers.filter((p) => p.status === 'connected').length)
+// 聚合圆点颜色：全在线=绿，部分=黄，一个都不在线=红，未配置=灰
+const aiAggregateClass = computed(() => {
+  const t = providerTotal.value, on = providerOnline.value
+  if (t === 0) return 'gray'
+  if (on === t) return 'green'
+  if (on > 0) return 'yellow'
+  return 'red'
 })
-
-const configuredCount = computed(() =>
-  aiStore.providers.filter((p) => p.apiKey).length
+const aiStatusText = computed(() =>
+  providerTotal.value === 0 ? '未配置' : `${providerOnline.value}/${providerTotal.value} 在线`
 )
+// 悬停展开逐个中转站明细（保留可见性，只是默认收起）
+const STATUS_ZH: Record<string, string> = { connected: '在线', disconnected: '未连接', error: '异常', unconfigured: '未配置' }
+const aiStatusTitle = computed(() => {
+  if (!aiStore.providers.length) return '未配置任何中转站 · 点击去「设置」添加'
+  const lines = aiStore.providers.map((p) => `${p.name}：${STATUS_ZH[p.status] || p.status}`)
+  return lines.join('\n') + '\n（点击进入设置）'
+})
 
 // 底部导航：非项目上下文（主页 / 从主页进入的素材库）不显示"节点"入口
 const hideNodesTab = computed(() => {
@@ -288,7 +294,7 @@ const navItems = computed(() => {
   const items = [
     { path: '/home', label: '主页' },
   ]
-  if (!hideNodesTab.value) {
+  if (!hideNodesTab.value && route.path !== '/editor') {
     items.push({ path: '/nodes', label: '画布' })
   }
   // 对话入口：仅主页和对话页面显示
@@ -299,8 +305,8 @@ const navItems = computed(() => {
   if (route.path !== '/chat' && route.path !== '/editor') {
     items.push({ path: '/assets', label: '资产' })
   }
-  // 剪辑入口：主页和画布和剪辑页显示
-  if (route.path !== '/chat' && route.path !== '/assets') {
+  // 剪辑入口：主页和剪辑页显示，画布页不显示
+  if (route.path !== '/chat' && route.path !== '/assets' && route.path !== '/nodes') {
     items.push({ path: '/editor', label: '剪辑' })
   }
   items.push(
@@ -338,6 +344,7 @@ const getStatusClass = (status: string): string => {
   }
   return classes[status] || 'gray'
 }
+void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 </script>
 
 <style scoped>
@@ -379,20 +386,34 @@ const getStatusClass = (status: string): string => {
 .logo svg { flex-shrink: 0; }
 
 .project-name {
-  font-size: 14px;
-  color: #888;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #e6f7ff;
+  text-shadow: 0 0 10px rgba(0, 217, 255, 0.25);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  gap: 9px;
+  padding: 5px 12px;
+  border-radius: 7px;
   transition: all 0.2s;
+}
+/* 标题前的青→紫渐变竖条，做出「画布名」的标识感 */
+.project-name::before {
+  content: '';
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #00D9FF, #B432FF);
+  box-shadow: 0 0 6px rgba(0, 217, 255, 0.6);
+  flex-shrink: 0;
 }
 
 .project-name:hover {
   color: #00D9FF;
-  background: rgba(0, 217, 255, 0.1);
+  background: rgba(0, 217, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0.25);
 }
 
 .project-name:hover .edit-icon {
@@ -405,12 +426,14 @@ const getStatusClass = (status: string): string => {
 }
 
 .project-name-input {
-  font-size: 14px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
   color: #ffffff;
   background: rgba(0, 217, 255, 0.1);
   border: 1px solid #00D9FF;
-  border-radius: 4px;
-  padding: 4px 8px;
+  border-radius: 7px;
+  padding: 5px 12px;
   outline: none;
   min-width: 200px;
   font-family: inherit;
@@ -452,18 +475,16 @@ const getStatusClass = (status: string): string => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.status-dot.green  { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
-.status-dot.yellow { background: #ffcc00; box-shadow: 0 0 6px #ffcc00; }
-.status-dot.red    { background: #ff4444; box-shadow: 0 0 6px #ff4444; }
+.status-dot.green  { background: #00ff88; box-shadow: 0 0 5px rgba(0,255,136,.55); }
+.status-dot.yellow { background: #ffcc00; box-shadow: 0 0 5px rgba(255,204,0,.5); }
+.status-dot.red    { background: #ff4444; box-shadow: 0 0 5px rgba(255,68,68,.5); }
 .status-dot.gray   { background: #666; }
 
-.status-label {
+.status-summary {
   font-size: 12px;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.55);
   white-space: nowrap;
 }
-.status-divider { color: rgba(255,255,255,0.2); margin: 0 4px; }
-.status-count { font-size: 11px; color: rgba(255,255,255,0.35); white-space: nowrap; }
 
 .main-content {
   flex: 1;

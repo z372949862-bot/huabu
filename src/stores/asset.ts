@@ -24,6 +24,8 @@ export interface GeneratedAsset {
   providerName: string
   nodeId: string
   nodeType: string
+  /** 生成该资产时所属的画布项目 ID（旧数据可能没有，归入"未分类"） */
+  projectId?: string
   ratio?: string
   resolution?: string
   duration?: number

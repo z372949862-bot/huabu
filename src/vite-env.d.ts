@@ -19,6 +19,24 @@ interface Window {
       delete: (filePath: string) => Promise<boolean>
       read: (filePath: string) => Promise<{ data: string; size: number } | null>
     }
+    shell?: {
+      showItem: (filePath: string) => Promise<void>
+    }
+    jianying?: {
+      available: () => Promise<boolean>
+      exportDraft: (
+        clips: Array<{ url: string; trimStart?: number; trimEnd?: number }>,
+        draftName?: string
+      ) => Promise<string>
+    }
+    video?: {
+      export: (
+        clips: Array<{ url: string; trimStart?: number; trimEnd?: number }> | string[],
+        outputDir?: string
+      ) => Promise<string | null>
+      thumbnails: (url: string, durationSec: number, count: number) => Promise<string[]>
+      onProgress: (callback: (payload: { stage: string; percent: number }) => void) => () => void
+    }
     updater?: {
       check: () => Promise<{ ok: boolean; version?: string; reason?: string }>
       download: () => Promise<{ ok: boolean; reason?: string }>

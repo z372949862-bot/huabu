@@ -31,31 +31,40 @@
         <p class="empty-hint">在节点画布上生成图片或视频，结果会自动归档到这里</p>
       </div>
 
-      <div v-else class="asset-grid">
-        <div
-          v-for="asset in filteredAssets"
-          :key="asset.id"
-          class="asset-card"
-          @click="openPreview(asset)"
-        >
-          <div class="asset-media">
-            <img v-if="asset.type === 'image'" :src="asset.url" alt="" />
-            <video v-else :src="asset.url" preload="metadata" muted />
-            <span class="type-badge" :class="asset.type">
-              {{ asset.type === 'image' ? '图' : '视频' }}
-            </span>
-            <button
-              class="asset-delete"
-              title="删除"
-              @click.stop="confirmDelete(asset)"
-            ><svg viewBox="0 0 16 16" width="10" height="10" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg></button>
+      <div v-else class="asset-groups">
+        <div v-for="g in assetGroups" :key="g.id" class="lib-group">
+          <div class="lib-group-header" :class="{current:g.isCurrent}" @click="toggleGroup(g.id)">
+            <span class="lib-caret">{{ isCollapsed(g.id)?'▸':'▾' }}</span>
+            <span class="lib-group-name">{{ g.name }}</span>
+            <span class="lib-group-count">{{ g.assets.length }}</span>
           </div>
-          <div class="asset-meta">
-            <div class="asset-prompt" :title="asset.prompt">{{ asset.prompt || '(无提示词)' }}</div>
-            <div class="asset-info">
-              <span>{{ asset.model }}</span>
-              <span>·</span>
-              <span>{{ formatTime(asset.createdAt) }}</span>
+          <div v-show="!isCollapsed(g.id)" class="asset-grid">
+            <div
+              v-for="asset in g.assets"
+              :key="asset.id"
+              class="asset-card"
+              @click="openPreview(asset)"
+            >
+              <div class="asset-media">
+                <img v-if="asset.type === 'image'" :src="asset.url" alt="" />
+                <video v-else :src="asset.url" preload="metadata" muted />
+                <span class="type-badge" :class="asset.type">
+                  {{ asset.type === 'image' ? '图' : '视频' }}
+                </span>
+                <button
+                  class="asset-delete"
+                  title="删除"
+                  @click.stop="confirmDelete(asset)"
+                ><svg viewBox="0 0 16 16" width="10" height="10" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg></button>
+              </div>
+              <div class="asset-meta">
+                <div class="asset-prompt" :title="asset.prompt">{{ asset.prompt || '(无提示词)' }}</div>
+                <div class="asset-info">
+                  <span>{{ asset.model }}</span>
+                  <span>·</span>
+                  <span>{{ formatTime(asset.createdAt) }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -91,13 +100,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAssetStore, type GeneratedAsset } from '@/stores/asset'
 
 const assetStore = useAssetStore()
 
 type Filter = 'all' | 'image' | 'video'
 const activeFilter = ref<Filter>('all')
+
+// 项目元数据：项目名(recent_projects) + 当前项目(currentProjectId)
+const projectNames = ref<Record<string,string>>({})
+const currentProjectId = ref<string>('')
+onMounted(() => {
+  try {
+    const raw = localStorage.getItem('recent_projects')
+    const map: Record<string,string> = {}
+    if (raw) for (const p of JSON.parse(raw)) { if (p && p.id) map[p.id] = p.name || '未命名项目' }
+    projectNames.value = map
+  } catch { projectNames.value = {} }
+  currentProjectId.value = localStorage.getItem('currentProjectId') || ''
+})
 
 const tabs = computed(() => [
   { label: '全部', value: 'all' as Filter, count: assetStore.sortedAssets.length },
@@ -110,6 +132,26 @@ const filteredAssets = computed(() => {
   if (activeFilter.value === 'video') return assetStore.videos
   return assetStore.sortedAssets
 })
+
+// 按项目分组：当前项目最前，其余按数量，未分类垫底
+const assetGroups = computed(() => {
+  const groups: Record<string, GeneratedAsset[]> = {}
+  for (const a of filteredAssets.value) { const k = a.projectId || '__none__'; (groups[k] || (groups[k] = [])).push(a) }
+  const keys = Object.keys(groups).sort((x, y) => {
+    if (x === currentProjectId.value) return -1; if (y === currentProjectId.value) return 1
+    if (x === '__none__') return 1; if (y === '__none__') return -1
+    return groups[y].length - groups[x].length
+  })
+  return keys.map(k => ({
+    id: k,
+    name: k === '__none__' ? '未分类' : (projectNames.value[k] || '其它项目'),
+    assets: groups[k],
+    isCurrent: k === currentProjectId.value,
+  }))
+})
+const collapsed = ref<Record<string, boolean>>({})
+const isCollapsed = (id: string) => id in collapsed.value ? collapsed.value[id] : false
+const toggleGroup = (id: string) => { collapsed.value = { ...collapsed.value, [id]: !isCollapsed(id) } }
 
 const preview = ref<GeneratedAsset | null>(null)
 const openPreview = (asset: GeneratedAsset) => {
@@ -269,6 +311,30 @@ const formatTime = (ts: number) => {
   font-size: 13px;
   margin: 0;
 }
+
+.asset-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.lib-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 12px;
+  transition: background 0.2s;
+}
+.lib-group-header:hover { background: rgba(0, 217, 255, 0.08); }
+.lib-group-header.current { background: rgba(0, 217, 255, 0.12); }
+.lib-caret { font-size: 11px; color: rgba(0, 217, 255, 0.7); width: 12px; flex-shrink: 0; }
+.lib-group-name { flex: 1; font-size: 14px; color: #cfe9f5; }
+.lib-group-header.current .lib-group-name { color: #00D9FF; font-weight: 500; }
+.lib-group-count { font-size: 12px; color: rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 2px 10px; }
 
 .asset-grid {
   display: grid;

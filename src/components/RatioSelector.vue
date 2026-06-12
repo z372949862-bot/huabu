@@ -98,11 +98,18 @@ interface RatioOption {
 interface Props {
   modelValue?: string
   capabilities?: VideoModelCapabilities // 当前模型的能力
+  // 以下用于「从节点保存值恢复」初始状态，避免切节点回来丢失
+  resolution?: string
+  duration?: number
+  audio?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '16:9',
-  capabilities: undefined
+  capabilities: undefined,
+  resolution: undefined,
+  duration: undefined,
+  audio: undefined,
 })
 
 const emit = defineEmits<{
@@ -114,9 +121,10 @@ const emit = defineEmits<{
 
 const isOpen = ref(false)
 const selectorRef = ref<HTMLElement>()
-const selectedResolution = ref('')
-const selectedDuration = ref(5)
-const enableAudio = ref(false) // 音频开关
+// 内部状态从 props 恢复（节点 data 里存过就用存的，否则用默认）
+const selectedResolution = ref(props.resolution ?? '')
+const selectedDuration = ref(typeof props.duration === 'number' ? props.duration : 5)
+const enableAudio = ref(props.audio === true) // 音频开关
 
 watch(selectedResolution, (val) => emit('update:resolution', val))
 watch(selectedDuration, (val) => emit('update:duration', val))

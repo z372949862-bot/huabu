@@ -12,8 +12,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (filePath) => ipcRenderer.invoke('upload:delete', filePath),
     read: (filePath) => ipcRenderer.invoke('upload:read', filePath),
   },
+  shell: {
+    // 在系统文件管理器中定位文件
+    showItem: (filePath) => ipcRenderer.invoke('shell:show-item', filePath),
+  },
+  jianying: {
+    available: () => ipcRenderer.invoke('jianying:available'),
+    exportDraft: (clips, draftName) => ipcRenderer.invoke('jianying:export-draft', clips, draftName),
+  },
   video: {
-    export: (fileUrls, outputDir) => ipcRenderer.invoke('video:export', fileUrls, outputDir),
+    // clips: Array<{ url, trimStart, trimEnd }>（也兼容旧的 url 字符串数组）。返回保存路径或 null（取消）。
+    export: (clips, outputDir) => ipcRenderer.invoke('video:export', clips, outputDir),
+    // 用主进程 ffmpeg 给时间轴抽缩略图，返回 data URL 数组
+    thumbnails: (url, durationSec, count) => ipcRenderer.invoke('video:thumbnails', url, durationSec, count),
+    // 订阅导出进度，返回取消订阅函数
+    onProgress: (callback) => {
+      const handler = (_e, payload) => callback(payload)
+      ipcRenderer.on('video:export-progress', handler)
+      return () => ipcRenderer.removeListener('video:export-progress', handler)
+    },
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

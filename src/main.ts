@@ -11,6 +11,7 @@ import App from './App.vue'
 import { useAIStore } from './stores/ai'
 import { useAssetStore } from './stores/asset'
 import { useNodeStore } from './stores/node'
+import { useEditorStore } from './stores/editor'
 import './style.css'
 
 const app = createApp(App)
@@ -28,6 +29,9 @@ useAssetStore().init().catch((err) => {
 })
 useNodeStore().init().catch((err) => {
   console.warn('failed to init node store at startup:', err)
+})
+useEditorStore().init().catch((err) => {
+  console.warn('failed to init editor store at startup:', err)
 })
 
 app.mount('#app')

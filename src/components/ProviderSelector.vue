@@ -9,7 +9,7 @@
     </button>
 
     <transition name="dropdown">
-      <div v-if="isOpen" class="provider-dropdown">
+      <div v-if="isOpen" class="provider-dropdown" :class="{ 'drop-up': placement === 'up' }">
         <div class="dropdown-section">
           <div class="section-title">中转站</div>
           <div v-if="!providers || providers.length === 0" class="empty-tip">
@@ -53,11 +53,13 @@ interface ProviderSummary {
 interface Props {
   modelValue?: string
   providers?: ProviderSummary[]
+  placement?: 'down' | 'up'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
   providers: () => [],
+  placement: 'down',
 })
 
 const emit = defineEmits<{
@@ -167,6 +169,11 @@ onUnmounted(() => {
   padding: 12px;
   z-index: 100;
   user-select: none;
+}
+/* 向上弹出（节点卡片里用，避免下拉超出节点底部） */
+.provider-dropdown.drop-up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .section-title {

@@ -14,13 +14,13 @@
           <div class="changelog-body">
             <div class="changelog-date">{{ formatDateStr(Date.now()) }}</div>
             <ul>
-              <li>💬 新增 AI 文本对话助手（支持 DeepSeek 等大模型）</li>
-              <li>🎬 新增器灵视频中转站（Seedance 系列）</li>
-              <li>🖱️ 画布 Shift+拖拽 框选多个节点</li>
-              <li>💾 本地上传素材重启后保留（磁盘存储）</li>
-              <li>🎨 底部导航图标升级为 SVG 风格</li>
-              <li>⚡ 页面切换过渡动画 & 节点生成光效</li>
-              <li>🔧 多项 UI 优化和 Bug 修复</li>
+              <li>🛠️ 修复 0.2.15 装机版启动崩溃（缺少模块导致打不开），现已恢复正常</li>
+              <li>🔊 视频剪辑：支持单片段音量调节，导出 / 剪映草稿都带上</li>
+              <li>🔍 剪辑预览：拖动进度条实时跟随、画面更清晰；预览框高度自适应，不再遮挡时间轴</li>
+              <li>🎚️ 节点：比例 / 时长 / 生成音频 / 清晰度现在会记忆，切换节点不再重置</li>
+              <li>⬆️ 节点的中转站、模型下拉改为向上弹出，不被节点底部遮挡</li>
+              <li>✨ 顶栏中转站状态改为简洁汇总徽章；画布项目名更醒目</li>
+              <li>🔧 缩略图内存回收、大文件下载稳定性等多项优化</li>
             </ul>
           </div>
           <button
@@ -494,6 +494,13 @@ const quickCards = [
     icon: '💬',
     color: 'linear-gradient(135deg, #00ff88 0%, #00D9FF 100%)',
   },
+  {
+    type: 'video-editor',
+    title: '视频剪辑',
+    description: '剪辑拼接导出视频',
+    icon: '🎞️',
+    color: 'linear-gradient(135deg, #B432FF 0%, #00D9FF 100%)',
+  },
 ]
 
 // 最近项目（从localStorage加载）
@@ -554,6 +561,8 @@ const createNode = (type: string) => {
     router.push({ path: '/assets', query: { from: 'home' } })
   } else if (type === 'ai-chat') {
     router.push('/chat')
+  } else if (type === 'video-editor') {
+    router.push('/editor')
   } else {
     router.push({ path: '/nodes', query: { create: type } })
   }

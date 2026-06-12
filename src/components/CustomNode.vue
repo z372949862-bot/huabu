@@ -31,7 +31,7 @@
           <div v-else-if="data.status === 'completed' && data.outputImage" class="image-thumbnail" @click.stop="previewImage">
             <img :src="data.outputImage" class="generated-preview" />
             <div class="preview-overlay">
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="white">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
               </svg>
             </div>
@@ -262,11 +262,14 @@
             <div class="generator-options">
               <!-- 视频节点：中转站 + 模型 + 比例选择器 -->
               <template v-if="type === 'ai-video'">
-                <ProviderSelector v-model="selectedProviderId" :providers="providerOptions" />
-                <ModelSelector v-model="selectedModel" :models="availableModels" label="视频模型" />
+                <ProviderSelector v-model="selectedProviderId" :providers="providerOptions" placement="up" />
+                <ModelSelector v-model="selectedModel" :models="availableModels" label="视频模型" placement="up" />
                 <RatioSelector
                   v-model="selectedRatio"
                   :capabilities="currentModelCapabilities"
+                  :resolution="data.resolution"
+                  :duration="data.duration"
+                  :audio="data.generateAudio"
                   @update:resolution="onResolutionChange"
                   @update:duration="onDurationChange"
                   @update:audio="onAudioChange"
@@ -275,15 +278,15 @@
 
               <!-- 图片节点：中转站 + 模型 + 比例 -->
               <template v-else-if="type === 'ai-image'">
-                <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" />
-                <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" />
-                <RatioSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" />
+                <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
+                <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
+                <RatioSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :resolution="data.resolution" @update:resolution="onResolutionChange" />
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
               <template v-else-if="type === 'ai-text'">
-                <ProviderSelector v-model="selectedProviderId" :providers="textProviderOptions" />
-                <ModelSelector v-model="selectedModel" :models="availableTextModels" label="文本模型" />
+                <ProviderSelector v-model="selectedProviderId" :providers="textProviderOptions" placement="up" />
+                <ModelSelector v-model="selectedModel" :models="availableTextModels" label="文本模型" placement="up" />
               </template>
 
               <!-- 其他节点：简单按钮 -->
@@ -448,7 +451,8 @@ const assetStore = useAssetStore()
 const localPrompt = ref(props.data.prompt || '')
 const isSelected = computed(() => nodeStore.selectedNodeId === props.id)
 const currentTab = ref('text-to-video')
-const selectedRatio = ref('16:9')
+// 比例从节点 data.ratio 恢复（没有才用默认 16:9）；否则切走再切回会丢失用户选择
+const selectedRatio = ref<string>((props.data as any).ratio || '16:9')
 // 视频/图片节点共用：先取节点 data 里的 providerId，否则按类型用全局默认
 const selectedProviderId = ref<string>(
   (props.data as any).providerId
@@ -1609,27 +1613,29 @@ const typeLabel = computed(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 70px;
-  height: 70px;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 217, 255, 0.3);
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 50%;
-  backdrop-filter: blur(4px);
-  transition: all 0.3s;
+  backdrop-filter: blur(2px);
+  transition: opacity 0.25s, background 0.25s, transform 0.25s;
   pointer-events: none;
   opacity: 0;
 }
 
 .image-thumbnail:hover .preview-overlay {
   opacity: 1;
-  background: rgba(0, 217, 255, 0.5);
-  transform: translate(-50%, -50%) scale(1.1);
+  background: rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%) scale(1.05);
 }
 
 .preview-overlay svg {
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+  opacity: 0.9;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
 }
 
 /* 图片预览弹窗 */

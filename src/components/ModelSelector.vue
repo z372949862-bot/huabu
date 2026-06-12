@@ -9,7 +9,7 @@
     </button>
 
     <transition name="dropdown">
-      <div v-if="isOpen" class="model-dropdown">
+      <div v-if="isOpen" class="model-dropdown" :class="{ 'drop-up': placement === 'up' }">
         <div class="dropdown-section">
           <div class="section-title">{{ label }}</div>
           <div v-if="modelList.length === 0" class="empty-tip">
@@ -50,12 +50,14 @@ interface Props {
   modelValue?: string
   models?: VideoModel[]
   label?: string
+  placement?: 'down' | 'up'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
   models: () => [],
   label: '模型',
+  placement: 'down',
 })
 
 const emit = defineEmits<{
@@ -174,6 +176,11 @@ onUnmounted(() => {
   padding: 12px;
   z-index: 100;
   user-select: none;
+}
+/* 向上弹出（节点卡片里用，避免下拉超出节点底部） */
+.model-dropdown.drop-up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .dropdown-section {

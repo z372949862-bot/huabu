@@ -508,6 +508,7 @@ export const useNodeStore = defineStore('node', () => {
               providerName: providerConfig.name,
               nodeId,
               nodeType: 'ai-video',
+              projectId: currentProjectId.value || undefined,
               ratio: data.ratio,
               resolution: data.resolution,
               duration: data.duration,
@@ -643,6 +644,7 @@ export const useNodeStore = defineStore('node', () => {
         providerName: providerConfig.name,
         nodeId,
         nodeType: 'ai-image',
+        projectId: currentProjectId.value || undefined,
         ratio: data.ratio,
         resolution: modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K',
       })
