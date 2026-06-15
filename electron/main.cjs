@@ -57,6 +57,40 @@ ipcMain.handle('upload:read', (_event, filePath) => {
   }
 })
 
+// ---- AI 生成图片落盘（按项目分目录，避免 store 持久化吃满） ----
+function getProjectImagesDir(projectId) {
+  const safe = String(projectId || 'default').replace(/[<>:"/\\|?*]/g, '_')
+  const dir = path.join(app.getPath('userData'), 'projects', safe, 'images')
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+ipcMain.handle('image:save', (_event, payload) => {
+  try {
+    const { projectId, nodeId, dataUrl, ext } = payload || {}
+    if (!dataUrl || typeof dataUrl !== 'string') return null
+    const m = dataUrl.match(/^data:image\/([a-z+.-]+);base64,(.+)$/i)
+    if (!m) return null
+    const dir = getProjectImagesDir(projectId)
+    const inferredExt = (ext || m[1] || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
+    const safeNode = String(nodeId || 'node').replace(/[<>:"/\\|?*]/g, '_')
+    const filename = `${safeNode}-${Date.now()}.${inferredExt}`
+    const fullPath = path.join(dir, filename)
+    fs.writeFileSync(fullPath, Buffer.from(m[2], 'base64'))
+    return { path: fullPath }
+  } catch (err) {
+    console.error('image:save failed:', err)
+    return null
+  }
+})
+
+ipcMain.handle('image:delete', (_event, filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    return true
+  } catch { return false }
+})
+
 // ---- 视频拼接导出 ----
 // ---- 视频导出（剪辑器）----
 // 解析可用的 ffmpeg：①打包后 asarUnpack 解出的 ffmpeg-static；②exe 同目录；③系统 PATH。

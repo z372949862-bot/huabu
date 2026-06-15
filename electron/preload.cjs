@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (filePath) => ipcRenderer.invoke('upload:delete', filePath),
     read: (filePath) => ipcRenderer.invoke('upload:read', filePath),
   },
+  image: {
+    // payload: { projectId, nodeId, dataUrl, ext? } → { path } | null
+    save: (payload) => ipcRenderer.invoke('image:save', payload),
+    delete: (filePath) => ipcRenderer.invoke('image:delete', filePath),
+  },
   shell: {
     // 在系统文件管理器中定位文件
     showItem: (filePath) => ipcRenderer.invoke('shell:show-item', filePath),

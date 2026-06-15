@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { useAIStore } from '@/stores/ai'
 import { useAssetStore } from '@/stores/asset'
 import { ensureRemoteAssetUrl } from '@/services/imageHost'
+import { persistImage } from '@/services/imageStorage'
 
 export interface NodeData {
   label: string
@@ -688,8 +689,12 @@ export const useNodeStore = defineStore('node', () => {
       })
       window.clearInterval(fallbackTimer)
       imageTimers.delete(nodeId)
-      const urls = result.imageUrls
-      if (urls.length === 0) throw new Error('未拿到图片 URL')
+      const rawUrls = result.imageUrls
+      if (rawUrls.length === 0) throw new Error('未拿到图片 URL')
+      // 落盘：把可能是 base64 的大 dataUrl 写到磁盘，store 只留 local-upload:/// 路径
+      const urls = await Promise.all(
+        rawUrls.map((u) => persistImage(u, { projectId: currentProjectId.value || undefined, nodeId })),
+      )
       const primary = urls[0]
       updateNodeData(nodeId, {
         status: 'completed',
