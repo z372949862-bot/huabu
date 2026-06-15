@@ -67,6 +67,8 @@ export const useNodeStore = defineStore('node', () => {
   const imageTimers = new Map<string, number>()
   // 图片节点正在跑的 AbortController（取消用，同一个节点同时只能有一个）
   const imageAborts = new Map<string, AbortController>()
+  // 标记被用户主动取消的图片节点；catch 路径据此判断不要弹错误 toast
+  const cancelledImageNodes = new Set<string>()
   const initialized = ref(false)
   const currentProjectId = ref<string | null>(null)
 
@@ -311,14 +313,24 @@ export const useNodeStore = defineStore('node', () => {
 
   function cancelImageNode(nodeId: string) {
     const ctrl = imageAborts.get(nodeId)
-    if (ctrl) ctrl.abort()
+    if (ctrl) {
+      cancelledImageNodes.add(nodeId)
+      ctrl.abort()
+    }
     imageAborts.delete(nodeId)
     const t = imageTimers.get(nodeId)
     if (t) {
       window.clearInterval(t)
       imageTimers.delete(nodeId)
     }
-    updateNodeData(nodeId, { status: 'idle', progress: undefined, error: undefined })
+    // 如果之前有图，保留 outputImage；状态回 idle（或 completed 如果之前是 completed 状态）
+    const node = nodes.value.find((n) => n.id === nodeId)
+    const priorImage = (node?.data as NodeData | undefined)?.outputImage
+    updateNodeData(nodeId, {
+      status: priorImage ? 'completed' : 'idle',
+      progress: undefined,
+      error: undefined,
+    })
   }
 
   async function executeNode(nodeId: string) {
@@ -627,7 +639,6 @@ export const useNodeStore = defineStore('node', () => {
       status: 'running',
       progress: 5,
       error: undefined,
-      outputImage: undefined,
     })
 
     // 异步路径会通过 onProgress 报真实进度；同步路径只能由 provider 内部
@@ -681,10 +692,16 @@ export const useNodeStore = defineStore('node', () => {
         resolution: modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K',
       })
       imageAborts.delete(nodeId)
+      cancelledImageNodes.delete(nodeId)
     } catch (err) {
       window.clearInterval(fallbackTimer)
       imageTimers.delete(nodeId)
       imageAborts.delete(nodeId)
+      if (cancelledImageNodes.has(nodeId)) {
+        // 用户主动取消：cancelImageNode 已经设好状态，这里安静退出
+        cancelledImageNodes.delete(nodeId)
+        return
+      }
       failNode(nodeId, err instanceof Error ? err.message : '生成图片失败')
     }
   }
