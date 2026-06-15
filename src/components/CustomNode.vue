@@ -258,6 +258,27 @@
             </div>
           </transition>
 
+          <!-- 高级选项：仅图片节点 -->
+          <template v-if="type === 'ai-image'">
+            <div class="advanced-toggle" @click.stop="advancedOpen = !advancedOpen">
+              <span class="advanced-arrow" :class="{ open: advancedOpen }">▶</span>
+              <span class="advanced-label">高级</span>
+            </div>
+            <transition name="expand-advanced">
+              <div v-if="advancedOpen" class="advanced-panel" @click.stop @mousedown.stop>
+                <label class="advanced-field">
+                  <span class="advanced-field-label">Negative Prompt</span>
+                  <input
+                    type="text"
+                    v-model="localNegativePrompt"
+                    placeholder="不希望出现的内容（如：模糊、低分辨率）"
+                    class="advanced-input"
+                  />
+                </label>
+              </div>
+            </transition>
+          </template>
+
           <div class="generator-footer">
             <div class="generator-options">
               <!-- 视频节点：中转站 + 模型 + 比例选择器 -->
@@ -472,6 +493,11 @@ watch(localSeed, (v) => {
 function rerollSeed() {
   localSeed.value = Math.floor(Math.random() * 2_000_000_000)
 }
+const advancedOpen = ref(false)
+const localNegativePrompt = ref<string>(((props.data as any).negativePrompt as string) || '')
+watch(localNegativePrompt, (v) => {
+  nodeStore.updateNodeData(props.id, { negativePrompt: v || undefined })
+})
 // 视频/图片节点共用：先取节点 data 里的 providerId，否则按类型用全局默认
 const selectedProviderId = ref<string>(
   (props.data as any).providerId
@@ -2541,5 +2567,71 @@ const typeLabel = computed(() => {
 }
 .seed-dice:hover {
   transform: rotate(15deg);
+}
+
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: rgba(110, 231, 255, 0.7);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s;
+}
+.advanced-toggle:hover { color: #6ee7ff; }
+.advanced-arrow {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 9px;
+}
+.advanced-arrow.open { transform: rotate(90deg); }
+.advanced-panel {
+  padding: 6px 8px;
+  background: rgba(110, 231, 255, 0.04);
+  border: 1px solid rgba(110, 231, 255, 0.12);
+  border-radius: 6px;
+  margin: 0 8px 6px;
+}
+.advanced-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.advanced-field-label {
+  font-size: 10px;
+  color: rgba(110, 231, 255, 0.7);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+.advanced-input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(110, 231, 255, 0.2);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+}
+.advanced-input:focus {
+  outline: none;
+  border-color: rgba(110, 231, 255, 0.6);
+  box-shadow: 0 0 6px rgba(110, 231, 255, 0.3);
+}
+.expand-advanced-enter-active,
+.expand-advanced-leave-active {
+  transition: max-height 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+.expand-advanced-enter-from,
+.expand-advanced-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+.expand-advanced-enter-to,
+.expand-advanced-leave-from {
+  max-height: 80px;
+  opacity: 1;
 }
 </style>

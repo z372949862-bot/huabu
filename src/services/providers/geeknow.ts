@@ -29,7 +29,7 @@ export interface GenerateImageParams {
   imageSize?: '1K' | '2K' | '4K'
   /** 出图数量（OpenAI 兼容路径用），默认 1。 */
   n?: number
-  /** Negative prompt（保留位，目前 GeekNow 不读）。 */
+  /** Negative prompt — what to avoid. OpenAI/doubao/grok/seedream 走 body.negative_prompt；Gemini 拼到 prompt 末尾 "(avoid: ...)"。 */
   negativePrompt?: string
   /**
    * 进度回调；走异步队列的 provider（如 chuhaiying 的 /v1/responses）会持续上报真实进度。
@@ -117,6 +117,10 @@ export class GeekNowImageProvider implements ImageProvider {
     tpl: ImageModelTemplate | undefined
   ): Promise<ImageGenerationResult> {
     const parts: any[] = [{ text: params.prompt }]
+    if (params.negativePrompt && params.negativePrompt.trim()) {
+      // Gemini 没有原生 negative_prompt 字段，把约束拼到文本里
+      parts[0] = { text: `${params.prompt}\n\n（请避免：${params.negativePrompt.trim()}）` }
+    }
     if (params.imageUrls?.length) {
       // 多图参考时压到 1024px JPEG 0.85，避免请求体过大触发 413；单图保留原图
       const shouldCompress = params.imageUrls.length > 1
@@ -207,6 +211,9 @@ export class GeekNowImageProvider implements ImageProvider {
       size,
     }
     if (params.seed && params.seed > 0) body.seed = params.seed
+    if (params.negativePrompt && params.negativePrompt.trim()) {
+      body.negative_prompt = params.negativePrompt.trim()
+    }
 
     // 参考图：传成 base64 数组（去掉 data: 前缀，按裸 base64 发）
     if (params.imageUrls?.length && tpl?.supportsReferenceImage !== false) {
