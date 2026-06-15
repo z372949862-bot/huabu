@@ -6,6 +6,7 @@ import { useAIStore } from '@/stores/ai'
 import { useAssetStore } from '@/stores/asset'
 import { ensureRemoteAssetUrl } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
+import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 
 export interface NodeData {
   label: string
@@ -659,14 +660,18 @@ export const useNodeStore = defineStore('node', () => {
 
     try {
       const modelMeta = providerConfig.models.find((m) => m.id === data.model)
+      const tpl = findImageTemplate(data.model || '', (providerConfig.kind || undefined) as ImageProviderKind | undefined)
+      // 默认 true：缺字段视为「老模板没标，按支持算」
+      const allowSeed = (tpl?.supportsSeed ?? modelMeta?.supportsSeed) !== false
+      const allowNegative = (tpl?.supportsNegativePrompt ?? modelMeta?.supportsNegativePrompt) !== false
       const result = await provider.generateImage({
         model: data.model || providerConfig.models[0]?.id || 'gemini-2.5-flash-image-preview',
         prompt: promptText,
         imageUrls: refImages,
         aspectRatio: data.ratio || '1:1',
         imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
-        seed: typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
-        negativePrompt: data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
+        seed: allowSeed && typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
+        negativePrompt: allowNegative && data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
         n: 1,
         signal: abortCtrl.signal,
         onProgress: ({ progress }) => {

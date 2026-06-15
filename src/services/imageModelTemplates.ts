@@ -31,6 +31,19 @@ export interface ImageModelTemplate {
    * 仅 gpt-image-2-2k / gpt-image-2-4k / nano-banana-pro 支持，给出真实进度。
    */
   asyncEndpoint?: boolean
+  /**
+   * 上游模型是否真的认 seed 参数。false 时 UI 灰显且调用层不再发送字段，
+   * 避免「调了也没用」的迷惑（例如 grok / gpt-image / gemini）。默认 true。
+   */
+  supportsSeed?: boolean
+  /**
+   * 上游模型是否原生支持 negative prompt。
+   * - 真原生（doubao / nano-banana / kling 等）：true
+   * - 仅作为文字提示拼到 prompt 里（gemini）：false，调用层不会发字段、UI 不灰显但加注脚
+   * - 完全无效（grok / gpt-image）：false
+   * 默认 true。
+   */
+  supportsNegativePrompt?: boolean
 }
 
 const COMMON_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9']
@@ -45,6 +58,8 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     endpointStyle: 'gemini',
     supportsReferenceImage: true,
     supportsImageSize2K: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
   {
     id: 'gemini-2.5-flash-image-preview',
@@ -53,6 +68,8 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     capabilities: { ratios: COMMON_RATIOS, resolutions: ['1K'] },
     endpointStyle: 'gemini',
     supportsReferenceImage: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
   {
     id: 'gemini-3.1-flash-image-preview',
@@ -61,6 +78,8 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     capabilities: { ratios: COMMON_RATIOS, resolutions: ['1K'] },
     endpointStyle: 'gemini',
     supportsReferenceImage: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
   {
     id: 'doubao-seedream-4-5-251128',
@@ -85,6 +104,8 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     capabilities: { ratios: COMMON_RATIOS, resolutions: ['1K'] },
     endpointStyle: 'openai',
     supportsReferenceImage: false, // Grok API 不支持 URL/参考图模式
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
   {
     id: 'gpt-image-2',
@@ -93,6 +114,8 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     capabilities: { ratios: ['1:1', '16:9', '9:16'], resolutions: ['1K'] },
     endpointStyle: 'openai',
     supportsReferenceImage: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
   {
     id: 'gpt-image-2-pro',
@@ -101,6 +124,8 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     capabilities: { ratios: ['1:1', '16:9', '9:16'], resolutions: ['1K', '2K'] },
     endpointStyle: 'openai',
     supportsReferenceImage: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
 ]
 
@@ -193,6 +218,8 @@ export const CHUHAIYING_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     supportsReferenceImage: true,
     supportsImageSize2K: true,
     asyncEndpoint: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
   {
     id: 'gpt-image-2-4k',
@@ -203,6 +230,8 @@ export const CHUHAIYING_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     supportsReferenceImage: true,
     supportsImageSize2K: true,
     asyncEndpoint: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
   },
 ]
 

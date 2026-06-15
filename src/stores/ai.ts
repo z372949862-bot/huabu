@@ -38,6 +38,10 @@ export interface ProviderModel {
   supportsImageSize2K?: boolean
   asyncEndpoint?: boolean
   supportsReasoning?: boolean
+  /** 上游模型是否真的认 seed 参数；默认 true，false 表示调了也没用，UI 应灰显 */
+  supportsSeed?: boolean
+  /** 上游模型是否真的认 negative_prompt；默认 true */
+  supportsNegativePrompt?: boolean
 }
 
 export interface Provider {
@@ -111,6 +115,8 @@ function imageTemplateToModel(t: ImageModelTemplate): ProviderModel {
     supportsReferenceImage: t.supportsReferenceImage,
     supportsImageSize2K: t.supportsImageSize2K,
     asyncEndpoint: t.asyncEndpoint,
+    supportsSeed: t.supportsSeed,
+    supportsNegativePrompt: t.supportsNegativePrompt,
   }
 }
 

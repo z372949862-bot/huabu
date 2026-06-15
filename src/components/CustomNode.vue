@@ -312,29 +312,35 @@
             </div>
             <transition name="expand-advanced">
               <div v-if="advancedOpen" class="advanced-panel" @click.stop @mousedown.stop>
-                <label class="advanced-field">
-                  <span class="advanced-field-label">Negative Prompt</span>
+                <label class="advanced-field" :class="{ disabled: !negativePromptSupported }">
+                  <span class="advanced-field-label">
+                    Negative Prompt
+                    <span v-if="!negativePromptSupported" class="field-unsupported">当前模型不支持</span>
+                  </span>
                   <input
                     type="text"
                     v-model="localNegativePrompt"
-                    placeholder="不希望出现的内容（如：模糊、低分辨率）"
+                    :placeholder="negativePromptSupported ? '不希望出现的内容（如：模糊、低分辨率）' : '当前模型会忽略此字段'"
+                    :disabled="!negativePromptSupported"
                     class="advanced-input"
                   />
                 </label>
-                <label class="advanced-field">
+                <label class="advanced-field" :class="{ disabled: !seedSupported }">
                   <span class="advanced-field-label" title="同 prompt + 同 seed 一般得到相同结果，做角色一致性时有用。0 = 随机">
                     Seed
+                    <span v-if="!seedSupported" class="field-unsupported">当前模型不支持</span>
                   </span>
                   <div class="seed-row">
                     <input
                       type="number"
                       v-model.number="localSeed"
-                      placeholder="0 = 随机"
+                      :placeholder="seedSupported ? '0 = 随机' : '当前模型会忽略此字段'"
+                      :disabled="!seedSupported"
                       min="0"
                       max="2147483647"
                       class="advanced-input"
                     />
-                    <button class="seed-dice" @click.stop="rerollSeed" title="随机一个 seed">🎲</button>
+                    <button class="seed-dice" :disabled="!seedSupported" @click.stop="rerollSeed" title="随机一个 seed">🎲</button>
                   </div>
                 </label>
               </div>
@@ -520,6 +526,7 @@ import { useNodeStore } from '@/stores/node'
 import type { RefImageTag } from '@/stores/node'
 import { useAIStore } from '@/stores/ai'
 import { useAssetStore, type GeneratedAsset } from '@/stores/asset'
+import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import RatioSelector from './RatioSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
@@ -655,6 +662,26 @@ const currentImageModel = computed(() => {
 const refImageBlocked = computed(() =>
   props.type === 'ai-image' && currentImageModel.value?.supportsReferenceImage === false
 )
+
+// 当前图片模型对 seed / negativePrompt 的实际支持，模板优先，模型 meta 兜底，缺则按 true 算
+const currentModelTemplate = computed(() => {
+  if (props.type !== 'ai-image' || !selectedModel.value) return undefined
+  const cfg = aiStore.getProviderConfig(selectedProviderId.value)
+  const kind = (cfg?.kind || undefined) as ImageProviderKind | undefined
+  return findImageTemplate(selectedModel.value, kind)
+})
+const seedSupported = computed(() => {
+  if (props.type !== 'ai-image') return true
+  const tplFlag = currentModelTemplate.value?.supportsSeed
+  const metaFlag = (currentImageModel.value as any)?.supportsSeed
+  return (tplFlag ?? metaFlag) !== false
+})
+const negativePromptSupported = computed(() => {
+  if (props.type !== 'ai-image') return true
+  const tplFlag = currentModelTemplate.value?.supportsNegativePrompt
+  const metaFlag = (currentImageModel.value as any)?.supportsNegativePrompt
+  return (tplFlag ?? metaFlag) !== false
+})
 // 视频中转站下拉用
 const providerOptions = computed(() =>
   aiStore.videoProviders.map((p) => ({
@@ -2886,8 +2913,12 @@ const typeLabel = computed(() => {
   padding: 0 2px;
   transition: transform 0.2s;
 }
-.seed-dice:hover {
+.seed-dice:hover:not(:disabled) {
   transform: rotate(15deg);
+}
+.seed-dice:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .advanced-toggle {
@@ -2920,11 +2951,27 @@ const typeLabel = computed(() => {
   flex-direction: column;
   gap: 4px;
 }
+.advanced-field.disabled {
+  opacity: 0.5;
+}
 .advanced-field-label {
   font-size: 10px;
   color: rgba(110, 231, 255, 0.7);
   font-weight: 500;
   letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field-unsupported {
+  font-size: 9px;
+  color: rgba(255, 168, 110, 0.85);
+  background: rgba(255, 168, 110, 0.1);
+  border: 1px solid rgba(255, 168, 110, 0.3);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 .advanced-input {
   background: rgba(0, 0, 0, 0.4);
@@ -2934,6 +2981,11 @@ const typeLabel = computed(() => {
   border-radius: 4px;
   font-size: 11px;
   font-family: inherit;
+}
+.advanced-input:disabled {
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.4);
 }
 .advanced-input:focus {
   outline: none;
