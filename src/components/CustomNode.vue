@@ -1165,25 +1165,20 @@ const nodeSize = computed(() => {
     return { width: 350, height: 350 }
   }
 
-  const baseHeight = 350
-  const ratioMap: Record<string, number> = {
-    'auto': 1, // Auto显示为正方形
-    '16:9': 16 / 9,
-    '21:9': 21 / 9,
-    '9:16': 9 / 16,
-    '1:1': 1 / 1,
-    '4:3': 4 / 3,
-    '3:4': 3 / 4,
-    '3:2': 3 / 2,
-    '2:3': 2 / 3,
+  // 按比例直接给到容器尺寸——既保留可见的画面比例，
+  // 又把极端比例（21:9、9:16）控制在一个不会撑爆画布的范围内。
+  const RATIO_TO_NODE_SIZE: Record<string, { width: number; height: number }> = {
+    'auto': { width: 350, height: 350 },
+    '1:1':  { width: 320, height: 320 },
+    '16:9': { width: 420, height: 236 },
+    '9:16': { width: 236, height: 420 },
+    '4:3':  { width: 360, height: 270 },
+    '3:4':  { width: 270, height: 360 },
+    '3:2':  { width: 390, height: 260 },
+    '2:3':  { width: 260, height: 390 },
+    '21:9': { width: 460, height: 197 },
   }
-
-  const ratio = ratioMap[selectedRatio.value] || 16 / 9
-  // 节点尺寸完全按比例渲染（上方预览框严格匹配选中比例）
-  // 生成卡片宽度独立写死在 .generator-card，不受这里影响
-  const width = Math.round(baseHeight * ratio)
-
-  return { width, height: baseHeight }
+  return RATIO_TO_NODE_SIZE[selectedRatio.value] || RATIO_TO_NODE_SIZE['1:1']
 })
 
 // 检查是否有图片节点连接
