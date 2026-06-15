@@ -65,6 +65,8 @@ export const useNodeStore = defineStore('node', () => {
   const runningTasks = new Map<string, RunningTask>()
   // 图片节点的假进度定时器（不同于视频轮询，单独管理）
   const imageTimers = new Map<string, number>()
+  // 图片节点正在跑的 AbortController（取消用，同一个节点同时只能有一个）
+  const imageAborts = new Map<string, AbortController>()
   const initialized = ref(false)
   const currentProjectId = ref<string | null>(null)
 
@@ -305,6 +307,18 @@ export const useNodeStore = defineStore('node', () => {
       clearInterval(ti)
       imageTimers.delete(nodeId)
     }
+  }
+
+  function cancelImageNode(nodeId: string) {
+    const ctrl = imageAborts.get(nodeId)
+    if (ctrl) ctrl.abort()
+    imageAborts.delete(nodeId)
+    const t = imageTimers.get(nodeId)
+    if (t) {
+      window.clearInterval(t)
+      imageTimers.delete(nodeId)
+    }
+    updateNodeData(nodeId, { status: 'idle', progress: undefined, error: undefined })
   }
 
   async function executeNode(nodeId: string) {
@@ -549,6 +563,10 @@ export const useNodeStore = defineStore('node', () => {
   async function executeImageNode(nodeId: string) {
     const node = nodes.value.find((n) => n.id === nodeId)
     if (!node) return
+    if (imageAborts.has(nodeId)) {
+      // 已经在跑，忽略重复点击
+      return
+    }
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
@@ -602,6 +620,9 @@ export const useNodeStore = defineStore('node', () => {
 
     cancelExecution(nodeId)
 
+    const abortCtrl = new AbortController()
+    imageAborts.set(nodeId, abortCtrl)
+
     updateNodeData(nodeId, {
       status: 'running',
       progress: 5,
@@ -628,6 +649,7 @@ export const useNodeStore = defineStore('node', () => {
         imageUrls: refImages,
         aspectRatio: data.ratio || '1:1',
         imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
+        signal: abortCtrl.signal,
         onProgress: ({ progress }) => {
           realProgressReceived = true
           updateNodeData(nodeId, { progress: Math.min(99, Math.max(0, progress)) })
@@ -658,9 +680,11 @@ export const useNodeStore = defineStore('node', () => {
         ratio: data.ratio,
         resolution: modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K',
       })
+      imageAborts.delete(nodeId)
     } catch (err) {
       window.clearInterval(fallbackTimer)
       imageTimers.delete(nodeId)
+      imageAborts.delete(nodeId)
       failNode(nodeId, err instanceof Error ? err.message : '生成图片失败')
     }
   }
@@ -778,6 +802,7 @@ export const useNodeStore = defineStore('node', () => {
     removeEdge,
     executeNode,
     cancelExecution,
+    cancelImageNode,
     resetNode,
     init,
     persist,

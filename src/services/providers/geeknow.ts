@@ -35,6 +35,11 @@ export interface GenerateImageParams {
    * 同步 provider 可忽略。progress 取值 0~100。
    */
   onProgress?: (info: { status: string; progress: number }) => void
+  /**
+   * 外部取消信号；用户点取消按钮时由调用方触发。
+   * 与 provider 内部超时 controller 合并使用，谁先触发都会中止 fetch。
+   */
+  signal?: AbortSignal
 }
 
 export interface ImageGenerationResult {
@@ -135,7 +140,7 @@ export class GeekNowImageProvider implements ImageProvider {
     }
 
     const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(params.model)}:generateContent`
-    const data = await this.request<any>(url, body)
+    const data = await this.request<any>(url, body, params.signal)
     return { imageUrls: this.extractGeminiImages(data) }
   }
 
@@ -214,7 +219,7 @@ export class GeekNowImageProvider implements ImageProvider {
     }
 
     const url = `${this.baseUrl}/v1/images/generations`
-    const data = await this.request<any>(url, body)
+    const data = await this.request<any>(url, body, params.signal)
     return { imageUrls: this.extractOpenAIImages(data) }
   }
 
@@ -235,10 +240,15 @@ export class GeekNowImageProvider implements ImageProvider {
 
   // ---------- HTTP 通用 ----------
 
-  private async request<T>(url: string, body: any): Promise<T> {
+  private async request<T>(url: string, body: any, externalSignal?: AbortSignal): Promise<T> {
     // 120 秒超时（图片生成可能较慢）
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 120_000)
+    const onExternalAbort = () => controller.abort(externalSignal!.reason)
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort(externalSignal.reason)
+      else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
+    }
 
     let res: Response
     try {
@@ -253,7 +263,9 @@ export class GeekNowImageProvider implements ImageProvider {
       })
     } catch (err) {
       clearTimeout(timer)
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
       if (err instanceof DOMException && err.name === 'AbortError') {
+        if (externalSignal?.aborted) throw new Error('已取消')
         throw new Error('请求超时（120 秒未响应），中转站可能负载过高，请稍后重试')
       }
       const msg = (err instanceof Error ? err.message : '') || String(err || '')
@@ -263,6 +275,7 @@ export class GeekNowImageProvider implements ImageProvider {
       throw new Error(`无法连接到 ${this.baseUrl}：${msg || '网络错误'}`)
     }
     clearTimeout(timer)
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
 
     if (!res.ok) {
       let detail = ''

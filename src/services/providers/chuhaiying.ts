@@ -154,7 +154,7 @@ export class ChuhaiyingImageProvider implements ImageProvider {
     }
 
     const url = `${this.baseUrl}/v1/images/generations`
-    const data = await this.request<any>(url, body)
+    const data = await this.request<any>(url, body, params.signal)
 
     return { imageUrls: this.extractOpenAIImages(data) }
   }
@@ -211,7 +211,8 @@ export class ChuhaiyingImageProvider implements ImageProvider {
 
     const createRes = await this.request<any>(
       `${this.baseUrl}/v1/responses`,
-      createBody
+      createBody,
+      params.signal
     )
     const responseId: string | undefined = createRes?.id
     if (!responseId) {
@@ -226,8 +227,12 @@ export class ChuhaiyingImageProvider implements ImageProvider {
         throw new Error('出海营异步任务超时（5 分钟未返回）')
       }
       await sleep(POLL_INTERVAL_MS)
+      if (params.signal?.aborted) {
+        throw new Error('已取消')
+      }
       const poll = await this.requestGet<any>(
-        `${this.baseUrl}/v1/responses/${encodeURIComponent(responseId)}`
+        `${this.baseUrl}/v1/responses/${encodeURIComponent(responseId)}`,
+        params.signal
       )
       const status: string = poll?.status || 'in_progress'
 
@@ -280,11 +285,19 @@ export class ChuhaiyingImageProvider implements ImageProvider {
 
   // ---------- HTTP 通用 ----------
 
-  private async request<T>(url: string, body: any): Promise<T> {
+  private async request<T>(url: string, body: any, externalSignal?: AbortSignal): Promise<T> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 120_000)
+    const onExternalAbort = () => controller.abort(externalSignal!.reason)
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort(externalSignal.reason)
+      else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
+    }
     let res: Response
     try {
       res = await fetch(url, {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
@@ -292,23 +305,47 @@ export class ChuhaiyingImageProvider implements ImageProvider {
         body: JSON.stringify(body),
       })
     } catch (err) {
+      clearTimeout(timer)
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        if (externalSignal?.aborted) throw new Error('已取消')
+        throw new Error('请求超时（120 秒未响应），中转站可能负载过高，请稍后重试')
+      }
       throw new Error(`无法连接到 ${this.baseUrl}：${err instanceof Error ? err.message : '网络错误'}`)
     }
+    clearTimeout(timer)
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
     return this.parseResponse<T>(res)
   }
 
-  private async requestGet<T>(url: string): Promise<T> {
+  private async requestGet<T>(url: string, externalSignal?: AbortSignal): Promise<T> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 120_000)
+    const onExternalAbort = () => controller.abort(externalSignal!.reason)
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort(externalSignal.reason)
+      else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
+    }
     let res: Response
     try {
       res = await fetch(url, {
         method: 'GET',
+        signal: controller.signal,
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
         },
       })
     } catch (err) {
+      clearTimeout(timer)
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        if (externalSignal?.aborted) throw new Error('已取消')
+        throw new Error('请求超时')
+      }
       throw new Error(`无法连接到 ${this.baseUrl}：${err instanceof Error ? err.message : '网络错误'}`)
     }
+    clearTimeout(timer)
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
     return this.parseResponse<T>(res)
   }
 

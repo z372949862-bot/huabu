@@ -298,8 +298,7 @@
 
             <button
               class="generate-btn"
-              @click.stop="executeNode"
-              :disabled="data.status === 'running'"
+              @click.stop="handleGenerateClick"
             >
               <svg v-if="data.status !== 'running'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M4.66699 2.64248C4.66717 1.82358 5.59736 1.35167 6.25781 1.83584L13.5674 7.19619C14.1117 7.59579 14.1118 8.40897 13.5674 8.8085L6.25781 14.1688C5.59734 14.6528 4.6671 14.1811 4.66699 13.3622V2.64248Z"/>
@@ -1239,10 +1238,19 @@ const onAudioChange = (val: boolean) => {
   nodeStore.updateNodeData(props.id, { generateAudio: val })
 }
 
+// 生成按钮点击：running 状态下分发取消，其它状态走正常生成
+function handleGenerateClick() {
+  if (props.data.status === 'running') {
+    if (props.type === 'ai-image') nodeStore.cancelImageNode(props.id)
+    else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
+    return
+  }
+  executeNode()
+}
+
 // 视频/图片节点参考素材：blob:/data: URL 直接传给 store，store 调用前会上传图床转公网 URL
 const executeNode = async () => {
   if (props.data.status === 'running') return
-
   // 收集所有参考图 URL（不仅是第一张）
   const refImageUrls: string[] = []
   let inputVideo: string | undefined = undefined
