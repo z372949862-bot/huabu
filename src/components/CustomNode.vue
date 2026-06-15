@@ -36,29 +36,11 @@
               </svg>
             </div>
           </div>
-          <!-- 默认 - 显示图标（行星 + 星轨，呼应宇宙主题） -->
-          <div v-else class="node-icon-large icon-image">
-            <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" fill="none">
-              <defs>
-                <radialGradient id="planetGrad" cx="0.38" cy="0.38" r="0.7">
-                  <stop offset="0%" stop-color="#a78bfa"/>
-                  <stop offset="55%" stop-color="#5b3fb1"/>
-                  <stop offset="100%" stop-color="#1e1b4b"/>
-                </radialGradient>
-                <linearGradient id="ringGrad" x1="0" y1="0.5" x2="1" y2="0.5">
-                  <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0"/>
-                  <stop offset="50%" stop-color="#6ee7ff" stop-opacity="0.95"/>
-                  <stop offset="100%" stop-color="#6ee7ff" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <ellipse cx="50" cy="50" rx="40" ry="11" stroke="url(#ringGrad)" stroke-width="1.6" fill="none" transform="rotate(-18 50 50)"/>
-              <circle cx="50" cy="50" r="22" fill="url(#planetGrad)"/>
-              <ellipse cx="42" cy="44" rx="6" ry="3" fill="rgba(255,255,255,0.18)" transform="rotate(-22 42 44)"/>
-              <circle cx="80" cy="32" r="1.6" fill="#a78bfa" opacity="0.95"/>
-              <circle cx="20" cy="68" r="1.2" fill="#fff" opacity="0.85"/>
-              <circle cx="78" cy="74" r="1" fill="#6ee7ff" opacity="0.9"/>
-              <circle cx="14" cy="30" r="0.9" fill="#fff" opacity="0.6"/>
-              <circle cx="88" cy="58" r="0.8" fill="#6ee7ff" opacity="0.7"/>
+          <!-- 默认 - 显示图标 -->
+          <div v-else class="node-icon-large">
+            <svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 66 66" fill="currentColor">
+              <path d="M26.4648 19.2146C26.9874 18.431 28.1396 18.4309 28.6621 19.2146L40.8262 37.4607L44.5361 32.0056C45.06 31.2354 46.1959 31.2353 46.7197 32.0056L55.4453 44.8376C56.041 45.7138 55.4139 46.8998 54.3545 46.9001H10.4746C9.42048 46.9001 8.79159 45.7256 9.37598 44.8484L26.4648 19.2146Z"/>
+              <circle cx="42.24" cy="20.46" r="3.96"/>
             </svg>
           </div>
         </template>
@@ -1587,16 +1569,6 @@ const typeLabel = computed(() => {
 
 .node-icon-large span {
   font-size: 64px;
-}
-
-/* ai-image 节点：行星 + 星轨默认图标，cyan/purple glow 呼应宇宙主题 */
-.node-icon-large.icon-image svg {
-  filter: drop-shadow(0 0 14px rgba(110, 231, 255, 0.45)) drop-shadow(0 0 6px rgba(167, 139, 250, 0.35));
-  animation: planet-float 6s ease-in-out infinite;
-}
-@keyframes planet-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-3px); }
 }
 
 /* 素材预览 */
