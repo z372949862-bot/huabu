@@ -252,6 +252,7 @@
               @click.stop
               @mousedown.stop
             >
+              <StylePresetPicker @pick="onPickPreset" />
               <button
                 class="prompt-enhance-btn"
                 :class="{ running: enhancing }"
@@ -518,8 +519,10 @@ import { useAssetStore, type GeneratedAsset } from '@/stores/asset'
 import RatioSelector from './RatioSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
+import StylePresetPicker from './StylePresetPicker.vue'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 import { enhancePrompt, type EnhanceStyle } from '@/services/promptEnhancer'
+import { applyPreset, type StylePreset } from '@/services/stylePresets'
 
 interface Props {
   id: string
@@ -586,6 +589,15 @@ async function onEnhance(style: EnhanceStyle) {
   } finally {
     enhancing.value = false
   }
+}
+
+function onPickPreset(p: StylePreset) {
+  const next = applyPreset(localPrompt.value, p)
+  localPrompt.value = next
+  if (editableRef.value) {
+    editableRef.value.innerHTML = promptTextToHtml(next)
+  }
+  nodeStore.updateNodeData(props.id, { prompt: next })
 }
 // 视频/图片节点共用：先取节点 data 里的 providerId，否则按类型用全局默认
 const selectedProviderId = ref<string>(
@@ -2362,6 +2374,9 @@ const typeLabel = computed(() => {
   top: 4px;
   right: 4px;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .prompt-enhance-btn {
   width: 24px;
