@@ -30,4 +30,12 @@ describe('applyPreset', () => {
       ids.add(p.id)
     }
   })
+
+  it('covers all four categories with at least 6 presets each', () => {
+    const counts: Record<string, number> = {}
+    for (const p of STYLE_PRESETS) counts[p.category] = (counts[p.category] || 0) + 1
+    for (const cat of ['科幻', '漫画', '写实', '艺术']) {
+      expect(counts[cat]).toBeGreaterThanOrEqual(6)
+    }
+  })
 })

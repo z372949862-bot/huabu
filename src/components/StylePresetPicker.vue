@@ -79,7 +79,10 @@ function onPick(p: StylePreset) {
   position: absolute;
   top: 28px;
   right: 0;
-  width: 240px;
+  width: 280px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
   background: rgba(10, 14, 26, 0.96);
   border: 1px solid rgba(167, 139, 250, 0.35);
   border-radius: 6px;
@@ -113,6 +116,8 @@ function onPick(p: StylePreset) {
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 8px;
+  overflow-y: auto;
+  flex: 1;
 }
 .preset-card {
   display: flex;

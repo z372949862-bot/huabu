@@ -28,26 +28,12 @@
             <div class="progress-text">生成中...</div>
           </div>
           <!-- 已完成 - 显示生成的图片，点击预览 -->
-          <div v-else-if="data.status === 'completed' && data.outputImage" class="image-output">
-            <div v-if="(data.candidates?.length || 0) > 1" class="candidates-grid">
-              <div
-                v-for="(url, idx) in data.candidates"
-                :key="idx"
-                class="candidate-item"
-                :class="{ active: url === data.outputImage }"
-                @click.stop="pickCandidate(url)"
-                :title="`候选 ${idx + 1}`"
-              >
-                <img :src="url" />
-              </div>
-            </div>
-            <div class="image-thumbnail" @click.stop="previewImage">
-              <img :src="data.outputImage" class="generated-preview" />
-              <div class="preview-overlay">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
-                </svg>
-              </div>
+          <div v-else-if="data.status === 'completed' && data.outputImage" class="image-thumbnail" @click.stop="previewImage">
+            <img :src="data.outputImage" class="generated-preview" />
+            <div class="preview-overlay">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
+              </svg>
             </div>
           </div>
           <!-- 默认 - 显示图标（行星 + 星轨，呼应宇宙主题） -->
@@ -296,9 +282,12 @@
               </button>
               <transition name="enhance-menu">
                 <div v-if="enhanceMenuOpen && !enhancing" class="prompt-enhance-menu">
-                  <button class="enhance-item" @click="onEnhance('english')">改成英文</button>
-                  <button class="enhance-item" @click="onEnhance('scifi')">科幻风格化</button>
-                  <button class="enhance-item" @click="onEnhance('cinematic')">电影感</button>
+                  <button
+                    v-for="opt in ENHANCE_OPTIONS"
+                    :key="opt.value"
+                    class="enhance-item"
+                    @click="onEnhance(opt.value)"
+                  >{{ opt.label }}</button>
                 </div>
               </transition>
             </div>
@@ -350,6 +339,22 @@
                     class="advanced-input"
                   />
                 </label>
+                <label class="advanced-field">
+                  <span class="advanced-field-label" title="同 prompt + 同 seed 一般得到相同结果，做角色一致性时有用。0 = 随机">
+                    Seed
+                  </span>
+                  <div class="seed-row">
+                    <input
+                      type="number"
+                      v-model.number="localSeed"
+                      placeholder="0 = 随机"
+                      min="0"
+                      max="2147483647"
+                      class="advanced-input"
+                    />
+                    <button class="seed-dice" @click.stop="rerollSeed" title="随机一个 seed">🎲</button>
+                  </div>
+                </label>
               </div>
             </transition>
           </template>
@@ -377,30 +382,6 @@
                 <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
                 <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
                 <RatioSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :resolution="data.resolution" @update:resolution="onResolutionChange" />
-                <div class="seed-input" @click.stop @mousedown.stop>
-                  <label title="随机种子；相同 seed + prompt 应得到稳定结果。0 = 随机">
-                    <span class="seed-label">seed</span>
-                    <input
-                      type="number"
-                      v-model.number="localSeed"
-                      placeholder="0"
-                      min="0"
-                      max="2147483647"
-                    />
-                  </label>
-                  <button class="seed-dice" @click.stop="rerollSeed" title="随机一个 seed">🎲</button>
-                </div>
-                <div class="batch-selector" @click.stop @mousedown.stop title="一次生成的候选数量">
-                  <span class="batch-label">×</span>
-                  <button
-                    v-for="n in [1, 2, 4]"
-                    :key="n"
-                    type="button"
-                    class="batch-btn"
-                    :class="{ active: localBatchN === n }"
-                    @click.stop="localBatchN = n"
-                  >{{ n }}</button>
-                </div>
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
@@ -563,7 +544,7 @@ import ProviderSelector from './ProviderSelector.vue'
 import StylePresetPicker from './StylePresetPicker.vue'
 import InpaintingEditor from './InpaintingEditor.vue'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
-import { enhancePrompt, type EnhanceStyle } from '@/services/promptEnhancer'
+import { enhancePrompt, ENHANCE_OPTIONS, type EnhanceStyle } from '@/services/promptEnhancer'
 import { applyPreset, type StylePreset } from '@/services/stylePresets'
 import { persistImage } from '@/services/imageStorage'
 
@@ -594,13 +575,6 @@ watch(localSeed, (v) => {
 })
 function rerollSeed() {
   localSeed.value = Math.floor(Math.random() * 2_000_000_000)
-}
-const localBatchN = ref<number>(((props.data as any).batchN as number) || 1)
-watch(localBatchN, (v) => {
-  nodeStore.updateNodeData(props.id, { batchN: v })
-})
-function pickCandidate(url: string) {
-  nodeStore.pickCandidate(props.id, url)
 }
 const advancedOpen = ref(false)
 const localNegativePrompt = ref<string>(((props.data as any).negativePrompt as string) || '')
@@ -2621,12 +2595,14 @@ const typeLabel = computed(() => {
   right: 0;
   display: flex;
   flex-direction: column;
-  min-width: 110px;
+  min-width: 140px;
+  max-height: 320px;
+  overflow-y: auto;
   background: rgba(10, 14, 26, 0.96);
   border: 1px solid rgba(110, 231, 255, 0.35);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(110, 231, 255, 0.15);
-  overflow: hidden;
+  overflow-x: hidden;
 }
 .enhance-item {
   background: transparent;
@@ -2920,41 +2896,15 @@ const typeLabel = computed(() => {
   transform: rotate(90deg);
 }
 
-.seed-input {
+.seed-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: rgba(110, 231, 255, 0.05);
-  border: 1px solid rgba(110, 231, 255, 0.15);
-  border-radius: 6px;
-  font-size: 11px;
-  color: #6ee7ff;
+  gap: 6px;
+  flex: 1;
 }
-.seed-input label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: text;
-}
-.seed-label {
-  user-select: none;
-  font-weight: 500;
-}
-.seed-input input {
-  width: 70px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(110, 231, 255, 0.2);
-  color: #fff;
-  padding: 2px 6px;
-  border-radius: 3px;
+.seed-row .advanced-input {
+  flex: 1;
   font-family: 'Courier New', monospace;
-  font-size: 11px;
-}
-.seed-input input:focus {
-  outline: none;
-  border-color: rgba(110, 231, 255, 0.6);
-  box-shadow: 0 0 6px rgba(110, 231, 255, 0.3);
 }
 .seed-dice {
   background: transparent;
@@ -3058,98 +3008,5 @@ const typeLabel = computed(() => {
   cursor: not-allowed;
   border-radius: 6px;
   text-shadow: 0 0 6px rgba(255, 184, 108, 0.5);
-}
-
-/* 批次选择器 */
-.batch-selector {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 6px;
-  background: rgba(110, 231, 255, 0.05);
-  border: 1px solid rgba(110, 231, 255, 0.15);
-  border-radius: 6px;
-  font-size: 11px;
-  color: #6ee7ff;
-}
-.batch-label {
-  user-select: none;
-  font-weight: 500;
-  margin-right: 2px;
-  opacity: 0.7;
-}
-.batch-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: rgba(110, 231, 255, 0.7);
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 600;
-  transition: all 0.15s;
-}
-.batch-btn:hover { color: #fff; background: rgba(110, 231, 255, 0.1); }
-.batch-btn.active {
-  background: rgba(110, 231, 255, 0.2);
-  color: #fff;
-  border-color: rgba(110, 231, 255, 0.4);
-  box-shadow: 0 0 6px rgba(110, 231, 255, 0.4);
-}
-
-/* 候选网格 */
-.image-output {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
-  gap: 4px;
-}
-.candidates-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 3px;
-  padding: 3px;
-  flex-shrink: 0;
-}
-.image-output > .image-thumbnail {
-  flex: 1;
-  min-height: 0;
-  height: auto;
-  width: 100%;
-}
-.candidate-item {
-  aspect-ratio: 1;
-  border-radius: 4px;
-  overflow: hidden;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: all 0.2s;
-  position: relative;
-}
-.candidate-item img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.candidate-item:hover {
-  border-color: rgba(110, 231, 255, 0.5);
-  transform: scale(1.03);
-}
-.candidate-item.active {
-  border-color: #6ee7ff;
-  box-shadow: 0 0 10px rgba(110, 231, 255, 0.5);
-}
-.candidate-item.active::after {
-  content: '✓';
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  color: #6ee7ff;
-  font-weight: bold;
-  font-size: 14px;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
 }
 </style>

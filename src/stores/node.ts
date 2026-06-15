@@ -18,16 +18,12 @@ export interface NodeData {
   outputVideo?: string
   outputAudio?: string
   outputText?: string
-  /** 多图候选；用户挑一张回填到 outputImage，其它仍保留可切回 */
-  candidates?: string[]
   // AI绘图节点参数
   prompt?: string
   negativePrompt?: string
   size?: string
   style?: string
   seed?: number
-  /** 一次生成数量：1 / 2 / 4 */
-  batchN?: number
   // AI视频节点参数
   providerId?: string
   model?: string
@@ -339,15 +335,6 @@ export const useNodeStore = defineStore('node', () => {
       status: priorImage ? 'completed' : 'idle',
       progress: undefined,
       error: undefined,
-    })
-  }
-
-  function pickCandidate(nodeId: string, url: string) {
-    const node = nodes.value.find((n) => n.id === nodeId)
-    if (!node) return
-    updateNodeData(nodeId, {
-      outputImage: url,
-      output: { url, timestamp: Date.now() },
     })
   }
 
@@ -680,7 +667,7 @@ export const useNodeStore = defineStore('node', () => {
         imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
-        n: data.batchN ? Math.max(1, Math.min(4, data.batchN)) : 1,
+        n: 1,
         signal: abortCtrl.signal,
         onProgress: ({ progress }) => {
           realProgressReceived = true
@@ -700,7 +687,6 @@ export const useNodeStore = defineStore('node', () => {
         status: 'completed',
         progress: 100,
         outputImage: primary,
-        candidates: urls.length > 1 ? urls : undefined,
         output: { url: primary, timestamp: Date.now() },
       })
       // 全部候选都进资产库（用户后续翻历史时都能看见）
@@ -850,7 +836,6 @@ export const useNodeStore = defineStore('node', () => {
     executeNode,
     cancelExecution,
     cancelImageNode,
-    pickCandidate,
     resetNode,
     init,
     persist,
