@@ -351,6 +351,16 @@ export const useNodeStore = defineStore('node', () => {
     const modelId = data.model || 'doubao-seedance-2-0-260128'
     const isOmni = modelId === 'gemini-omni'
 
+    // 合并所有参考图：上游 ai-image 节点输出 + 节点 inputImages 多图列表，去重后保留顺序
+    const refImages: string[] = []
+    if (imageUrl) refImages.push(imageUrl)
+    const inputImagesList = (data as any).inputImages
+    if (Array.isArray(inputImagesList)) {
+      for (const u of inputImagesList as string[]) {
+        if (u && !refImages.includes(u)) refImages.push(u)
+      }
+    }
+
     // 视频素材只有 gemini-omni 支持，其他模型直接拒绝（避免静默丢素材）
     if (videoUrl && !isOmni) {
       updateNodeData(nodeId, {
@@ -366,7 +376,7 @@ export const useNodeStore = defineStore('node', () => {
     //   都没参考素材 → t2v
     const mode: 't2v' | 'reference_material' | 'r2v' | 'edit' = videoUrl
       ? 'edit'
-      : imageUrl
+      : refImages.length > 0
       ? isOmni
         ? 'r2v'
         : 'reference_material'
@@ -390,18 +400,22 @@ export const useNodeStore = defineStore('node', () => {
       outputVideo: undefined,
     })
 
-    // 本地 blob:/data: URL 视频 API 拿不到，先上传到图床换公网 URL
-    if (imageUrl && !imageUrl.startsWith('http')) {
-      try {
-        imageUrl = await ensureRemoteAssetUrl(imageUrl, apiKey)
-      } catch (err) {
-        updateNodeData(nodeId, {
-          status: 'error',
-          error: err instanceof Error ? err.message : '参考图上传失败',
-        })
-        return
+    // 本地 blob:/data: URL 视频 API 拿不到，先全部上传到图床换公网 URL
+    for (let i = 0; i < refImages.length; i++) {
+      const u = refImages[i]
+      if (u && !u.startsWith('http')) {
+        try {
+          refImages[i] = await ensureRemoteAssetUrl(u, apiKey)
+        } catch (err) {
+          updateNodeData(nodeId, {
+            status: 'error',
+            error: `第 ${i + 1} 张参考图上传失败：${err instanceof Error ? err.message : ''}`,
+          })
+          return
+        }
       }
     }
+    imageUrl = refImages[0]
     if (videoUrl && !videoUrl.startsWith('http')) {
       try {
         videoUrl = await ensureRemoteAssetUrl(videoUrl, apiKey)
@@ -414,7 +428,8 @@ export const useNodeStore = defineStore('node', () => {
       }
     }
 
-    // 构造 content 数组：edit/reference_material 走 content 通道，t2v 不带
+    // 构造 content 数组：edit/reference_material/r2v 走 content 通道，t2v 不带
+    // 多张参考图按顺序各 push 一条 image_url 项（火山方舟 reference_material 协议要求）
     const content: import('@/services/ai-provider').ContentItem[] = []
     if (mode !== 't2v') {
       if (promptText) content.push({ type: 'text', text: promptText })
@@ -426,29 +441,24 @@ export const useNodeStore = defineStore('node', () => {
           name: '1',
         })
       }
-      if (imageUrl) {
+      refImages.forEach((u, idx) => {
         content.push({
           type: 'image_url',
-          image_url: imageUrl,
+          image_url: u,
           role: 'reference_image',
-          name: videoUrl ? '2' : '1',
+          name: String(videoUrl ? idx + 2 : idx + 1),
         })
-      }
+      })
     }
 
     let taskId: string
     try {
-      // 收集所有参考图 URL（inputImages + resolveAssets 的 imageUrl）
-      const allImageUrls: string[] = []
-      if (Array.isArray((data as any).inputImages)) allImageUrls.push(...(data as any).inputImages)
-      if (imageUrl && !allImageUrls.includes(imageUrl)) allImageUrls.push(imageUrl)
-
       const res = await provider.createTask({
         model: modelId,
         prompt: promptText,
         mode,
         ...(content.length ? { content } : {}),
-        image_urls: allImageUrls.length > 0 ? allImageUrls : undefined,
+        image_urls: refImages.length > 0 ? refImages : undefined,
         ratio: data.ratio,
         resolution: data.resolution,
         duration: data.duration,

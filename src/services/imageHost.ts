@@ -58,11 +58,18 @@ export async function ensureRemoteAssetUrl(url: string, apiKey: string): Promise
   const form = new FormData()
   form.append('file', file)
 
-  const res = await fetch(UPLOAD_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: form,
-  })
+  let res: Response
+  try {
+    res = await fetch(UPLOAD_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    })
+  } catch (err) {
+    console.error('[imageHost] upload network error:', err)
+    const msg = err instanceof Error ? err.message : '未知网络错误'
+    throw new Error(`无法连接图床（${UPLOAD_URL}）：${msg}`)
+  }
   if (!res.ok) {
     let detail = ''
     try {

@@ -195,6 +195,8 @@ export class ChuhaiyingVideoProvider implements AIProvider {
         }
       }
     }
+    // image_url / image_urls / content 三处来源叠加可能重复，统一去重
+    refs.splice(0, refs.length, ...new Set(refs))
 
     const body: Record<string, any> = {
       model,
@@ -265,7 +267,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       if (params.duration && params.duration > 0) body.seconds = String(params.duration)
 
       if (refs.length) {
-        body.reference_images = Array.from(new Set(refs))
+        body.reference_images = refs
       }
     }
 
