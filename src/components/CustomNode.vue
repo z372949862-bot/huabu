@@ -182,6 +182,13 @@
               <div v-if="asset.type === 'image'" class="asset-thumbnail">
                 <img :src="asset.url" :alt="asset.name" />
                 <div v-if="asset.fromNode" class="node-badge">节点</div>
+                <button
+                  v-if="type === 'ai-image' && !refImageBlocked"
+                  class="ref-tag-badge"
+                  :class="['ref-tag-' + (refTagOf(asset.id) || 'none')]"
+                  :title="refTagTitle(refTagOf(asset.id))"
+                  @click.stop="cycleRefTag(asset.id)"
+                >{{ refTagLetter(refTagOf(asset.id)) }}</button>
                 <button class="asset-remove" @click.stop="asset.fromNode ? removeConnectedAsset(asset.id) : removeAsset(asset.id)"><svg viewBox="0 0 16 16" width="10" height="10" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg></button>
               </div>
 
@@ -514,6 +521,7 @@ import { ref, computed, watch, provide, onMounted, nextTick } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { useNodeStore } from '@/stores/node'
+import type { RefImageTag } from '@/stores/node'
 import { useAIStore } from '@/stores/ai'
 import { useAssetStore, type GeneratedAsset } from '@/stores/asset'
 import RatioSelector from './RatioSelector.vue'
@@ -598,6 +606,34 @@ function onPickPreset(p: StylePreset) {
     editableRef.value.innerHTML = promptTextToHtml(next)
   }
   nodeStore.updateNodeData(props.id, { prompt: next })
+}
+
+// 参考图角色标签：subject / style / scene / 无
+const REF_TAG_CYCLE: (RefImageTag | undefined)[] = [undefined, 'subject', 'style', 'scene']
+function refTagOf(assetId: string): RefImageTag | undefined {
+  const map = (props.data as any).refTags as Record<string, RefImageTag> | undefined
+  return map?.[assetId]
+}
+function refTagLetter(tag: RefImageTag | undefined): string {
+  if (tag === 'subject') return '主'
+  if (tag === 'style') return '风'
+  if (tag === 'scene') return '景'
+  return '·'
+}
+function refTagTitle(tag: RefImageTag | undefined): string {
+  if (tag === 'subject') return '角色 / 主体；优先送入第一参考位'
+  if (tag === 'style') return '风格参考'
+  if (tag === 'scene') return '场景参考'
+  return '未标注；点击循环 主→风→景→无'
+}
+function cycleRefTag(assetId: string) {
+  const cur = refTagOf(assetId)
+  const idx = REF_TAG_CYCLE.indexOf(cur)
+  const next = REF_TAG_CYCLE[(idx + 1) % REF_TAG_CYCLE.length]
+  const map = { ...((props.data as any).refTags || {}) } as Record<string, RefImageTag>
+  if (next) map[assetId] = next
+  else delete map[assetId]
+  nodeStore.updateNodeData(props.id, { refTags: map } as any)
 }
 // 视频/图片节点共用：先取节点 data 里的 providerId，否则按类型用全局默认
 const selectedProviderId = ref<string>(
@@ -1410,13 +1446,24 @@ function handleGenerateClick() {
 const executeNode = async () => {
   if (props.data.status === 'running') return
   // 收集所有参考图 URL（不仅是第一张）
-  const refImageUrls: string[] = []
+  const refImageEntries: { id: string; url: string }[] = []
   let inputVideo: string | undefined = undefined
   if (props.type === 'ai-video' || props.type === 'ai-image') {
     for (const a of allAssets.value) {
-      if (a.type === 'image' && a.url) refImageUrls.push(a.url)
+      if (a.type === 'image' && a.url) refImageEntries.push({ id: a.id, url: a.url })
     }
   }
+  // 图片节点：按角色标签排序（subject 优先 → 无 → style → scene）
+  if (props.type === 'ai-image') {
+    const tagMap = (props.data as any).refTags as Record<string, RefImageTag> | undefined
+    const priority: Record<string, number> = { subject: 0, none: 1, style: 2, scene: 3 }
+    refImageEntries.sort((a, b) => {
+      const ta = (tagMap?.[a.id] as string) || 'none'
+      const tb = (tagMap?.[b.id] as string) || 'none'
+      return (priority[ta] ?? 1) - (priority[tb] ?? 1)
+    })
+  }
+  const refImageUrls = refImageEntries.map((e) => e.url)
   if (props.type === 'ai-video') {
     const refVideo = allAssets.value.find((a) => a.type === 'video' && a.url)
     if (refVideo) inputVideo = refVideo.url
@@ -2149,6 +2196,51 @@ const typeLabel = computed(() => {
   font-size: 10px;
   color: white;
   font-weight: 500;
+}
+
+/* 参考图角色标签：bottom-right 小圆徽章，点击循环 */
+.ref-tag-badge {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(20, 24, 36, 0.85);
+  color: rgba(255, 255, 255, 0.55);
+  padding: 0;
+  line-height: 1;
+  transition: all 0.15s;
+  backdrop-filter: blur(2px);
+}
+.ref-tag-badge:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+.ref-tag-badge.ref-tag-subject {
+  background: rgba(110, 231, 255, 0.85);
+  color: #04121a;
+  border-color: rgba(110, 231, 255, 1);
+  box-shadow: 0 0 6px rgba(110, 231, 255, 0.6);
+}
+.ref-tag-badge.ref-tag-style {
+  background: rgba(167, 139, 250, 0.85);
+  color: #18113b;
+  border-color: rgba(167, 139, 250, 1);
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.6);
+}
+.ref-tag-badge.ref-tag-scene {
+  background: rgba(255, 168, 110, 0.9);
+  color: #2a1607;
+  border-color: rgba(255, 168, 110, 1);
+  box-shadow: 0 0 6px rgba(255, 168, 110, 0.55);
 }
 
 .asset-upload {

@@ -40,7 +40,11 @@ export interface NodeData {
   taskId?: string
   // 本地上传素材（data URL，跨会话持久化）
   _uploads?: Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>
+  /** 参考图角色标签：assetId → subject/style/scene。subject 优先序最高。 */
+  refTags?: Record<string, RefImageTag>
 }
+
+export type RefImageTag = 'subject' | 'style' | 'scene'
 
 const POLL_INTERVAL_MS = 3000
 const MAX_RUNTIME_MS = 30 * 60 * 1000 // 30 分钟
