@@ -27,13 +27,20 @@
             <div class="progress-number">{{ data.progress || 0 }}%</div>
             <div class="progress-text">生成中...</div>
           </div>
-          <!-- 已完成 - 显示生成的图片，点击预览 -->
-          <div v-else-if="data.status === 'completed' && data.outputImage" class="image-thumbnail" @click.stop="previewImage">
+          <!-- 已完成 - 显示生成的图片，单击展开生成卡片，双击预览大图 -->
+          <div
+            v-else-if="data.status === 'completed' && data.outputImage"
+            class="image-thumbnail"
+            @click.stop="selectNode"
+            @dblclick.stop="previewImage"
+            title="单击 = 展开/收起生成卡片；双击 = 预览大图"
+          >
             <img :src="data.outputImage" class="generated-preview" />
             <div class="preview-overlay">
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
               </svg>
+              <span class="preview-overlay-hint">双击预览</span>
             </div>
           </div>
           <!-- 默认 - 显示图标 -->
@@ -57,8 +64,14 @@
             <div class="progress-number">{{ data.progress || 0 }}%</div>
             <div class="progress-text">生成中...</div>
           </div>
-          <!-- 已完成 - 显示视频首帧，点击播放 -->
-          <div v-else-if="data.status === 'completed' && data.outputVideo" class="video-thumbnail" @click.stop="playVideo">
+          <!-- 已完成 - 显示视频首帧，单击展开生成卡片，双击播放大图 -->
+          <div
+            v-else-if="data.status === 'completed' && data.outputVideo"
+            class="video-thumbnail"
+            @click.stop="selectNode"
+            @dblclick.stop="playVideo"
+            title="单击 = 展开/收起生成卡片；双击 = 播放视频"
+          >
             <video
               ref="videoThumbnailRef"
               :src="data.outputVideo"
@@ -70,6 +83,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 16 16" fill="white">
                 <path d="M4.66699 2.64248C4.66717 1.82358 5.59736 1.35167 6.25781 1.83584L13.5674 7.19619C14.1117 7.59579 14.1118 8.40897 13.5674 8.8085L6.25781 14.1688C5.59734 14.6528 4.6671 14.1811 4.66699 13.3622V2.64248Z"/>
               </svg>
+              <span class="play-overlay-hint">双击播放</span>
             </div>
           </div>
           <!-- 默认 - 显示图标 -->
@@ -1727,20 +1741,30 @@ const typeLabel = computed(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 56px;
-  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 6px 10px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   background: rgba(0, 0, 0, 0.4);
   border: 2px solid rgba(255,255,255,0.3);
-  border-radius: 50%;
+  border-radius: 18px;
   backdrop-filter: blur(8px);
   transition: all 0.3s;
   pointer-events: none;
 }
 .play-overlay svg {
   width: 24px; height: 24px;
+}
+.play-overlay-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
 }
 
 .video-thumbnail:hover .play-overlay {
@@ -1880,18 +1904,28 @@ const typeLabel = computed(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 38px;
-  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 6px 10px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   background: rgba(0, 0, 0, 0.42);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 50%;
+  border-radius: 14px;
   backdrop-filter: blur(2px);
   transition: opacity 0.25s, background 0.25s, transform 0.25s;
   pointer-events: none;
   opacity: 0;
+}
+.preview-overlay-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
 }
 
 .image-thumbnail:hover .preview-overlay {
