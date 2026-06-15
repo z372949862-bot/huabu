@@ -675,7 +675,7 @@ export const useNodeStore = defineStore('node', () => {
         imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
-        n: data.batchN && data.batchN > 1 ? data.batchN : 1,
+        n: data.batchN ? Math.max(1, Math.min(4, data.batchN)) : 1,
         signal: abortCtrl.signal,
         onProgress: ({ progress }) => {
           realProgressReceived = true

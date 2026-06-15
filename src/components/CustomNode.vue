@@ -2760,6 +2760,12 @@ const typeLabel = computed(() => {
   padding: 3px;
   flex-shrink: 0;
 }
+.image-output > .image-thumbnail {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  width: 100%;
+}
 .candidate-item {
   aspect-ratio: 1;
   border-radius: 4px;
