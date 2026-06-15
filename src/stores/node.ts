@@ -660,6 +660,7 @@ export const useNodeStore = defineStore('node', () => {
         imageUrls: refImages,
         aspectRatio: data.ratio || '1:1',
         imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
+        seed: typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         signal: abortCtrl.signal,
         onProgress: ({ progress }) => {
           realProgressReceived = true

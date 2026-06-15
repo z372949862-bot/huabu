@@ -127,6 +127,7 @@ export class ChuhaiyingImageProvider implements ImageProvider {
       prompt: params.prompt,
       n: params.n ?? 1,
     }
+    if (params.seed && params.seed > 0) body.seed = params.seed
 
     // kling 系列需要 model_name
     if (tpl?.modelName) {
@@ -209,6 +210,7 @@ export class ChuhaiyingImageProvider implements ImageProvider {
     }
     // kling 系列需要 model_name
     if (tpl?.modelName) createBody.model_name = tpl.modelName
+    if (params.seed && params.seed > 0) createBody.seed = params.seed
 
     const createRes = await this.request<any>(
       `${this.baseUrl}/v1/responses`,

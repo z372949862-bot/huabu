@@ -281,6 +281,19 @@
                 <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
                 <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
                 <RatioSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :resolution="data.resolution" @update:resolution="onResolutionChange" />
+                <div class="seed-input" @click.stop @mousedown.stop>
+                  <label title="随机种子；相同 seed + prompt 应得到稳定结果。0 = 随机">
+                    <span class="seed-label">seed</span>
+                    <input
+                      type="number"
+                      v-model.number="localSeed"
+                      placeholder="0"
+                      min="0"
+                      max="2147483647"
+                    />
+                  </label>
+                  <button class="seed-dice" @click.stop="rerollSeed" title="随机一个 seed">🎲</button>
+                </div>
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
@@ -452,6 +465,13 @@ const isSelected = computed(() => nodeStore.selectedNodeId === props.id)
 const currentTab = ref('text-to-video')
 // 比例从节点 data.ratio 恢复（没有才用默认 16:9）；否则切走再切回会丢失用户选择
 const selectedRatio = ref<string>((props.data as any).ratio || '16:9')
+const localSeed = ref<number>(((props.data as any).seed as number) || 0)
+watch(localSeed, (v) => {
+  nodeStore.updateNodeData(props.id, { seed: typeof v === 'number' ? v : 0 })
+})
+function rerollSeed() {
+  localSeed.value = Math.floor(Math.random() * 2_000_000_000)
+}
 // 视频/图片节点共用：先取节点 data 里的 providerId，否则按类型用全局默认
 const selectedProviderId = ref<string>(
   (props.data as any).providerId
@@ -2473,5 +2493,53 @@ const typeLabel = computed(() => {
 .text-modal-close:hover {
   background: rgba(0,217,255,0.4);
   transform: rotate(90deg);
+}
+
+.seed-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(110, 231, 255, 0.05);
+  border: 1px solid rgba(110, 231, 255, 0.15);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #6ee7ff;
+}
+.seed-input label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: text;
+}
+.seed-label {
+  user-select: none;
+  font-weight: 500;
+}
+.seed-input input {
+  width: 70px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(110, 231, 255, 0.2);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+.seed-input input:focus {
+  outline: none;
+  border-color: rgba(110, 231, 255, 0.6);
+  box-shadow: 0 0 6px rgba(110, 231, 255, 0.3);
+}
+.seed-dice {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  transition: transform 0.2s;
+}
+.seed-dice:hover {
+  transform: rotate(15deg);
 }
 </style>

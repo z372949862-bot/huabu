@@ -41,6 +41,8 @@ export interface GenerateImageParams {
    * 与 provider 内部超时 controller 合并使用，谁先触发都会中止 fetch。
    */
   signal?: AbortSignal
+  /** 随机种子；同 prompt + 同 seed 应得到稳定结果。0 / undefined = 随机。 */
+  seed?: number
 }
 
 export interface ImageGenerationResult {
@@ -139,6 +141,9 @@ export class GeekNowImageProvider implements ImageProvider {
         },
       },
     }
+    if (params.seed && params.seed > 0) {
+      ;(body.generationConfig as any).seed = params.seed
+    }
 
     const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(params.model)}:generateContent`
     const data = await this.request<any>(url, body, params.signal)
@@ -201,6 +206,7 @@ export class GeekNowImageProvider implements ImageProvider {
       n: params.n ?? 1,
       size,
     }
+    if (params.seed && params.seed > 0) body.seed = params.seed
 
     // 参考图：传成 base64 数组（去掉 data: 前缀，按裸 base64 发）
     if (params.imageUrls?.length && tpl?.supportsReferenceImage !== false) {
