@@ -160,7 +160,9 @@
           </div>
 
           <!-- 素材缩略图区域 -->
-          <div v-if="(type === 'ai-video' || type === 'ai-image') && filteredAssetsForNode.length > 0" class="assets-preview">
+          <div v-if="(type === 'ai-video' || type === 'ai-image') && filteredAssetsForNode.length > 0"
+            class="assets-preview"
+            :class="{ 'refs-blocked': refImageBlocked }">
             <div class="asset-item" v-for="asset in filteredAssetsForNode" :key="asset.id">
               <!-- 图片缩略图 -->
               <div v-if="asset.type === 'image'" class="asset-thumbnail">
@@ -205,7 +207,8 @@
           </div>
 
           <!-- 首次上传按钮（无素材时） -->
-          <div v-if="shouldShowUploadPrompt" class="upload-prompt">
+          <div v-if="shouldShowUploadPrompt" class="upload-prompt"
+            :class="{ 'refs-blocked': refImageBlocked }">
             <label class="upload-prompt-btn">
               <input
                 type="file"
@@ -516,6 +519,17 @@ const availableImageModels = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return config?.models ?? []
 })
+
+// 当前选中的图片模型（找不到返回 undefined）
+const currentImageModel = computed(() => {
+  const config = aiStore.getProviderConfig(selectedProviderId.value)
+  return config?.models.find((m) => m.id === selectedModel.value)
+})
+
+// 当前图片模型是否明确不支持参考图（如 Grok 4.2）
+const refImageBlocked = computed(() =>
+  props.type === 'ai-image' && currentImageModel.value?.supportsReferenceImage === false
+)
 // 视频中转站下拉用
 const providerOptions = computed(() =>
   aiStore.videoProviders.map((p) => ({
@@ -2633,5 +2647,31 @@ const typeLabel = computed(() => {
 .expand-advanced-leave-from {
   max-height: 80px;
   opacity: 1;
+}
+
+.assets-preview.refs-blocked,
+.upload-prompt.refs-blocked {
+  position: relative;
+  opacity: 0.35;
+  pointer-events: none;
+  filter: saturate(0.4);
+}
+.assets-preview.refs-blocked::after,
+.upload-prompt.refs-blocked::after {
+  content: '⚠ 当前模型不支持参考图，将被忽略';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 5, 0, 0.8);
+  color: #ffb86c;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  pointer-events: auto;
+  cursor: not-allowed;
+  border-radius: 6px;
+  text-shadow: 0 0 6px rgba(255, 184, 108, 0.5);
 }
 </style>
