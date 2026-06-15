@@ -152,6 +152,12 @@
                 <img v-if="asset.type === 'image'" :src="asset.url" class="history-thumb-media" />
                 <video v-else :src="asset.url" class="history-thumb-media" preload="metadata" muted />
                 <button
+                  class="history-thumb-fav"
+                  :class="{ active: asset.favorite }"
+                  :title="asset.favorite ? '取消收藏' : '收藏（置顶）'"
+                  @click.stop="assetStore.toggleFavorite(asset.id)"
+                >★</button>
+                <button
                   class="history-thumb-delete"
                   title="从历史中删除"
                   @click.stop="deleteHistoryAsset(asset.id)"
@@ -1369,11 +1375,13 @@ const updatePrompt = () => {
 }
 
 // ============= 节点内历史 =============
-// 按节点 id 过滤出本节点的生成历史；只显示与当前节点类型匹配的资产
+// 按节点 id 过滤出本节点的生成历史；只显示与当前节点类型匹配的资产；收藏置顶
 const nodeHistory = computed(() => {
   const wantType = props.type === 'ai-image' ? 'image' : props.type === 'ai-video' ? 'video' : null
   if (!wantType) return []
-  return assetStore.assetsForNode(props.id).filter((a) => a.type === wantType)
+  const list = assetStore.assetsForNode(props.id).filter((a) => a.type === wantType)
+  // 稳定排序：收藏的优先，其它保持原（按时间倒序）
+  return [...list].sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite))
 })
 
 // 当前节点 data 上显示的输出 url（用于历史条里高亮当前那张）
@@ -2094,6 +2102,38 @@ const typeLabel = computed(() => {
 }
 .history-thumb-delete:hover {
   background: #ff4444;
+}
+.history-thumb-fav {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: all 0.15s;
+}
+.history-thumb:hover .history-thumb-fav,
+.history-thumb-fav.active {
+  display: flex;
+}
+.history-thumb-fav.active {
+  background: rgba(255, 200, 50, 0.95);
+  color: #2a1d04;
+  box-shadow: 0 0 8px rgba(255, 200, 50, 0.6);
+}
+.history-thumb-fav:hover:not(.active) {
+  background: rgba(255, 200, 50, 0.4);
+  color: #fff;
 }
 
 .generator-content {

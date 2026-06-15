@@ -30,6 +30,8 @@ export interface GeneratedAsset {
   resolution?: string
   duration?: number
   createdAt: number
+  /** 收藏状态：true 时 history-strip 内置顶；undefined / false = 普通 */
+  favorite?: boolean
 }
 
 const STORE_KEY = 'generatedAssets'
@@ -91,6 +93,13 @@ export const useAssetStore = defineStore('asset', () => {
     persist()
   }
 
+  function toggleFavorite(id: string) {
+    const a = assets.value.find((x) => x.id === id)
+    if (!a) return
+    a.favorite = !a.favorite
+    persist()
+  }
+
   function clearAll() {
     assets.value = []
     persist()
@@ -141,6 +150,7 @@ export const useAssetStore = defineStore('asset', () => {
     assetsForNode,
     addAsset,
     removeAsset,
+    toggleFavorite,
     clearAll,
     init,
   }
