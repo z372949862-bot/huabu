@@ -21,6 +21,7 @@ import type {
   ImageProvider,
 } from './geeknow'
 import { prepareReferenceImage } from '../imageProviderUtils'
+import { fetchWithTimeout, classifyHttpError } from './_httpUtils'
 
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const POLL_INTERVAL_MS = 2000
@@ -286,18 +287,11 @@ export class ChuhaiyingImageProvider implements ImageProvider {
   // ---------- HTTP 通用 ----------
 
   private async request<T>(url: string, body: any, externalSignal?: AbortSignal): Promise<T> {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 120_000)
-    const onExternalAbort = () => controller.abort(externalSignal!.reason)
-    if (externalSignal) {
-      if (externalSignal.aborted) controller.abort(externalSignal.reason)
-      else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
-    }
     let res: Response
     try {
-      res = await fetch(url, {
+      res = await fetchWithTimeout(url, {
         method: 'POST',
-        signal: controller.signal,
+        externalSignal,
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
@@ -305,47 +299,26 @@ export class ChuhaiyingImageProvider implements ImageProvider {
         body: JSON.stringify(body),
       })
     } catch (err) {
-      clearTimeout(timer)
-      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (externalSignal?.aborted) throw new Error('已取消')
-        throw new Error('请求超时（120 秒未响应），中转站可能负载过高，请稍后重试')
-      }
-      throw new Error(`无法连接到 ${this.baseUrl}：${err instanceof Error ? err.message : '网络错误'}`)
+      const msg = err instanceof Error ? err.message : String(err || '')
+      if (msg === '已取消' || msg.startsWith('请求超时')) throw err
+      throw new Error(`无法连接到 ${this.baseUrl}：${msg || '网络错误'}`)
     }
-    clearTimeout(timer)
-    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
     return this.parseResponse<T>(res)
   }
 
   private async requestGet<T>(url: string, externalSignal?: AbortSignal): Promise<T> {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 120_000)
-    const onExternalAbort = () => controller.abort(externalSignal!.reason)
-    if (externalSignal) {
-      if (externalSignal.aborted) controller.abort(externalSignal.reason)
-      else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
-    }
     let res: Response
     try {
-      res = await fetch(url, {
+      res = await fetchWithTimeout(url, {
         method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
+        externalSignal,
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
       })
     } catch (err) {
-      clearTimeout(timer)
-      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (externalSignal?.aborted) throw new Error('已取消')
-        throw new Error('请求超时')
-      }
-      throw new Error(`无法连接到 ${this.baseUrl}：${err instanceof Error ? err.message : '网络错误'}`)
+      const msg = err instanceof Error ? err.message : String(err || '')
+      if (msg === '已取消' || msg.startsWith('请求超时')) throw err
+      throw new Error(`无法连接到 ${this.baseUrl}：${msg || '网络错误'}`)
     }
-    clearTimeout(timer)
-    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
     return this.parseResponse<T>(res)
   }
 
@@ -356,16 +329,9 @@ export class ChuhaiyingImageProvider implements ImageProvider {
         const json = await res.json()
         detail = json?.error?.message || json?.message || JSON.stringify(json)
       } catch {
-        try {
-          detail = await res.text()
-        } catch {
-          detail = res.statusText
-        }
+        try { detail = await res.text() } catch { detail = res.statusText }
       }
-      if (res.status === 401) throw new Error('API Key 无效或已过期')
-      if (res.status === 429) throw new Error('已限流，请稍后重试')
-      if (res.status >= 500) throw new Error(`网关错误 ${res.status}：${detail}`)
-      throw new Error(`请求失败 ${res.status}：${detail}`)
+      throw new Error(classifyHttpError(res.status, detail))
     }
     return res.json() as Promise<T>
   }
