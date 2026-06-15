@@ -236,15 +236,41 @@
           </div>
 
           <!-- 富文本提示词输入 -->
-          <div
-            ref="editableRef"
-            contenteditable="true"
-            @input="handleContentEdit"
-            @click.stop
-            @mousedown="(e) => e.stopPropagation()"
-            class="generator-input editable"
-            data-placeholder="描述你想要生成的画面内容，输入 @ 引用素材..."
-          ></div>
+          <div class="prompt-input-wrap">
+            <div
+              ref="editableRef"
+              contenteditable="true"
+              @input="handleContentEdit"
+              @click.stop
+              @mousedown="(e) => e.stopPropagation()"
+              class="generator-input editable"
+              data-placeholder="描述你想要生成的画面内容，输入 @ 引用素材..."
+            ></div>
+            <div
+              v-if="type === 'ai-image'"
+              class="prompt-enhance"
+              @click.stop
+              @mousedown.stop
+            >
+              <button
+                class="prompt-enhance-btn"
+                :class="{ running: enhancing }"
+                :disabled="enhancing"
+                title="AI 改写提示词"
+                @click="enhanceMenuOpen = !enhanceMenuOpen"
+              >
+                <span v-if="!enhancing">✨</span>
+                <span v-else class="enhance-spinner">⟳</span>
+              </button>
+              <transition name="enhance-menu">
+                <div v-if="enhanceMenuOpen && !enhancing" class="prompt-enhance-menu">
+                  <button class="enhance-item" @click="onEnhance('english')">改成英文</button>
+                  <button class="enhance-item" @click="onEnhance('scifi')">科幻风格化</button>
+                  <button class="enhance-item" @click="onEnhance('cinematic')">电影感</button>
+                </div>
+              </transition>
+            </div>
+          </div>
 
           <!-- @ 提及素材列表 -->
           <transition name="mention">
@@ -485,6 +511,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, provide, onMounted, nextTick } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
+import { ElMessage } from 'element-plus'
 import { useNodeStore } from '@/stores/node'
 import { useAIStore } from '@/stores/ai'
 import { useAssetStore, type GeneratedAsset } from '@/stores/asset'
@@ -492,6 +519,7 @@ import RatioSelector from './RatioSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
+import { enhancePrompt, type EnhanceStyle } from '@/services/promptEnhancer'
 
 interface Props {
   id: string
@@ -533,6 +561,32 @@ const localNegativePrompt = ref<string>(((props.data as any).negativePrompt as s
 watch(localNegativePrompt, (v) => {
   nodeStore.updateNodeData(props.id, { negativePrompt: v || undefined })
 })
+
+// Prompt LLM 改写
+const enhancing = ref(false)
+const enhanceMenuOpen = ref(false)
+async function onEnhance(style: EnhanceStyle) {
+  enhanceMenuOpen.value = false
+  const raw = localPrompt.value.trim()
+  if (!raw) {
+    ElMessage.warning('请先输入提示词')
+    return
+  }
+  enhancing.value = true
+  try {
+    const next = await enhancePrompt(raw, style)
+    localPrompt.value = next
+    if (editableRef.value) {
+      editableRef.value.innerHTML = promptTextToHtml(next)
+    }
+    nodeStore.updateNodeData(props.id, { prompt: next })
+    ElMessage.success('提示词已改写')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '改写失败')
+  } finally {
+    enhancing.value = false
+  }
+}
 // 视频/图片节点共用：先取节点 data 里的 providerId，否则按类型用全局默认
 const selectedProviderId = ref<string>(
   (props.data as any).providerId
@@ -2297,6 +2351,85 @@ const typeLabel = computed(() => {
 
 .generator-input:focus {
   border-color: #00D9FF;
+}
+
+/* Prompt 改写按钮 */
+.prompt-input-wrap {
+  position: relative;
+}
+.prompt-enhance {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 4;
+}
+.prompt-enhance-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(110, 231, 255, 0.15);
+  border: 1px solid rgba(110, 231, 255, 0.4);
+  color: #6ee7ff;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  transition: all 0.18s;
+  backdrop-filter: blur(4px);
+}
+.prompt-enhance-btn:hover:not(:disabled) {
+  background: rgba(110, 231, 255, 0.3);
+  box-shadow: 0 0 12px rgba(110, 231, 255, 0.5);
+  transform: scale(1.08);
+}
+.prompt-enhance-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.enhance-spinner {
+  display: inline-block;
+  animation: enhance-spin 0.9s linear infinite;
+}
+@keyframes enhance-spin {
+  to { transform: rotate(360deg); }
+}
+.prompt-enhance-menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+  background: rgba(10, 14, 26, 0.96);
+  border: 1px solid rgba(110, 231, 255, 0.35);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(110, 231, 255, 0.15);
+  overflow: hidden;
+}
+.enhance-item {
+  background: transparent;
+  border: none;
+  color: #e6f7ff;
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.enhance-item:hover {
+  background: rgba(110, 231, 255, 0.18);
+  color: #6ee7ff;
+}
+.enhance-menu-enter-active,
+.enhance-menu-leave-active {
+  transition: opacity 0.15s, transform 0.15s;
+}
+.enhance-menu-enter-from,
+.enhance-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* 素材徽章 */
