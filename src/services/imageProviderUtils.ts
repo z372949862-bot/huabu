@@ -87,3 +87,32 @@ export async function compressImageToDataUrl(
     return srcDataUrl
   }
 }
+
+/**
+ * Resolve a reference image URL into the three shapes providers actually need:
+ * - `dataUrl`  — `data:image/...;base64,...` (chuhaiying expects this)
+ * - `mimeType` — the resolved mime type (Gemini's `inlineData.mimeType`)
+ * - `base64`   — bare base64 string (geeknow OpenAI path expects this)
+ *
+ * When `compress` is true, runs through `compressImageToDataUrl` (1024px JPEG 0.85);
+ * otherwise returns the original bytes unchanged. Set `compress` only for multi-image
+ * requests — single-image precision flows should keep full resolution.
+ *
+ * Always returns a valid result: if compression's data URL fails to parse we fall
+ * back to the original base64/mimeType so the request can still go through.
+ */
+export async function prepareReferenceImage(
+  url: string,
+  opts: { compress: boolean },
+): Promise<{ dataUrl: string; mimeType: string; base64: string }> {
+  const { base64, mimeType } = await urlToBase64(url)
+  if (!opts.compress) {
+    return { dataUrl: `data:${mimeType};base64,${base64}`, mimeType, base64 }
+  }
+  const dataUrl = await compressImageToDataUrl(base64, mimeType)
+  const match = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
+  if (match) {
+    return { dataUrl, mimeType: match[1], base64: match[2] }
+  }
+  return { dataUrl: `data:${mimeType};base64,${base64}`, mimeType, base64 }
+}

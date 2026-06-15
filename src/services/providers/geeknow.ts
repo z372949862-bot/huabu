@@ -14,7 +14,7 @@ import {
   ratioToSize,
   type ImageModelTemplate,
 } from '../imageModelTemplates'
-import { urlToBase64, compressImageToDataUrl } from '../imageProviderUtils'
+import { prepareReferenceImage } from '../imageProviderUtils'
 
 export interface GenerateImageParams {
   model: string
@@ -110,20 +110,11 @@ export class GeekNowImageProvider implements ImageProvider {
   ): Promise<ImageGenerationResult> {
     const parts: any[] = [{ text: params.prompt }]
     if (params.imageUrls?.length) {
+      // 多图参考时压到 1024px JPEG 0.85，避免请求体过大触发 413；单图保留原图
       const shouldCompress = params.imageUrls.length > 1
       for (const url of params.imageUrls) {
-        const { base64, mimeType } = await urlToBase64(url)
-        if (shouldCompress) {
-          const dataUrl = await compressImageToDataUrl(base64, mimeType)
-          const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
-          if (m) {
-            parts.push({ inlineData: { mimeType: m[1], data: m[2] } })
-          } else {
-            parts.push({ inlineData: { mimeType, data: base64 } })
-          }
-        } else {
-          parts.push({ inlineData: { mimeType, data: base64 } })
-        }
+        const { mimeType, base64 } = await prepareReferenceImage(url, { compress: shouldCompress })
+        parts.push({ inlineData: { mimeType, data: base64 } })
       }
     }
 
@@ -207,20 +198,14 @@ export class GeekNowImageProvider implements ImageProvider {
 
     // 参考图：传成 base64 数组（去掉 data: 前缀，按裸 base64 发）
     if (params.imageUrls?.length && tpl?.supportsReferenceImage !== false) {
-      const arr: string[] = []
       // 多图参考时压到 1024px JPEG 0.85，避免请求体过大触发 413；单图保留原图
       const shouldCompress = params.imageUrls.length > 1
+      const refImages: string[] = []
       for (const url of params.imageUrls) {
-        const { base64, mimeType } = await urlToBase64(url)
-        if (shouldCompress) {
-          const dataUrl = await compressImageToDataUrl(base64, mimeType)
-          const m = dataUrl.match(/^data:[^;]+;base64,(.*)$/)
-          arr.push(m ? m[1] : base64)
-        } else {
-          arr.push(base64)
-        }
+        const { base64 } = await prepareReferenceImage(url, { compress: shouldCompress })
+        refImages.push(base64)
       }
-      body.image = arr
+      body.image = refImages
     }
 
     if (isGptImage) {
