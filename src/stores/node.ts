@@ -17,12 +17,16 @@ export interface NodeData {
   outputVideo?: string
   outputAudio?: string
   outputText?: string
+  /** 多图候选；用户挑一张回填到 outputImage，其它仍保留可切回 */
+  candidates?: string[]
   // AI绘图节点参数
   prompt?: string
   negativePrompt?: string
   size?: string
   style?: string
   seed?: number
+  /** 一次生成数量：1 / 2 / 4 */
+  batchN?: number
   // AI视频节点参数
   providerId?: string
   model?: string
@@ -330,6 +334,15 @@ export const useNodeStore = defineStore('node', () => {
       status: priorImage ? 'completed' : 'idle',
       progress: undefined,
       error: undefined,
+    })
+  }
+
+  function pickCandidate(nodeId: string, url: string) {
+    const node = nodes.value.find((n) => n.id === nodeId)
+    if (!node) return
+    updateNodeData(nodeId, {
+      outputImage: url,
+      output: { url, timestamp: Date.now() },
     })
   }
 
@@ -662,6 +675,7 @@ export const useNodeStore = defineStore('node', () => {
         imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
+        n: data.batchN && data.batchN > 1 ? data.batchN : 1,
         signal: abortCtrl.signal,
         onProgress: ({ progress }) => {
           realProgressReceived = true
@@ -670,29 +684,34 @@ export const useNodeStore = defineStore('node', () => {
       })
       window.clearInterval(fallbackTimer)
       imageTimers.delete(nodeId)
-      const url = result.imageUrls[0]
-      if (!url) throw new Error('未拿到图片 URL')
+      const urls = result.imageUrls
+      if (urls.length === 0) throw new Error('未拿到图片 URL')
+      const primary = urls[0]
       updateNodeData(nodeId, {
         status: 'completed',
         progress: 100,
-        outputImage: url,
-        output: { url, timestamp: Date.now() },
+        outputImage: primary,
+        candidates: urls.length > 1 ? urls : undefined,
+        output: { url: primary, timestamp: Date.now() },
       })
-      // 推到全局资产库 / 历史
+      // 全部候选都进资产库（用户后续翻历史时都能看见）
       const modelMetaForAsset = providerConfig.models.find((m) => m.id === data.model)
-      useAssetStore().addAsset({
-        type: 'image',
-        url,
-        prompt: promptText,
-        model: data.model || providerConfig.models[0]?.id || '',
-        providerId,
-        providerName: providerConfig.name,
-        nodeId,
-        nodeType: 'ai-image',
-        projectId: currentProjectId.value || undefined,
-        ratio: data.ratio,
-        resolution: modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K',
-      })
+      const assetStore = useAssetStore()
+      for (const u of urls) {
+        assetStore.addAsset({
+          type: 'image',
+          url: u,
+          prompt: promptText,
+          model: data.model || providerConfig.models[0]?.id || '',
+          providerId,
+          providerName: providerConfig.name,
+          nodeId,
+          nodeType: 'ai-image',
+          projectId: currentProjectId.value || undefined,
+          ratio: data.ratio,
+          resolution: modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K',
+        })
+      }
       imageAborts.delete(nodeId)
       cancelledImageNodes.delete(nodeId)
     } catch (err) {
@@ -822,6 +841,7 @@ export const useNodeStore = defineStore('node', () => {
     executeNode,
     cancelExecution,
     cancelImageNode,
+    pickCandidate,
     resetNode,
     init,
     persist,

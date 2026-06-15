@@ -28,12 +28,26 @@
             <div class="progress-text">生成中...</div>
           </div>
           <!-- 已完成 - 显示生成的图片，点击预览 -->
-          <div v-else-if="data.status === 'completed' && data.outputImage" class="image-thumbnail" @click.stop="previewImage">
-            <img :src="data.outputImage" class="generated-preview" />
-            <div class="preview-overlay">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
-              </svg>
+          <div v-else-if="data.status === 'completed' && data.outputImage" class="image-output">
+            <div v-if="(data.candidates?.length || 0) > 1" class="candidates-grid">
+              <div
+                v-for="(url, idx) in data.candidates"
+                :key="idx"
+                class="candidate-item"
+                :class="{ active: url === data.outputImage }"
+                @click.stop="pickCandidate(url)"
+                :title="`候选 ${idx + 1}`"
+              >
+                <img :src="url" />
+              </div>
+            </div>
+            <div class="image-thumbnail" @click.stop="previewImage">
+              <img :src="data.outputImage" class="generated-preview" />
+              <div class="preview-overlay">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
+                </svg>
+              </div>
             </div>
           </div>
           <!-- 默认 - 显示图标 -->
@@ -318,6 +332,17 @@
                   </label>
                   <button class="seed-dice" @click.stop="rerollSeed" title="随机一个 seed">🎲</button>
                 </div>
+                <div class="batch-selector" @click.stop @mousedown.stop title="一次生成的候选数量">
+                  <span class="batch-label">×</span>
+                  <button
+                    v-for="n in [1, 2, 4]"
+                    :key="n"
+                    type="button"
+                    class="batch-btn"
+                    :class="{ active: localBatchN === n }"
+                    @click.stop="localBatchN = n"
+                  >{{ n }}</button>
+                </div>
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
@@ -495,6 +520,13 @@ watch(localSeed, (v) => {
 })
 function rerollSeed() {
   localSeed.value = Math.floor(Math.random() * 2_000_000_000)
+}
+const localBatchN = ref<number>(((props.data as any).batchN as number) || 1)
+watch(localBatchN, (v) => {
+  nodeStore.updateNodeData(props.id, { batchN: v })
+})
+function pickCandidate(url: string) {
+  nodeStore.pickCandidate(props.id, url)
 }
 const advancedOpen = ref(false)
 const localNegativePrompt = ref<string>(((props.data as any).negativePrompt as string) || '')
@@ -2673,5 +2705,92 @@ const typeLabel = computed(() => {
   cursor: not-allowed;
   border-radius: 6px;
   text-shadow: 0 0 6px rgba(255, 184, 108, 0.5);
+}
+
+/* 批次选择器 */
+.batch-selector {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: rgba(110, 231, 255, 0.05);
+  border: 1px solid rgba(110, 231, 255, 0.15);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #6ee7ff;
+}
+.batch-label {
+  user-select: none;
+  font-weight: 500;
+  margin-right: 2px;
+  opacity: 0.7;
+}
+.batch-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(110, 231, 255, 0.7);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+.batch-btn:hover { color: #fff; background: rgba(110, 231, 255, 0.1); }
+.batch-btn.active {
+  background: rgba(110, 231, 255, 0.2);
+  color: #fff;
+  border-color: rgba(110, 231, 255, 0.4);
+  box-shadow: 0 0 6px rgba(110, 231, 255, 0.4);
+}
+
+/* 候选网格 */
+.image-output {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 4px;
+}
+.candidates-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+.candidate-item {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+  position: relative;
+}
+.candidate-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.candidate-item:hover {
+  border-color: rgba(110, 231, 255, 0.5);
+  transform: scale(1.03);
+}
+.candidate-item.active {
+  border-color: #6ee7ff;
+  box-shadow: 0 0 10px rgba(110, 231, 255, 0.5);
+}
+.candidate-item.active::after {
+  content: '✓';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  color: #6ee7ff;
+  font-weight: bold;
+  font-size: 14px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
 }
 </style>
