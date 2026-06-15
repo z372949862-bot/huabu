@@ -466,6 +466,7 @@
         <div class="image-modal-content" @click.stop>
           <div class="modal-toolbar">
             <button class="modal-download" @click="downloadAsset(data.outputImage, 'image')">⬇ 下载</button>
+            <button class="modal-edit" @click="openInpaint">✏️ 编辑选区</button>
             <button class="image-modal-close" @click="closeImage"><svg viewBox="0 0 16 16" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg></button>
           </div>
           <img
@@ -475,6 +476,14 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- 局部重绘编辑器 -->
+    <InpaintingEditor
+      v-if="showInpaint && data.outputImage"
+      :src="data.outputImage"
+      @close="showInpaint = false"
+      @done="onInpaintDone"
+    />
 
     <!-- 文本查看弹窗 -->
     <Teleport to="body">
@@ -552,9 +561,11 @@ import RatioSelector from './RatioSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
 import StylePresetPicker from './StylePresetPicker.vue'
+import InpaintingEditor from './InpaintingEditor.vue'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 import { enhancePrompt, type EnhanceStyle } from '@/services/promptEnhancer'
 import { applyPreset, type StylePreset } from '@/services/stylePresets'
+import { persistImage } from '@/services/imageStorage'
 
 interface Props {
   id: string
@@ -1333,6 +1344,29 @@ const videoPlayerRef = ref<HTMLVideoElement>()
 const showVideoModal = ref(false)
 const showImageModal = ref(false)
 
+// 局部重绘
+const showInpaint = ref(false)
+function openInpaint() {
+  showImageModal.value = false
+  showInpaint.value = true
+}
+async function onInpaintDone(composed: string) {
+  showInpaint.value = false
+  try {
+    const persisted = await persistImage(composed, {
+      projectId: nodeStore.currentProjectId || undefined,
+      nodeId: props.id,
+    })
+    nodeStore.updateNodeData(props.id, {
+      outputImage: persisted,
+      output: { url: persisted, timestamp: Date.now() },
+    } as any)
+    ElMessage.success('选区已重绘')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存重绘结果失败')
+  }
+}
+
 // 视频加载完成，定位到第一帧
 const onVideoLoaded = (event: Event) => {
   const video = event.target as HTMLVideoElement
@@ -1835,6 +1869,22 @@ const typeLabel = computed(() => {
 .modal-download:hover {
   background: rgba(0, 217, 255, 0.4);
   box-shadow: 0 0 12px rgba(0, 217, 255, 0.4);
+}
+.modal-edit {
+  height: 40px;
+  padding: 0 16px;
+  background: rgba(167, 139, 250, 0.2);
+  border: 1px solid #a78bfa;
+  border-radius: 20px;
+  color: #c7b6ff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.modal-edit:hover {
+  background: rgba(167, 139, 250, 0.4);
+  box-shadow: 0 0 12px rgba(167, 139, 250, 0.4);
 }
 /* 把已有的 close 按钮从绝对定位收回 toolbar 内 */
 .modal-toolbar .video-modal-close,
