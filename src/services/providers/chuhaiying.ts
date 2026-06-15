@@ -20,7 +20,7 @@ import type {
   ImageGenerationResult,
   ImageProvider,
 } from './geeknow'
-import { urlToBase64 } from '../imageProviderUtils'
+import { urlToBase64, compressImageToDataUrl } from '../imageProviderUtils'
 
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const POLL_INTERVAL_MS = 2000
@@ -139,9 +139,14 @@ export class ChuhaiyingImageProvider implements ImageProvider {
     if (params.imageUrls?.length && tpl?.supportsReferenceImage !== false) {
       const field = tpl?.refImageField || 'image'
       const dataUrls: string[] = []
+      // 多图参考时压到 1024px JPEG 0.85，避免请求体过大触发 413；单图保留原图
+      const shouldCompress = params.imageUrls.length > 1
       for (const url of params.imageUrls) {
         const { base64, mimeType } = await urlToBase64(url)
-        dataUrls.push(`data:${mimeType};base64,${base64}`)
+        const dataUrl = shouldCompress
+          ? await compressImageToDataUrl(base64, mimeType)
+          : `data:${mimeType};base64,${base64}`
+        dataUrls.push(dataUrl)
       }
       if (field === 'image') {
         // 单图字段：取第一张
@@ -183,11 +188,16 @@ export class ChuhaiyingImageProvider implements ImageProvider {
     let input: any = params.prompt
     if (params.imageUrls?.length && tpl?.supportsReferenceImage !== false) {
       const content: any[] = []
+      // 多图参考时压到 1024px JPEG 0.85，避免请求体过大触发 413；单图保留原图
+      const shouldCompress = params.imageUrls.length > 1
       for (const url of params.imageUrls) {
         const { base64, mimeType } = await urlToBase64(url)
+        const imageUrl = shouldCompress
+          ? await compressImageToDataUrl(base64, mimeType)
+          : `data:${mimeType};base64,${base64}`
         content.push({
           type: 'input_image',
-          image_url: `data:${mimeType};base64,${base64}`,
+          image_url: imageUrl,
         })
       }
       content.push({ type: 'input_text', text: params.prompt })
