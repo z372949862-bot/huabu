@@ -2,6 +2,16 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  unmau: {
+    request: (payload) => ipcRenderer.invoke('unmau:request', payload),
+    upload: (payload) => ipcRenderer.invoke('unmau:upload', payload),
+    download: (payload) => ipcRenderer.invoke('unmau:download', payload),
+  },
+  yu25: {
+    request: (payload) => ipcRenderer.invoke('yu25:request', payload),
+    upload: (payload) => ipcRenderer.invoke('yu25:upload', payload),
+    download: (payload) => ipcRenderer.invoke('yu25:download', payload),
+  },
   store: {
     get: (key) => ipcRenderer.invoke('store:get', key),
     set: (key, value) => ipcRenderer.invoke('store:set', key, value),

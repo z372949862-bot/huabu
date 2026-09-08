@@ -5,7 +5,13 @@
       <div class="node-content" :class="{ generating: data.status === 'running' }">
         <!-- 素材引用节点 - 显示上传的素材 -->
         <template v-if="type === 'asset-ref' && data.assetUrl">
-          <img v-if="data.assetType === 'image'" :src="data.assetUrl" class="asset-preview" />
+          <img
+            v-if="data.assetType === 'image'"
+            :src="data.assetUrl"
+            class="asset-preview asset-preview-clickable"
+            title="点击放大预览"
+            @click.stop="previewImage"
+          />
           <video v-else-if="data.assetType === 'video'" :src="data.assetUrl" class="asset-preview" controls />
           <div v-else-if="data.assetType === 'audio'" class="audio-preview">
             <svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 24 24" fill="currentColor">
@@ -135,7 +141,7 @@
 
     <!-- 生成卡片 - 选中时在底部展开 -->
     <transition name="expand">
-      <div v-show="isSelected" class="generator-card">
+      <div v-show="isSelected && type !== 'asset-ref'" class="generator-card">
         <div class="generator-content">
           <!-- 历史缩略图条（图片/视频节点才显示，且有历史时才显示） -->
           <div v-if="nodeHistory.length > 0" class="history-strip">
@@ -254,11 +260,19 @@
               ref="editableRef"
               contenteditable="true"
               @input="handleContentEdit"
+              @wheel.stop
               @click.stop
               @mousedown="(e) => e.stopPropagation()"
               class="generator-input editable"
               data-placeholder="描述你想要生成的画面内容，输入 @ 引用素材..."
             ></div>
+            <button
+              class="prompt-fullscreen-btn"
+              type="button"
+              title="全屏编辑提示词"
+              @click.stop="openPromptModal"
+              @mousedown.stop
+            >⛶</button>
             <div
               v-if="type === 'ai-image'"
               class="prompt-enhance"
@@ -448,14 +462,38 @@
       <div v-if="showImageModal" class="image-modal-overlay" @click="closeImage">
         <div class="image-modal-content" @click.stop>
           <div class="modal-toolbar">
-            <button class="modal-download" @click="downloadAsset(data.outputImage, 'image')">⬇ 下载</button>
-            <button class="modal-edit" @click="openInpaint">✏️ 编辑选区</button>
+            <button class="modal-download" @click="downloadAsset(previewImageUrl, 'image')">⬇ 下载</button>
+            <button v-if="type === 'ai-image'" class="modal-edit" @click="openInpaint">✏️ 编辑选区</button>
             <button class="image-modal-close" @click="closeImage"><svg viewBox="0 0 16 16" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg></button>
           </div>
           <img
-            :src="data.outputImage"
+            :src="previewImageUrl"
             class="image-modal-preview"
           />
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 提示词全屏编辑器 -->
+    <Teleport to="body">
+      <div v-if="showPromptModal" class="prompt-modal-overlay" @click.self="closePromptModal">
+        <div class="prompt-modal-content" @click.stop @mousedown.stop>
+          <div class="prompt-modal-header">
+            <div>
+              <div class="prompt-modal-title">提示词</div>
+              <div class="prompt-modal-hint">可使用鼠标滚轮浏览长提示词，引用图片会保留为缩略图。</div>
+            </div>
+            <button class="prompt-modal-close" type="button" @click="closePromptModal">完成</button>
+          </div>
+          <div
+            ref="fullscreenEditableRef"
+            contenteditable="true"
+            class="prompt-modal-editor"
+            data-placeholder="描述你想要生成的画面内容..."
+            @input="handleFullscreenContentEdit"
+            @wheel.stop
+            @keydown.esc.prevent="closePromptModal"
+          ></div>
         </div>
       </div>
     </Teleport>
@@ -778,6 +816,8 @@ const showAssetMention = ref(false)
 const mentionPosition = ref({ top: 0, left: 0 })
 const mentionFilter = ref('')
 const editableRef = ref<HTMLDivElement>()
+const fullscreenEditableRef = ref<HTMLDivElement>()
+const showPromptModal = ref(false)
 
 // 手动聚焦函数
 const focusEditable = () => {
@@ -809,6 +849,31 @@ const handleContentEdit = (event: Event) => {
 
   // 检测@触发
   checkForMention(div)
+}
+
+const handleFullscreenContentEdit = (event: Event) => {
+  const div = event.target as HTMLDivElement
+  localPrompt.value = extractTextContent(div)
+  updatePrompt()
+  if (editableRef.value) editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
+}
+
+const openPromptModal = async () => {
+  showAssetMention.value = false
+  showPromptModal.value = true
+  await nextTick()
+  if (!fullscreenEditableRef.value) return
+  fullscreenEditableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
+  fullscreenEditableRef.value.focus()
+}
+
+const closePromptModal = () => {
+  if (fullscreenEditableRef.value) {
+    localPrompt.value = extractTextContent(fullscreenEditableRef.value)
+    updatePrompt()
+  }
+  if (editableRef.value) editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
+  showPromptModal.value = false
 }
 
 // 提取纯文本和引用标记
@@ -1340,6 +1405,11 @@ const videoThumbnailRef = ref<HTMLVideoElement>()
 const videoPlayerRef = ref<HTMLVideoElement>()
 const showVideoModal = ref(false)
 const showImageModal = ref(false)
+const previewImageUrl = computed(() =>
+  props.type === 'asset-ref'
+    ? ((props.data as any).assetUrl as string | undefined)
+    : ((props.data as any).outputImage as string | undefined)
+)
 
 // 局部重绘
 const showInpaint = ref(false)
@@ -1618,6 +1688,10 @@ const typeLabel = computed(() => {
   height: 100%;
   object-fit: cover;
   border-radius: 8px;
+}
+
+.asset-preview-clickable {
+  cursor: zoom-in;
 }
 
 .audio-preview {
@@ -2548,11 +2622,14 @@ const typeLabel = computed(() => {
   margin-bottom: 12px;
   line-height: 1.5;
   outline: none;
+  height: 132px;
   min-height: 80px;
+  max-height: 180px;
 }
 
 .generator-input.editable {
   overflow-y: auto;
+  overscroll-behavior: contain;
   white-space: pre-wrap;
   word-wrap: break-word;
   cursor: text;
@@ -2581,10 +2658,29 @@ const typeLabel = computed(() => {
 .prompt-input-wrap {
   position: relative;
 }
+.prompt-fullscreen-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 5;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(110, 231, 255, 0.4);
+  border-radius: 6px;
+  background: rgba(2, 10, 18, 0.78);
+  color: #6ee7ff;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.prompt-fullscreen-btn:hover {
+  background: rgba(110, 231, 255, 0.2);
+  border-color: #6ee7ff;
+}
 .prompt-enhance {
   position: absolute;
   top: 4px;
-  right: 4px;
+  right: 36px;
   z-index: 4;
   display: flex;
   align-items: center;
@@ -3066,5 +3162,87 @@ const typeLabel = computed(() => {
   cursor: not-allowed;
   border-radius: 6px;
   text-shadow: 0 0 6px rgba(255, 184, 108, 0.5);
+}
+
+/* 提示词全屏编辑器 */
+.prompt-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(8px);
+}
+.prompt-modal-content {
+  width: min(1100px, 94vw);
+  height: min(780px, 90vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #15191f;
+  border: 1px solid rgba(0, 217, 255, 0.42);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65), 0 0 28px rgba(0, 217, 255, 0.12);
+}
+.prompt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(0, 217, 255, 0.2);
+}
+.prompt-modal-title {
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+}
+.prompt-modal-hint {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+.prompt-modal-close {
+  padding: 8px 18px;
+  flex-shrink: 0;
+  border: 1px solid #00d9ff;
+  border-radius: 8px;
+  background: rgba(0, 217, 255, 0.18);
+  color: #7cecff;
+  cursor: pointer;
+}
+.prompt-modal-close:hover {
+  background: rgba(0, 217, 255, 0.3);
+}
+.prompt-modal-editor {
+  flex: 1;
+  min-height: 0;
+  margin: 18px;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(0, 217, 255, 0.28);
+  border-radius: 10px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.25);
+  color: #f4f7fa;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+.prompt-modal-editor:focus {
+  border-color: #00d9ff;
+  box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0.25);
+}
+.prompt-modal-editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
 }
 </style>

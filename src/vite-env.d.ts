@@ -9,6 +9,16 @@ declare const __APP_VERSION__: string
 interface Window {
   electronAPI?: {
     platform: string
+    unmau?: {
+      request: (payload: any) => Promise<any>
+      upload: (payload: any) => Promise<any>
+      download: (payload: any) => Promise<any>
+    }
+    yu25?: {
+      request: (payload: any) => Promise<any>
+      upload: (payload: any) => Promise<any>
+      download: (payload: any) => Promise<any>
+    }
     store: {
       get: (key: string) => Promise<string | null>
       set: (key: string, value: string) => Promise<void>

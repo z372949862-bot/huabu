@@ -11,7 +11,7 @@
 const UPLOAD_URL = 'https://imageproxy.zhongzhuan.chat/api/upload'
 
 /** 把 blob:/data: URL 拉成 File，文件名按 MIME 自动选后缀，方便 form 上传 */
-async function urlToFile(url: string, fallbackBase = 'asset'): Promise<File> {
+export async function urlToFile(url: string, fallbackBase = 'asset'): Promise<File> {
   console.log('[imageHost] fetching asset:', url)
 
   // local-upload:/// 协议 renderer 进程的 fetch 不支持，走 IPC 读磁盘

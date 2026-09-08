@@ -46,6 +46,8 @@
         >
           <option value="seedance">Seedance (火山方舟)</option>
           <option value="chuhaiying">出海营 (Sora 兼容)</option>
+          <option value="unmau">New API · Seedance 2.5 (newapis.unmau.com)</option>
+          <option value="yu25">YU25 · sd2.5 (api.yu25.xyz)</option>
           <option value="qiling">器灵 (api.qilingze.com)</option>
         </select>
         <select
@@ -220,7 +222,7 @@
 import { reactive, computed, ref, onErrorCaptured } from 'vue'
 import { useAIStore } from '@/stores/ai'
 import type { ProviderStatus, Provider } from '@/stores/ai'
-import { MODEL_TEMPLATES } from '@/services/modelTemplates'
+import { getModelTemplatesByKind, type VideoProviderKind } from '@/services/modelTemplates'
 
 onErrorCaptured((err) => {
   console.error('[Settings] render error:', err)
@@ -235,7 +237,7 @@ const newImageKind = ref<'geeknow' | 'chuhaiying'>('chuhaiying')
 // 添加文本中转站时选哪种 kind
 const newTextKind = ref<'deepseek' | 'openaichat'>('deepseek')
 // 添加视频中转站时选哪种 kind；默认 seedance（最常用）
-const newVideoKind = ref<'seedance' | 'chuhaiying' | 'qiling'>('seedance')
+const newVideoKind = ref<VideoProviderKind>('seedance')
 
 const visibleProviders = computed(() =>
   activeTab.value === 'video' ? aiStore.videoProviders
@@ -283,7 +285,9 @@ const onApiKeyChange = (id: string, value: string) => {
 
 const availableTemplates = (provider: Provider) => {
   const existing = new Set(provider.models.map((m) => m.id))
-  return MODEL_TEMPLATES.filter((t) => !existing.has(t.id))
+  return provider.type === 'video'
+    ? getModelTemplatesByKind((provider.kind || 'seedance') as VideoProviderKind).filter((t) => !existing.has(t.id))
+    : []
 }
 
 const addModelClick = (providerId: string) => {
@@ -323,7 +327,15 @@ const addProviderClick = () => {
     })
   } else {
     const kind = newVideoKind.value
-    const baseName = kind === 'chuhaiying' ? '出海营视频' : kind === 'qiling' ? '器灵' : 'Seedance'
+    const baseName = kind === 'unmau'
+      ? 'New API · Seedance 2.5'
+      : kind === 'yu25'
+        ? 'YU25 · sd2.5'
+        : kind === 'chuhaiying'
+          ? '出海营视频'
+          : kind === 'qiling'
+            ? '器灵'
+            : 'Seedance'
     const existingCount = aiStore.videoProviders.filter((p) => (p.kind || 'seedance') === kind).length
     aiStore.addProvider({
       name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,

@@ -14,6 +14,9 @@ export interface VideoModelCapabilities {
     max: number
   }
   audioGeneration?: boolean
+  maxImages?: number
+  maxVideos?: number
+  maxAudios?: number
 }
 
 export interface VideoModel {

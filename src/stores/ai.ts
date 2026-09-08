@@ -2,10 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { SeedanceProvider } from '@/services/providers/seedance'
 import { ChuhaiyingVideoProvider } from '@/services/providers/chuhaiyingVideo'
+import { UnmauProvider } from '@/services/providers/unmau'
+import { Yu25Provider } from '@/services/providers/yu25'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
-import type { AIProvider } from '@/services/ai-provider'
 import {
   getModelTemplatesByKind,
   type ModelTemplate,
@@ -22,6 +23,8 @@ import {
   type TextProviderKind,
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
+
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -76,8 +79,10 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   seedance: 'https://api.aiid.edu.kg',
   chuhaiying: 'https://api.aiid.edu.kg',
   qiling: 'https://api.qilingze.com',
+  unmau: 'https://newapis.unmau.com',
+  yu25: 'https://api.yu25.xyz',
 }
-const CURRENT_MIGRATION = 4
+const CURRENT_MIGRATION = 8
 
 declare global {
   interface Window {
@@ -137,6 +142,8 @@ function imageKindOf(conf: Provider): ImageProviderKind {
 function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'chuhaiying') return 'chuhaiying'
   if (conf.kind === 'qiling') return 'qiling'
+  if (conf.kind === 'unmau') return 'unmau'
+  if (conf.kind === 'yu25') return 'yu25'
   return 'seedance'
 }
 
@@ -148,7 +155,7 @@ export const useAIStore = defineStore('ai', () => {
   const migrationVersion = ref(0)
   const initialized = ref(false)
 
-  const videoCache = new Map<string, AIProvider>()
+  const videoCache = new Map<string, RuntimeVideoProvider>()
   const imageCache = new Map<string, ImageProvider>()
   const textCache = new Map<string, LLMProvider>()
 
@@ -177,15 +184,19 @@ export const useAIStore = defineStore('ai', () => {
     return providers.value.find((p) => p.id === id)
   }
 
-  function getProvider(id: string): AIProvider | null {
+  function getProvider(id: string): RuntimeVideoProvider | null {
     const conf = getProviderConfig(id)
     if (!conf || conf.type !== 'video') return null
     let inst = videoCache.get(id)
     if (!inst) {
       const kind = videoKindOf(conf)
-      inst = (kind === 'chuhaiying' || kind === 'qiling')
-        ? new ChuhaiyingVideoProvider(conf.apiKey, conf.baseUrl)
-        : new SeedanceProvider(conf.apiKey, conf.baseUrl)
+      inst = kind === 'yu25'
+        ? new Yu25Provider(conf.apiKey, conf.baseUrl)
+        : kind === 'unmau'
+          ? new UnmauProvider(conf.apiKey, conf.baseUrl)
+          : (kind === 'chuhaiying' || kind === 'qiling')
+            ? new ChuhaiyingVideoProvider(conf.apiKey, conf.baseUrl)
+            : new SeedanceProvider(conf.apiKey, conf.baseUrl)
       videoCache.set(id, inst)
     } else {
       inst.setApiKey(conf.apiKey)
@@ -276,13 +287,21 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25')
           ? input.kind
           : 'seedance'
       kind = vidKind
       defaultBase = VIDEO_DEFAULT_BASE_URL[vidKind]
       defaultModels = defaultVideoModelSet(vidKind)
-      defaultName = vidKind === 'chuhaiying' ? '出海营视频' : vidKind === 'qiling' ? '器灵' : 'Seedance'
+      defaultName = vidKind === 'unmau'
+        ? 'New API · Seedance 2.5'
+        : vidKind === 'yu25'
+          ? 'YU25 · sd2.5'
+          : vidKind === 'chuhaiying'
+            ? '出海营视频'
+            : vidKind === 'qiling'
+              ? '器灵'
+              : 'Seedance'
     }
 
     providers.value.push({
@@ -531,7 +550,33 @@ export const useAIStore = defineStore('ai', () => {
       }
     }
 
-    if (migrationVersion.value < CURRENT_MIGRATION) {
+    if (migrationVersion.value < 5 && !providers.value.some((p) => p.type === 'video' && p.kind === 'unmau')) {
+      addProvider({ name: 'New API · Seedance 2.5', type: 'video', kind: 'unmau' })
+    }
+    if (migrationVersion.value < 6 && !providers.value.some((p) => p.type === 'video' && p.kind === 'yu25')) {
+      addProvider({ name: 'YU25 · sd2.5', type: 'video', kind: 'yu25' })
+    }
+
+    // Keep the built-in New API catalog in sync even if another release has
+    // already used the same migration number. Preserve user-added model IDs.
+    let unmauChanged = false
+    for (const provider of providers.value) {
+      if (provider.type !== 'video' || provider.kind !== 'unmau') continue
+      const defaults = defaultVideoModelSet('unmau')
+      const current = provider.models || []
+      const merged = [
+        ...defaults,
+        ...current.filter((model) => !defaults.some((item) => item.id === model.id)),
+      ]
+      const renamed = provider.name === 'New API · XD / TD'
+      if (renamed) provider.name = 'New API · Seedance 2.5'
+      if (renamed || JSON.stringify(current) !== JSON.stringify(merged)) {
+        provider.models = merged
+        unmauChanged = true
+      }
+    }
+
+    if (migrationVersion.value < CURRENT_MIGRATION || unmauChanged) {
       migrationVersion.value = CURRENT_MIGRATION
       persist()
     }
