@@ -8,8 +8,10 @@
  */
 
 import type { VideoModelCapabilities } from './videoModelService'
+import { UNMAU_MODELS } from './providers/unmau'
+import { YU25_MODELS } from './providers/yu25'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25'
 
 export interface ModelTemplate {
   id: string
@@ -133,13 +135,15 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   seedance: SEEDANCE_MODEL_TEMPLATES,
   chuhaiying: CHUHAIYING_VIDEO_MODEL_TEMPLATES,
   qiling: QILING_VIDEO_MODEL_TEMPLATES,
+  unmau: UNMAU_MODELS,
+  yu25: YU25_MODELS,
 }
 
 /** 兼容旧代码：返回全部去重模板（按 id）。新代码用 getModelTemplatesByKind。 */
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

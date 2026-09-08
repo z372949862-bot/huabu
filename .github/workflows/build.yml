@@ -21,5 +21,5 @@ jobs:
       - run: npm run build
       - name: Build & Publish
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: npx electron-builder --win --publish always

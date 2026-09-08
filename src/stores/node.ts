@@ -4,9 +4,10 @@ import type { Node, Edge } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { useAIStore } from '@/stores/ai'
 import { useAssetStore } from '@/stores/asset'
-import { ensureRemoteAssetUrl } from '@/services/imageHost'
+import { ensureRemoteAssetUrl, urlToFile } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
+import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
 
 export interface NodeData {
   label: string
@@ -35,6 +36,9 @@ export interface NodeData {
   generateAudio?: boolean
   inputImage?: string
   inputVideo?: string
+  inputImages?: string[]
+  inputVideos?: string[]
+  inputAudios?: string[]
   taskId?: string
   // 本地上传素材（data URL，跨会话持久化）
   _uploads?: Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>
@@ -150,10 +154,14 @@ export const useNodeStore = defineStore('node', () => {
       }
       const parsed = JSON.parse(raw)
       nodes.value = Array.isArray(parsed?.nodes)
-        ? parsed.nodes.map((n: any) => ({
-            ...n,
-            data: { ...(n.data || {}), status: 'idle', progress: 0 },
-          }))
+        ? parsed.nodes.map((n: any) => {
+            const data = { ...(n.data || {}) }
+            const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
+            return {
+              ...n,
+              data: { ...data, status: hasOutput ? 'completed' : 'idle', progress: hasOutput ? 100 : 0 },
+            }
+          })
         : []
       edges.value = Array.isArray(parsed?.edges) ? parsed.edges : []
     } catch (err) {
@@ -305,6 +313,7 @@ export const useNodeStore = defineStore('node', () => {
   }
 
   function cancelExecution(nodeId: string) {
+    cancelUnmauNode(nodeId)
     const t = runningTasks.get(nodeId)
     if (t) {
       clearInterval(t.intervalId)
@@ -378,6 +387,36 @@ export const useNodeStore = defineStore('node', () => {
     }
 
     cancelExecution(nodeId)
+
+    if (provider instanceof UnmauProvider) {
+      const projectId = currentProjectId.value
+      return runUnmauNode({
+        id: nodeId,
+        data: { ...data, model: data.model || providerConfig.models[0]?.id },
+        nodes: nodes.value,
+        edges: edges.value,
+        provider,
+        readFile: urlToFile,
+        update: (patch: Partial<NodeData>) => updateNodeData(nodeId, patch),
+        persist: flushPersist,
+        isCurrent: () => currentProjectId.value === projectId && nodes.value.some((item) => item.id === nodeId),
+        fail: (message: string) => failNode(nodeId, message),
+        complete: (url: string, body: any) => useAssetStore().addAsset({
+          type: 'video',
+          url,
+          prompt: body.prompt,
+          model: body.model,
+          providerId,
+          providerName: providerConfig.name,
+          nodeId,
+          nodeType: 'ai-video',
+          projectId: projectId || undefined,
+          ratio: body.aspect_ratio,
+          resolution: body.resolution,
+          duration: body.duration ?? Number(body.seconds),
+        }),
+      })
+    }
 
     let { imageUrl, videoUrl } = resolveAssets(nodeId)
     const modelId = data.model || 'doubao-seedance-2-0-260128'

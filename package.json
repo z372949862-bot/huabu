@@ -1,6 +1,6 @@
 {
   "name": "ai-video-canvas",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "AI Video Creation Canvas - Desktop application for AI-powered video creation workflow",
   "main": "electron/main.cjs",
   "type": "module",
@@ -20,7 +20,7 @@
     "productName": "AI Video Canvas",
     "publish": {
       "provider": "github",
-      "owner": "sancedoknore-create",
+      "owner": "z372949862-bot",
       "repo": "huabu"
     },
     "directories": {
