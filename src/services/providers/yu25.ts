@@ -5,7 +5,7 @@ export const YU25_BASE='https://api.yu25.xyz';
 export const YU25_MODELS=Object.entries(specs).map(([id,spec])=>({id,name:spec.label,
   description:`YU25 · ${spec.resolutions.join('/')} · ${spec.durations.length===1?spec.durations[0]:`${spec.durations[0]}–${spec.durations.at(-1)}`}秒 · ${spec.min_images?`至少${spec.min_images}张图，`:''}最多${spec.max_images}图/${spec.max_videos}视频/${spec.max_audios}音频`,
   capabilities:{ratios:spec.ratios,resolutions:spec.resolutions,audioGeneration:false,
-    durationRange:{min:30,max:30},
+    durationRange:{min:spec.durations[0],max:spec.durations.at(-1)},durationOptions:spec.durations,
     maxImages:spec.max_images,maxVideos:spec.max_videos,maxAudios:spec.max_audios}
 }));
 export const isYu25Model=id=>Object.hasOwn(specs,id);
@@ -27,9 +27,19 @@ export function buildYu25Body(data,refs){
   for(const [values,max,label]of [[images,spec.max_images,'参考图片'],[videos,spec.max_videos,'参考视频'],[audios,spec.max_audios,'参考音频']]){
     if(values.length>max)throw new Error(max?`该模型最多支持 ${max} 个${label}，当前 ${values.length} 个`:`该模型不支持${label}`);
   }
-  const body={model:data.model,prompt,seconds:String(duration),size:sizes[resolution][ratio]};
-  if(images.length)body.image_urls=images;
+  const isChat=spec.payload_style==='chat_completions';
+  const body=isChat
+    ? {model:data.model,prompt,seconds:String(duration),aspect_ratio:ratio,resolution}
+    : {model:data.model,prompt,seconds:String(duration),size:sizes[resolution][ratio]};
+  if(images.length)body[isChat?'images':'image_urls']=images;
   return body;
+}
+export function adaptYu25CreateBody(body){
+  const spec=specs[body.model];
+  if(spec?.payload_style!=='chat_completions')return body;
+  const duration=Number(body.seconds),resolution=String(body.resolution||'720p').toLowerCase(),aspectRatio=body.aspect_ratio||'16:9';
+  const content=[{type:'text',text:body.prompt},...(body.images||[]).map(url=>({type:'image_url',image_url:{url:String(url)}}))];
+  return {...body,stream:false,duration,seconds:String(duration),messages:[{role:'user',content}],video_config:{duration,seconds:String(duration),aspect_ratio:aspectRatio,resolution:{'1080p':'FHD','720p':'HD','480p':'SD'}[resolution]||resolution.toUpperCase(),size:sizes[resolution][aspectRatio]}};
 }
 function at(data,path){return path.split('.').reduce((value,key)=>value?.[key],data);}
 const first=(data,paths)=>paths.map(path=>at(data,path)).find(value=>(typeof value==='string'||typeof value==='number')&&String(value).trim())??'';
@@ -87,7 +97,7 @@ export class Yu25Provider extends UnmauProvider{
     const hosted=new URL(value,YU25_BASE);if(!['https:','http:'].includes(hosted.protocol))throw new Error('YU25 返回的素材地址无效');return hosted.href;
   }
   async createTask(body){
-    const data=await this.request('/v1/videos',body);
+    const data=await this.request('/v1/videos',adaptYu25CreateBody(body));
     const taskId=String(first(data,['task_id','id','request_id'].flatMap(field=>['','data.','data.data.','result.','video.','output.'].map(prefix=>prefix+field))));
     if(!taskId){const state=mapYu25Task(data);if(state.videoUrl&&state.status==='completed')return {taskId:'',videoUrl:state.videoUrl};throw new Error('YU25 未返回任务 ID，请先到平台确认任务是否创建，避免重复提交');}
     return {taskId};

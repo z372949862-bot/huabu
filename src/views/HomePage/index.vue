@@ -14,6 +14,8 @@
           <div class="changelog-body">
             <div class="changelog-date">{{ formatDateStr(Date.now()) }}</div>
             <ul>
+              <li>🎬 YU25 新增 sd2.5 高模型，支持 5 / 10 / 15 / 30 秒、横竖屏和最多 9 张参考图</li>
+              <li>🔄 已有 YU25 配置会自动补入新模型，无需重新填写 API Key</li>
               <li>🎞️ 新增 New API Seedance 2.5：内置当前 12 个 480P / 720P 模型，按模型限制校验比例、时长和参考素材数量</li>
               <li>🎬 新增 YU25 sd2.5 接口，支持提交、轮询、断点恢复和本地成片保存</li>
               <li>🛠️ 修复 NEW API 模型在界面可见、提交时却提示“不支持的视频模型”的问题</li>
