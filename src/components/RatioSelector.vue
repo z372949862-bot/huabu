@@ -48,7 +48,16 @@
             <span class="section-title">时长</span>
             <span class="duration-value">{{ selectedDuration }}秒</span>
           </div>
-          <div class="duration-slider">
+          <div v-if="durationOptions.length" class="duration-options">
+            <button
+              v-for="seconds in durationOptions"
+              :key="seconds"
+              class="duration-option"
+              :class="{ active: selectedDuration === seconds }"
+              @click.stop="selectedDuration = seconds"
+            >{{ seconds }}秒</button>
+          </div>
+          <div v-else class="duration-slider">
             <input
               type="range"
               class="slider"
@@ -173,6 +182,7 @@ const availableResolutions = computed(() => {
 
 // 时长范围（仅视频节点有）
 const durationRange = computed(() => props.capabilities?.durationRange)
+const durationOptions = computed(() => props.capabilities?.durationOptions || [])
 
 // 当前清晰度不在可用列表里时，重置为中间值（默认 720p 这一档）
 watch(availableResolutions, (list) => {
@@ -187,6 +197,12 @@ watch(durationRange, (range) => {
   if (!range) return
   if (selectedDuration.value < range.min) selectedDuration.value = range.min
   if (selectedDuration.value > range.max) selectedDuration.value = range.max
+}, { immediate: true })
+
+watch(durationOptions, (options) => {
+  if (options.length && !options.includes(selectedDuration.value)) {
+    selectedDuration.value = options[options.length - 1]
+  }
 }, { immediate: true })
 
 // 根据模型能力决定是否显示音频开关：未声明视为不支持（图片模型默认隐藏）
@@ -391,6 +407,30 @@ onUnmounted(() => {
 
 .duration-slider {
   padding: 0 4px;
+}
+
+.duration-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.duration-option {
+  min-width: 52px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.duration-option:hover,
+.duration-option.active {
+  background: rgba(0, 217, 255, 0.1);
+  border-color: #00D9FF;
+  color: #00D9FF;
 }
 
 .duration-header {

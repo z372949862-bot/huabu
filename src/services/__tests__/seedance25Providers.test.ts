@@ -6,7 +6,7 @@ import {
   collectReferences,
   mapUnmauTask,
 } from '../providers/unmau'
-import { YU25_MODELS, buildYu25Body, mapYu25Task } from '../providers/yu25'
+import { YU25_MODELS, adaptYu25CreateBody, buildYu25Body, mapYu25Task } from '../providers/yu25'
 
 describe('New API Seedance 2.5 adapter', () => {
   it('publishes the complete 12-model catalog and builds a valid request', () => {
@@ -47,8 +47,8 @@ describe('New API Seedance 2.5 adapter', () => {
 })
 
 describe('YU25 sd2.5 adapter', () => {
-  it('exposes only sd2.5 and converts size and seconds', () => {
-    expect(YU25_MODELS.map((model) => model.id)).toEqual(['sd2.5'])
+  it('exposes standard and high models and converts size and seconds', () => {
+    expect(YU25_MODELS.map((model) => model.id)).toEqual(['sd2.5', 'sd2.5 高'])
     expect(buildYu25Body({
       model: 'sd2.5',
       prompt: '迁迁转身',
@@ -61,6 +61,44 @@ describe('YU25 sd2.5 adapter', () => {
       seconds: '30',
       size: '720x1280',
       image_urls: ['https://example.com/qianqian.jpg'],
+    })
+  })
+
+  it('adapts sd2.5 高 to the chat-completions request contract', () => {
+    const base = buildYu25Body({
+      model: 'sd2.5 高',
+      prompt: '阿宿绕着石头转圈',
+      duration: 10,
+      ratio: '9:16',
+      resolution: '720p',
+    }, { images: ['https://example.com/asu.jpg'], videos: [], audios: [] })
+
+    expect(base).toEqual({
+      model: 'sd2.5 高',
+      prompt: '阿宿绕着石头转圈',
+      seconds: '10',
+      aspect_ratio: '9:16',
+      resolution: '720p',
+      images: ['https://example.com/asu.jpg'],
+    })
+    expect(adaptYu25CreateBody(base)).toEqual({
+      ...base,
+      stream: false,
+      duration: 10,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: '阿宿绕着石头转圈' },
+          { type: 'image_url', image_url: { url: 'https://example.com/asu.jpg' } },
+        ],
+      }],
+      video_config: {
+        duration: 10,
+        seconds: '10',
+        aspect_ratio: '9:16',
+        resolution: 'HD',
+        size: '720x1280',
+      },
     })
   })
 

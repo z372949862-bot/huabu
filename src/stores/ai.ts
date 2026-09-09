@@ -296,7 +296,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = vidKind === 'unmau'
         ? 'New API · Seedance 2.5'
         : vidKind === 'yu25'
-          ? 'YU25 · sd2.5'
+          ? 'YU25 · Seedance'
           : vidKind === 'chuhaiying'
             ? '出海营视频'
             : vidKind === 'qiling'
@@ -554,29 +554,30 @@ export const useAIStore = defineStore('ai', () => {
       addProvider({ name: 'New API · Seedance 2.5', type: 'video', kind: 'unmau' })
     }
     if (migrationVersion.value < 6 && !providers.value.some((p) => p.type === 'video' && p.kind === 'yu25')) {
-      addProvider({ name: 'YU25 · sd2.5', type: 'video', kind: 'yu25' })
+      addProvider({ name: 'YU25 · Seedance', type: 'video', kind: 'yu25' })
     }
 
-    // Keep the built-in New API catalog in sync even if another release has
-    // already used the same migration number. Preserve user-added model IDs.
-    let unmauChanged = false
+    // Keep built-in provider catalogs in sync for existing installations while
+    // preserving user-added model IDs.
+    let catalogChanged = false
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || provider.kind !== 'unmau') continue
-      const defaults = defaultVideoModelSet('unmau')
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25')) continue
+      const defaults = defaultVideoModelSet(provider.kind)
       const current = provider.models || []
       const merged = [
         ...defaults,
         ...current.filter((model) => !defaults.some((item) => item.id === model.id)),
       ]
-      const renamed = provider.name === 'New API · XD / TD'
-      if (renamed) provider.name = 'New API · Seedance 2.5'
+      const renamed = provider.name === 'New API · XD / TD' || provider.name === 'YU25 · sd2.5'
+      if (provider.name === 'New API · XD / TD') provider.name = 'New API · Seedance 2.5'
+      if (provider.name === 'YU25 · sd2.5') provider.name = 'YU25 · Seedance'
       if (renamed || JSON.stringify(current) !== JSON.stringify(merged)) {
         provider.models = merged
-        unmauChanged = true
+        catalogChanged = true
       }
     }
 
-    if (migrationVersion.value < CURRENT_MIGRATION || unmauChanged) {
+    if (migrationVersion.value < CURRENT_MIGRATION || catalogChanged) {
       migrationVersion.value = CURRENT_MIGRATION
       persist()
     }

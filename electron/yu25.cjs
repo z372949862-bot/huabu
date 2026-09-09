@@ -1,4 +1,4 @@
-// Adapter for the sd2.5 protocol in the supplied YU25 Seedance 1.5.12 source.
+// Adapter for the sd2.5 protocols in the supplied YU25 Seedance 1.5.15 source.
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const {Readable}=require('stream');
 const {pipeline}=require('stream/promises');
@@ -51,7 +51,7 @@ module.exports=function registerYu25({ipcMain,net,app}){
   ipcMain.handle('yu25:request',wrap(async({apiKey,path:route,body})=>{
     const creating=route==='/v1/videos'&&!!body;
     if(!creating&&route!=='/v1/models'&&!/^\/v1\/videos\/[A-Za-z0-9_%.-]+$/.test(route||''))throw new Error('不支持的 YU25 请求');
-    if(creating&&body.model!=='sd2.5')throw new Error('YU25 接入仅支持 sd2.5');
+    if(creating&&!new Set(['sd2.5','sd2.5 高']).has(body.model))throw new Error('YU25 接入仅支持 sd2.5 和 sd2.5 高');
     const trace=crypto.randomUUID();
     // Check local storage before submitting a potentially billable job.
     let journal;
@@ -67,7 +67,7 @@ module.exports=function registerYu25({ipcMain,net,app}){
         if(taskId!==undefined){
           try{
             // No keys, prompts, material data or signed media URLs in this journal.
-            fs.writeSync(journal,JSON.stringify({task_id:String(taskId),model:'sd2.5',submitted_at:new Date().toISOString(),client_request_id:trace})+'\n');
+            fs.writeSync(journal,JSON.stringify({task_id:String(taskId),model:String(body.model),submitted_at:new Date().toISOString(),client_request_id:trace})+'\n');
             fs.fsyncSync(journal);
           }catch{throw new Error(`YU25 已受理任务 ${taskId}，但本地任务编号保存失败；请记录此编号并到平台查询，勿重复提交`);}
         }
@@ -76,7 +76,7 @@ module.exports=function registerYu25({ipcMain,net,app}){
     }finally{if(journal!==undefined)fs.closeSync(journal);}
   }));
   ipcMain.handle('yu25:upload',wrap(async({apiKey,kind,data,fileName,mimeType})=>{
-    if(kind!=='image')throw new Error('YU25 sd2.5 仅支持图片参考');
+    if(kind!=='image')throw new Error('YU25 sd2.5 系列仅支持图片参考');
     if(typeof data!=='string'||data.length>3*1024*1024)throw new Error('参考图片须压缩到 2 MB 以内');
     const bytes=Buffer.from(data,'base64');if(!bytes.length||bytes.length>2*1024*1024)throw new Error('参考图片为空或超过 2 MB');
     const form=new FormData();form.append('image',new Blob([bytes],{type:mimeType||'image/jpeg'}),path.basename(fileName||'reference.jpg'));
