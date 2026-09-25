@@ -7,6 +7,7 @@ import {
   mapUnmauTask,
 } from '../providers/unmau'
 import { YU25_MODELS, adaptYu25CreateBody, buildYu25Body, mapYu25Task } from '../providers/yu25'
+import { XINSHUJU_MODELS, adaptXinshujuCreateBody, buildXinshujuBody, mapXinshujuTask } from '../providers/xinshuju'
 
 describe('New API Seedance 2.5 adapter', () => {
   it('publishes the complete 12-model catalog and builds a valid request', () => {
@@ -108,5 +109,52 @@ describe('YU25 sd2.5 adapter', () => {
       status: 'completed',
       videoUrl: 'https://example.com/video.mp4',
     })
+  })
+})
+
+describe('心数据 Seedance 2.5 adapter', () => {
+  it('publishes the three 30-image models and builds content[] payloads', () => {
+    expect(XINSHUJU_MODELS.map(model => model.id)).toEqual([
+      '2-seedance-2.5',
+      '3-seedance-2.5-720p',
+      '4-seedance-2.5-720p',
+    ])
+    expect(XINSHUJU_MODELS[0].capabilities.resolutions).toEqual(['480p', '720p', '1080p'])
+    expect(XINSHUJU_MODELS[1].capabilities.resolutions).toEqual(['720p'])
+    const base = buildXinshujuBody({
+      model: '3-seedance-2.5-720p',
+      prompt: '阿宿向右跑',
+      duration: 20,
+      ratio: '16:9',
+      resolution: '720p',
+      generateAudio: true,
+    }, {
+      images: ['https://example.com/asu.png'],
+      videos: [],
+      audios: ['https://example.com/music.mp3'],
+    })
+    expect(adaptXinshujuCreateBody(base)).toEqual({
+      model: '3-seedance-2.5-720p',
+      content: [
+        { type: 'text', text: '阿宿向右跑' },
+        { type: 'image_url', image_url: { url: 'https://example.com/asu.png' }, role: 'reference_image' },
+        { type: 'audio_url', audio_url: { url: 'https://example.com/music.mp3' }, role: 'reference_audio' },
+      ],
+      generate_audio: true,
+      ratio: '16:9',
+      duration: 20,
+      watermark: false,
+      resolution: '720p',
+    })
+  })
+
+  it('normalizes task status and rejects reference video', () => {
+    expect(mapXinshujuTask({ data: { status: 'completed', video_url: 'https://example.com/out.mp4' } })).toMatchObject({
+      status: 'completed',
+      videoUrl: 'https://example.com/out.mp4',
+    })
+    expect(() => buildXinshujuBody({
+      model: '2-seedance-2.5', prompt: '测试', duration: 10, ratio: '9:16', resolution: '720p',
+    }, { images: [], videos: ['https://example.com/ref.mp4'], audios: [] })).toThrow('不支持参考视频')
   })
 })

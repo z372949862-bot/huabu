@@ -14,6 +14,8 @@
           <div class="changelog-body">
             <div class="changelog-date">{{ formatDateStr(Date.now()) }}</div>
             <ul>
+              <li>🎞️ 新增心数据 Seedance 2.5：内置 2、3、4 三条线路，支持 4–30 秒和最多 30 张参考图</li>
+              <li>🎧 心数据支持最多 10 个参考音频；2 线路可选 480P / 720P / 1080P，3、4 线路为 720P</li>
               <li>🎬 YU25 新增 sd2.5 高模型，支持 5 / 10 / 15 / 30 秒、横竖屏和最多 9 张参考图</li>
               <li>🔄 已有 YU25 配置会自动补入新模型，无需重新填写 API Key</li>
               <li>🎞️ 新增 New API Seedance 2.5：内置当前 12 个 480P / 720P 模型，按模型限制校验比例、时长和参考素材数量</li>

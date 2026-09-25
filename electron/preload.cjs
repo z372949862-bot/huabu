@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (payload) => ipcRenderer.invoke('yu25:upload', payload),
     download: (payload) => ipcRenderer.invoke('yu25:download', payload),
   },
+  xinshuju: {
+    request: (payload) => ipcRenderer.invoke('xinshuju:request', payload),
+    download: (payload) => ipcRenderer.invoke('xinshuju:download', payload),
+  },
   store: {
     get: (key) => ipcRenderer.invoke('store:get', key),
     set: (key, value) => ipcRenderer.invoke('store:set', key, value),
