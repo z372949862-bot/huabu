@@ -4,6 +4,7 @@ import { SeedanceProvider } from '@/services/providers/seedance'
 import { ChuhaiyingVideoProvider } from '@/services/providers/chuhaiyingVideo'
 import { UnmauProvider } from '@/services/providers/unmau'
 import { Yu25Provider } from '@/services/providers/yu25'
+import { XinshujuProvider } from '@/services/providers/xinshuju'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
@@ -24,7 +25,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -81,8 +82,9 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   qiling: 'https://api.qilingze.com',
   unmau: 'https://newapis.unmau.com',
   yu25: 'https://api.yu25.xyz',
+  xinshuju: 'https://www.xinshuju.net',
 }
-const CURRENT_MIGRATION = 8
+const CURRENT_MIGRATION = 9
 
 declare global {
   interface Window {
@@ -144,6 +146,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'qiling') return 'qiling'
   if (conf.kind === 'unmau') return 'unmau'
   if (conf.kind === 'yu25') return 'yu25'
+  if (conf.kind === 'xinshuju') return 'xinshuju'
   return 'seedance'
 }
 
@@ -190,8 +193,10 @@ export const useAIStore = defineStore('ai', () => {
     let inst = videoCache.get(id)
     if (!inst) {
       const kind = videoKindOf(conf)
-      inst = kind === 'yu25'
-        ? new Yu25Provider(conf.apiKey, conf.baseUrl)
+      inst = kind === 'xinshuju'
+        ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'yu25'
+          ? new Yu25Provider(conf.apiKey, conf.baseUrl)
         : kind === 'unmau'
           ? new UnmauProvider(conf.apiKey, conf.baseUrl)
           : (kind === 'chuhaiying' || kind === 'qiling')
@@ -287,7 +292,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -295,6 +300,8 @@ export const useAIStore = defineStore('ai', () => {
       defaultModels = defaultVideoModelSet(vidKind)
       defaultName = vidKind === 'unmau'
         ? 'New API · Seedance 2.5'
+        : vidKind === 'xinshuju'
+          ? '心数据 · Seedance 2.5'
         : vidKind === 'yu25'
           ? 'YU25 · Seedance'
           : vidKind === 'chuhaiying'
@@ -556,12 +563,15 @@ export const useAIStore = defineStore('ai', () => {
     if (migrationVersion.value < 6 && !providers.value.some((p) => p.type === 'video' && p.kind === 'yu25')) {
       addProvider({ name: 'YU25 · Seedance', type: 'video', kind: 'yu25' })
     }
+    if (migrationVersion.value < 9 && !providers.value.some((p) => p.type === 'video' && p.kind === 'xinshuju')) {
+      addProvider({ name: '心数据 · Seedance 2.5', type: 'video', kind: 'xinshuju' })
+    }
 
     // Keep built-in provider catalogs in sync for existing installations while
     // preserving user-added model IDs.
     let catalogChanged = false
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const current = provider.models || []
       const merged = [

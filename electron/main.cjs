@@ -9,6 +9,7 @@ const log = require('electron-log')
 const jianying = require('./jianyingDraft.cjs')
 require('./unmau.cjs')({ ipcMain, net, app })
 require('./yu25.cjs')({ ipcMain, net, app })
+require('./xinshuju.cjs')({ ipcMain, net, app })
 
 const store = new Store({ name: 'ai-video-canvas-config' })
 
