@@ -10,21 +10,21 @@
     <Teleport to="body">
       <div v-if="showChangelog" class="changelog-overlay" @click.self="dismissChangelog">
         <div class="changelog-modal">
-          <h3>更新公告 · v{{ appVersion }}</h3>
+          <h3>更新公告</h3>
           <div class="changelog-body">
-            <div class="changelog-date">{{ formatDateStr(Date.now()) }}</div>
-            <ul>
-              <li>🎞️ 新增心数据 Seedance 2.5：内置 2、3、4 三条线路，支持 4–30 秒和最多 30 张参考图</li>
-              <li>🎧 心数据支持最多 10 个参考音频；2 线路可选 480P / 720P / 1080P，3、4 线路为 720P</li>
-              <li>🎬 YU25 新增 sd2.5 高模型，支持 5 / 10 / 15 / 30 秒、横竖屏和最多 9 张参考图</li>
-              <li>🔄 已有 YU25 配置会自动补入新模型，无需重新填写 API Key</li>
-              <li>🎞️ 新增 New API Seedance 2.5：内置当前 12 个 480P / 720P 模型，按模型限制校验比例、时长和参考素材数量</li>
-              <li>🎬 新增 YU25 sd2.5 接口，支持提交、轮询、断点恢复和本地成片保存</li>
-              <li>🛠️ 修复 NEW API 模型在界面可见、提交时却提示“不支持的视频模型”的问题</li>
-              <li>📝 提示词输入框支持鼠标滚轮和全屏编辑，长分镜提示词更容易查看和修改</li>
-              <li>🖼️ 本地参考图点击即可放大，素材节点不再显示无关的提示词输入卡片</li>
-              <li>💾 修复重启后生成视频无法预览、引用图片变成文字描述的问题</li>
-            </ul>
+            <section
+              v-for="entry in recentChangelogEntries"
+              :key="entry.version"
+              class="changelog-entry"
+            >
+              <div class="changelog-entry-header">
+                <strong>v{{ entry.version }}</strong>
+                <span>{{ entry.date }}</span>
+              </div>
+              <ul>
+                <li v-for="item in entry.items" :key="item">{{ item }}</li>
+              </ul>
+            </section>
           </div>
           <button
             class="changelog-ok"
@@ -288,6 +288,30 @@ const isAutoPopup = ref(false)
 const appVersion = __APP_VERSION__
 const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') === appVersion)
 
+// 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
+const changelogEntries = [
+  {
+    version: '0.3.4',
+    date: '2026-09-30',
+    items: [
+      '🎬 新增 DMXAPI Seedance 2.5，支持参考生成、视频编辑和视频延长',
+      '🎞️ 更新器灵 Seedance 2.5 满血线路，并移除旧版 2.0 与备用模型',
+      '🔗 图片素材拖线到视频节点主体即可引用；连线悬停显示剪刀按钮，可直接解除连接',
+      '🖱️ 支持 Ctrl + 鼠标框选图片素材和视频节点，并整组复制、粘贴和拖动',
+      '📥 图片、音频和视频文件可从电脑直接拖入画布，修复重启后素材、视频和连线恢复问题',
+    ],
+  },
+  {
+    version: '0.3.3',
+    date: '2026-09-25',
+    items: [
+      '🎞️ 新增心数据 Seedance 2.5：内置 2、3、4 三条线路，支持 4–30 秒和最多 30 张参考图',
+      '🎧 心数据支持最多 10 个参考音频；2 线路可选 480P / 720P / 1080P，3、4 线路为 720P',
+    ],
+  },
+] as const
+const recentChangelogEntries = changelogEntries.slice(0, 2)
+
 // 点击版本号触发更新检查（更新逻辑在 App.vue 全局处理）
 const checkUpdate = () => {
   window.dispatchEvent(new CustomEvent('trigger-update-check'))
@@ -375,11 +399,6 @@ function dismissChangelog() {
   if (!okReady.value) return
   showChangelog.value = false
   localStorage.setItem('lastSeenVersion', appVersion)
-}
-
-function formatDateStr(ts: number) {
-  const d = new Date(ts)
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
 const toggleBgMenu = () => {
@@ -1081,7 +1100,24 @@ const formatDate = (timestamp: number) => {
   color: #00D9FF; font-size: 20px; font-weight: 500;
   margin: 0 0 20px;
 }
-.changelog-date { font-size: 12px; color: rgba(255,255,255,0.3); margin-bottom: 16px; }
+.changelog-body {
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.changelog-entry + .changelog-entry {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+.changelog-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.changelog-entry-header strong { color: rgba(255,255,255,0.9); font-size: 15px; }
+.changelog-entry-header span { color: rgba(255,255,255,0.3); font-size: 12px; }
 .changelog-body ul { padding-left: 18px; margin: 0; }
 .changelog-body li {
   color: rgba(255,255,255,0.7); font-size: 14px;

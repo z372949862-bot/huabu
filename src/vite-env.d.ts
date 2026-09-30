@@ -19,6 +19,9 @@ interface Window {
       upload: (payload: any) => Promise<any>
       download: (payload: any) => Promise<any>
     }
+    qiling?: {
+      download: (payload: { apiKey: string; taskId?: string; videoUrl?: string }) => Promise<any>
+    }
     store: {
       get: (key: string) => Promise<string | null>
       set: (key: string, value: string) => Promise<void>

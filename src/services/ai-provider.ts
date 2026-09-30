@@ -13,7 +13,7 @@ export interface ContentItem {
 export interface CreateTaskParams {
   model: string
   prompt: string
-  mode?: 't2v' | 'i2v' | 'reference_images' | 'reference_material' | 'r2v' | 'edit'
+  mode?: 't2v' | 'i2v' | 'reference_images' | 'reference_material' | 'r2v' | 'edit' | 'extend'
   /** i2v 首帧图 */
   image_url?: string
   /** reference_images 模式的角色/素材参考图（数组） */
@@ -25,6 +25,10 @@ export interface CreateTaskParams {
   duration?: number
   fps?: number
   generate_audio?: boolean
+  /** DMXAPI Seedance 2.5 子任务校验：reference / edit / extend。 */
+  omniReferenceTaskType?: 'auto' | 'reference' | 'edit' | 'extend'
+  outputFormat?: 'mp4' | 'mov'
+  returnLastFrame?: boolean
 }
 
 export interface TextToImageParams {

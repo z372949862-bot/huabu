@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     request: (payload) => ipcRenderer.invoke('xinshuju:request', payload),
     download: (payload) => ipcRenderer.invoke('xinshuju:download', payload),
   },
+  qiling: {
+    download: (payload) => ipcRenderer.invoke('qiling:download', payload),
+  },
   store: {
     get: (key) => ipcRenderer.invoke('store:get', key),
     set: (key, value) => ipcRenderer.invoke('store:set', key, value),

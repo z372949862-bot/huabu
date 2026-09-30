@@ -12,7 +12,7 @@ import { UNMAU_MODELS } from './providers/unmau'
 import { YU25_MODELS } from './providers/yu25'
 import { XINSHUJU_MODELS } from './providers/xinshuju'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi'
 
 export interface ModelTemplate {
   id: string
@@ -58,50 +58,81 @@ export const SEEDANCE_MODEL_TEMPLATES: ModelTemplate[] = [
   },
 ]
 
+/** DMXAPI 官方 Seedance 2.5（Responses 异步接口）。 */
+export const DMXAPI_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
+  {
+    id: 'doubao-seedance-2-5-260628',
+    name: 'Seedance 2.5',
+    description: 'DMXAPI 官方接口，支持参考、编辑、延长，4–30 秒',
+    capabilities: {
+      ratios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
+      resolutions: ['480p', '720p', '1080p'],
+      durationRange: { min: -1, max: 30 },
+      audioGeneration: true,
+      maxImages: 30,
+      maxVideos: 10,
+      maxAudios: 10,
+    },
+  },
+]
+
 /** 器灵中转站默认模型（仅 Seedance 系列） */
 export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
   {
-    id: 'sd2-720p-fast',
-    name: 'Seedance 2 · 720P Fast',
-    description: '快速生成',
+    id: 'SD2.5-满血-XG-720P',
+    name: 'SD2.5 满血 XG · 720P',
+    description: '器灵 XG 线路，4–30 秒，最多 30 图 / 10 视频 / 10 音频参考',
     capabilities: {
-      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
+      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
       resolutions: ['720p'],
-      durationRange: { min: 4, max: 15 },
+      durationRange: { min: 4, max: 30 },
       audioGeneration: true,
+      maxImages: 30,
+      maxVideos: 10,
+      maxAudios: 10,
     },
   },
   {
-    id: 'sd2-720p',
-    name: 'Seedance 2 · 720P',
-    description: '标准画质',
+    id: 'SD2.5-满血-CB-720P',
+    name: 'SD2.5 满血 CB · 720P',
+    description: '器灵 CB 主线路，固定 30 秒，支持图 / 视频 / 音频参考',
     capabilities: {
-      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
+      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
       resolutions: ['720p'],
-      durationRange: { min: 4, max: 15 },
+      durationRange: { min: 30, max: 30 },
       audioGeneration: true,
+      maxImages: 30,
+      maxVideos: 10,
+      maxAudios: 10,
     },
   },
   {
-    id: 'sd2-1080p-fast',
-    name: 'Seedance 2 · 1080P Fast',
-    description: '高画质快速',
+    id: 'SD2.5-满血-HN-720P',
+    name: 'SD2.5 满血 HN · 720P',
+    description: '器灵 HN 线路，5 / 10 / 20 / 30 秒，最多 30 图 / 15 视频 / 15 音频参考',
     capabilities: {
-      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
-      resolutions: ['1080p'],
-      durationRange: { min: 4, max: 15 },
-      audioGeneration: true,
+      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+      resolutions: ['720p'],
+      durationRange: { min: 5, max: 30 },
+      durationOptions: [5, 10, 20, 30],
+      audioGeneration: false,
+      maxImages: 30,
+      maxVideos: 15,
+      maxAudios: 15,
     },
   },
   {
-    id: 'sd2-1080p',
-    name: 'Seedance 2 · 1080P',
-    description: '最高画质',
+    id: 'SD2.5-满血-JL-720P',
+    name: 'SD2.5 满血 JL · 720P',
+    description: '器灵 JL 线路，固定 30 秒，支持文生、首帧、首尾帧和多媒体参考',
     capabilities: {
-      ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'],
-      resolutions: ['1080p'],
-      durationRange: { min: 4, max: 15 },
+      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+      resolutions: ['720p'],
+      durationRange: { min: 30, max: 30 },
       audioGeneration: true,
+      maxImages: 30,
+      maxVideos: 10,
+      maxAudios: 10,
     },
   },
 ]
@@ -139,6 +170,7 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   unmau: UNMAU_MODELS,
   yu25: YU25_MODELS,
   xinshuju: XINSHUJU_MODELS,
+  dmxapi: DMXAPI_VIDEO_MODEL_TEMPLATES,
 }
 
 /** 兼容旧代码：返回全部去重模板（按 id）。新代码用 getModelTemplatesByKind。 */
