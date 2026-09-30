@@ -49,6 +49,7 @@
           <option value="unmau">New API · Seedance 2.5 (newapis.unmau.com)</option>
           <option value="yu25">YU25 · Seedance (api.yu25.xyz)</option>
           <option value="xinshuju">心数据 · Seedance 2.5 (xinshuju.net)</option>
+          <option value="dmxapi">DMXAPI · Seedance 2.5 (dmxapi.cn)</option>
           <option value="qiling">器灵 (api.qilingze.com)</option>
         </select>
         <select
@@ -332,6 +333,8 @@ const addProviderClick = () => {
       ? 'New API · Seedance 2.5'
       : kind === 'xinshuju'
         ? '心数据 · Seedance 2.5'
+      : kind === 'dmxapi'
+        ? 'DMXAPI · Seedance 2.5'
       : kind === 'yu25'
         ? 'YU25 · Seedance'
         : kind === 'chuhaiying'

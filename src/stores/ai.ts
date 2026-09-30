@@ -5,6 +5,7 @@ import { ChuhaiyingVideoProvider } from '@/services/providers/chuhaiyingVideo'
 import { UnmauProvider } from '@/services/providers/unmau'
 import { Yu25Provider } from '@/services/providers/yu25'
 import { XinshujuProvider } from '@/services/providers/xinshuju'
+import { DmxApiProvider } from '@/services/providers/dmxapi'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
@@ -25,7 +26,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -83,8 +84,9 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   unmau: 'https://newapis.unmau.com',
   yu25: 'https://api.yu25.xyz',
   xinshuju: 'https://www.xinshuju.net',
+  dmxapi: 'https://www.dmxapi.cn',
 }
-const CURRENT_MIGRATION = 9
+const CURRENT_MIGRATION = 11
 
 declare global {
   interface Window {
@@ -147,6 +149,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'unmau') return 'unmau'
   if (conf.kind === 'yu25') return 'yu25'
   if (conf.kind === 'xinshuju') return 'xinshuju'
+  if (conf.kind === 'dmxapi') return 'dmxapi'
   return 'seedance'
 }
 
@@ -195,6 +198,8 @@ export const useAIStore = defineStore('ai', () => {
       const kind = videoKindOf(conf)
       inst = kind === 'xinshuju'
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'dmxapi'
+          ? new DmxApiProvider(conf.apiKey, conf.baseUrl)
         : kind === 'yu25'
           ? new Yu25Provider(conf.apiKey, conf.baseUrl)
         : kind === 'unmau'
@@ -292,7 +297,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -308,6 +313,8 @@ export const useAIStore = defineStore('ai', () => {
             ? '出海营视频'
             : vidKind === 'qiling'
               ? '器灵'
+              : vidKind === 'dmxapi'
+                ? 'DMXAPI · Seedance 2.5'
               : 'Seedance'
     }
 
@@ -571,9 +578,15 @@ export const useAIStore = defineStore('ai', () => {
     // preserving user-added model IDs.
     let catalogChanged = false
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling')) continue
       const defaults = defaultVideoModelSet(provider.kind)
-      const current = provider.models || []
+      const storedModels = provider.models || []
+      const current = storedModels.filter((model) => {
+        if (provider.kind !== 'qiling') return true
+        if (model.id === 'SD2.5-满血-CB-720P-备用') return false
+        if (/^(?:sd2-|SD2\.0-|doubao-seedance-2-0)/i.test(model.id)) return false
+        return !/^Seedance\s*2(?:\.0)?(?:\s|·|$)/i.test(model.name || '')
+      })
       const merged = [
         ...defaults,
         ...current.filter((model) => !defaults.some((item) => item.id === model.id)),
@@ -581,7 +594,7 @@ export const useAIStore = defineStore('ai', () => {
       const renamed = provider.name === 'New API · XD / TD' || provider.name === 'YU25 · sd2.5'
       if (provider.name === 'New API · XD / TD') provider.name = 'New API · Seedance 2.5'
       if (provider.name === 'YU25 · sd2.5') provider.name = 'YU25 · Seedance'
-      if (renamed || JSON.stringify(current) !== JSON.stringify(merged)) {
+      if (renamed || JSON.stringify(storedModels) !== JSON.stringify(merged)) {
         provider.models = merged
         catalogChanged = true
       }

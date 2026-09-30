@@ -1,7 +1,7 @@
 <template>
   <div class="custom-node" :class="{ selected: isSelected }">
     <!-- 节点主体 - 动态尺寸 -->
-    <div class="node-main" @click.stop="selectNode" :style="{ width: nodeSize.width + 'px', height: nodeSize.height + 'px' }">
+    <div class="node-main" @click="selectNode" :style="{ width: nodeSize.width + 'px', height: nodeSize.height + 'px' }">
       <div class="node-content" :class="{ generating: data.status === 'running' }">
         <!-- 素材引用节点 - 显示上传的素材 -->
         <template v-if="type === 'asset-ref' && data.assetUrl">
@@ -37,7 +37,6 @@
           <div
             v-else-if="data.status === 'completed' && data.outputImage"
             class="image-thumbnail"
-            @click.stop="selectNode"
             @dblclick.stop="previewImage"
             title="单击 = 展开/收起生成卡片；双击 = 预览大图"
           >
@@ -74,7 +73,6 @@
           <div
             v-else-if="data.status === 'completed' && data.outputVideo"
             class="video-thumbnail"
-            @click.stop="selectNode"
             @dblclick.stop="playVideo"
             title="单击 = 展开/收起生成卡片；双击 = 播放视频"
           >
@@ -1240,9 +1238,24 @@ const removeConnectedAsset = (assetId: string) => {
 // 注：原来还有一个 onMounted 重复加载，已合并到上方初始化块
 
 // 当前选中模型的能力（视频和图片节点共用，从 selectedProviderId + selectedModel 反查）
+const isDmxApi25 = computed(() => {
+  const config = aiStore.getProviderConfig(selectedProviderId.value)
+  return props.type === 'ai-video' && config?.kind === 'dmxapi' && selectedModel.value === 'doubao-seedance-2-5-260628'
+})
+const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
+  currentTab.value === 'video-edit' ? 'edit' : currentTab.value === 'video-extend' ? 'extend' : 'reference'
+)
 const currentModelCapabilities = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   const model = config?.models.find(m => m.id === selectedModel.value)
+  if (isDmxApi25.value && activeDmxMode.value !== 'reference') {
+    return {
+      ...model?.capabilities,
+      ratios: ['adaptive'],
+      durationRange: activeDmxMode.value === 'edit' ? undefined : { min: 4, max: 30 },
+      durationOptions: activeDmxMode.value === 'edit' ? [] : undefined,
+    }
+  }
   return model?.capabilities
 })
 
@@ -1289,7 +1302,7 @@ const hasImageInput = computed(() => {
 
 // 检查是否有任何输入连接
 const hasAnyInput = computed(() => {
-  return nodeStore.edges.some(edge => edge.target === props.id)
+  return nodeStore.edges.some(edge => edge.target === props.id) || allAssets.value.length > 0
 })
 
 // 获取连接的源节点的输出图片
@@ -1329,6 +1342,14 @@ const connectedAssets = computed(() => {
         name: sourceNode.data.label || '节点输出',
         fromNode: true
       })
+    } else if (sourceNode?.data?.outputAudio) {
+      assets.push({
+        id: `node_${sourceNode.id}`,
+        type: 'audio',
+        url: sourceNode.data.outputAudio,
+        name: sourceNode.data.label || '节点输出',
+        fromNode: true
+      })
     }
   })
 
@@ -1339,6 +1360,8 @@ const connectedAssets = computed(() => {
 const allAssets = computed(() => {
   return [...connectedAssets.value, ...uploadedAssets.value]
 })
+
+const hasVideoInput = computed(() => allAssets.value.some(asset => asset.type === 'video' && asset.url))
 
 // 根据节点类型过滤素材
 // 绘图节点：只显示图片
@@ -1371,6 +1394,10 @@ const videoTabs = computed(() => [
   { label: '图生视频', value: 'image-to-video', disabled: !hasImageInput.value }, // 有图片输入时启用
   { label: '首尾帧', value: 'first-last-frame', disabled: !hasImageInput.value }, // 有图片输入时启用
   { label: '图片参考', value: 'image-ref', disabled: !hasImageInput.value }, // 有图片输入时启用
+  ...(isDmxApi25.value ? [
+    { label: '视频编辑', value: 'video-edit', disabled: !hasVideoInput.value },
+    { label: '视频延长', value: 'video-extend', disabled: !hasVideoInput.value },
+  ] : []),
 ])
 
 // 当输入变化时，自动切换到可用的选项卡
@@ -1384,6 +1411,21 @@ watch([hasAnyInput, hasImageInput], ([anyInput, imageInput]) => {
     }
   }
 })
+
+watch(isDmxApi25, (enabled) => {
+  if (!enabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
+    currentTab.value = 'text-to-video'
+  }
+})
+
+watch(activeDmxMode, (mode) => {
+  if (!isDmxApi25.value) return
+  nodeStore.updateNodeData(props.id, { videoMode: mode } as any)
+  if (mode !== 'reference') {
+    selectedRatio.value = 'adaptive'
+    if (mode === 'edit') nodeStore.updateNodeData(props.id, { duration: -1 } as any)
+  }
+}, { immediate: true })
 
 watch(() => props.data.prompt, (newPrompt) => {
   const value = newPrompt || ''
@@ -1587,8 +1629,15 @@ const executeNode = async () => {
   }
   const refImageUrls = refImageEntries.map((e) => e.url)
   if (props.type === 'ai-video') {
-    const refVideo = allAssets.value.find((a) => a.type === 'video' && a.url)
-    if (refVideo) inputVideo = refVideo.url
+    const refVideos = allAssets.value.filter((a) => a.type === 'video' && a.url).map((a) => a.url)
+    if (refVideos.length) inputVideo = refVideos[0]
+    const refAudios = allAssets.value.filter((a) => a.type === 'audio' && a.url).map((a) => a.url)
+    console.log('[executeNode] refImages:', refImageUrls.length, 'videos:', refVideos.length, 'audios:', refAudios.length)
+    nodeStore.updateNodeData(props.id, {
+      inputVideos: refVideos,
+      inputAudios: refAudios,
+      videoMode: activeDmxMode.value,
+    } as any)
   }
   console.log('[executeNode] refImages:', refImageUrls.length, 'video:', !!inputVideo)
 
@@ -1600,6 +1649,11 @@ const executeNode = async () => {
     inputImage: refImageUrls[0],
     inputVideo,
     inputImages: refImageUrls,
+    ...(props.type === 'ai-video' ? {
+      inputVideos: allAssets.value.filter((a) => a.type === 'video' && a.url).map((a) => a.url),
+      inputAudios: allAssets.value.filter((a) => a.type === 'audio' && a.url).map((a) => a.url),
+      videoMode: activeDmxMode.value,
+    } : {}),
   } as any)
   nodeStore.executeNode(props.id)
 }

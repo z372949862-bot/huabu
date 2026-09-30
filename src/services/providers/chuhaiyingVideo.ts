@@ -28,6 +28,19 @@ import { urlToBase64, compressImageToDataUrl } from '../imageProviderUtils'
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const DEFAULT_MODEL = 'grok-imagine-video-1.5-preview'
 
+/** 器灵当前 Seedance 2.5 满血线路使用 /v1/videos 的标准字段。 */
+export function isQilingSeedance25Model(model: string): boolean {
+  return /^SD2\.5-/i.test(model)
+}
+
+function isQilingFixedDurationModel(model: string): boolean {
+  return /(?:CB-720P|JL-720P)$/i.test(model)
+}
+
+function isQilingHnModel(model: string): boolean {
+  return /HN-720P$/i.test(model)
+}
+
 /**
  * 把 ratio 字符串归一成出海营接受的 aspect_ratio 字段（保持原样，因为它接受 '16:9' / '9:16' 等）
  * 'auto' 不传，让网关默认。
@@ -177,11 +190,14 @@ export class ChuhaiyingVideoProvider implements AIProvider {
     const model = params.model || DEFAULT_MODEL
     const isOmniOrVeo = model.startsWith('gemini-omni') || model.startsWith('veo')
     const isSd2 = model.startsWith('sd2-')
+    const isQilingSeedance25 = isQilingSeedance25Model(model)
     const isEdit = params.mode === 'edit'
 
     // 从 content / 各字段里提取图片和视频 URL
     let editVideoUrl: string | undefined
     const refs: string[] = []
+    const videoRefs: string[] = []
+    const audioRefs: string[] = []
     if (params.image_url) refs.push(params.image_url)
     if (params.image_urls?.length) refs.push(...params.image_urls)
     if (params.content?.length) {
@@ -191,19 +207,52 @@ export class ChuhaiyingVideoProvider implements AIProvider {
           if (u) refs.push(u)
         } else if (item.type === 'video_url') {
           const u = typeof item.video_url === 'string' ? item.video_url : item.video_url?.url
-          if (u) editVideoUrl = u
+          if (u) {
+            editVideoUrl = u
+            videoRefs.push(u)
+          }
+        } else if (item.type === 'audio_url') {
+          const u = typeof item.audio_url === 'string' ? item.audio_url : item.audio_url?.url
+          if (u) audioRefs.push(u)
         }
       }
     }
     // image_url / image_urls / content 三处来源叠加可能重复，统一去重
     refs.splice(0, refs.length, ...new Set(refs))
+    videoRefs.splice(0, videoRefs.length, ...new Set(videoRefs))
+    audioRefs.splice(0, audioRefs.length, ...new Set(audioRefs))
 
     const body: Record<string, any> = {
       model,
       prompt: params.prompt,
     }
 
-    if (isSd2) {
+    if (isQilingSeedance25) {
+      // 器灵 SD2.5 满血线路使用标准数组字段，固定 720P，不发送旧版 metadata。
+      const requestedRatio = normalizeRatio(params.ratio)
+      const aspectRatio = requestedRatio && requestedRatio !== 'adaptive' ? requestedRatio : '16:9'
+      body.aspect_ratio = aspectRatio
+
+      if (isQilingHnModel(model)) {
+        const allowedDurations = [5, 10, 20, 30]
+        const requested = Number(params.duration)
+        body.seconds = String(allowedDurations.includes(requested) ? requested : 30)
+      } else if (isQilingFixedDurationModel(model)) {
+        body.duration = 30
+      } else {
+        const requested = Number(params.duration)
+        body.duration = Number.isFinite(requested) && requested > 0
+          ? Math.max(4, Math.min(30, Math.round(requested)))
+          : 5
+      }
+
+      if (refs.length) body.images = refs
+      if (videoRefs.length) body.videos = videoRefs
+      if (audioRefs.length) body.audios = audioRefs
+      if (!isQilingHnModel(model) && params.generate_audio !== undefined) {
+        body.generate_audio = !!params.generate_audio
+      }
+    } else if (isSd2) {
       // Qiling sd2 专用格式：metadata 嵌套 + base64 参考图
       // modeType 取值必须与器灵后端一致（无连字符）：
       //   text2video（无参考图）/ image2video（单图）/ mixed2video（多图参考）
@@ -271,14 +320,22 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       }
     }
 
-    const data = await this.request<{ id?: string; request_id?: string; task_id?: string }>('/v1/videos', {
+    const data = await this.request<any>('/v1/videos', {
       method: 'POST',
       body: JSON.stringify(body),
     })
     // 器灵返回任务 ID 的字段不固定：id / request_id / task_id 都可能（与参考插件一致）
-    const taskId = data?.id || data?.request_id || data?.task_id
+    const taskId = data?.id
+      || data?.request_id
+      || data?.task_id
+      || data?.data?.id
+      || data?.data?.request_id
+      || data?.data?.task_id
+      || data?.data?.task?.id
+      || data?.result?.id
+      || data?.result?.task_id
     if (!taskId) throw new Error('创建视频任务失败：未返回任务 ID（id/request_id/task_id）')
-    return { taskId }
+    return { taskId: String(taskId) }
   }
 
   async getTaskStatus(taskId: string): Promise<TaskStatus> {
@@ -287,6 +344,18 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       { method: 'GET' }
     )
     return mapVideoTaskResponse(data)
+  }
+
+  async download(taskId: string, videoUrl?: string): Promise<string> {
+    const bridge = window.electronAPI?.qiling
+    if (!bridge) throw new Error('器灵本地下载组件未加载，请完全退出并重新打开软件')
+    const result = await bridge.download({ apiKey: this.apiKey, taskId, videoUrl })
+    if (!result?.ok || !result.data?.path) {
+      const error = new Error(result?.error || '器灵视频下载失败') as Error & { retryable?: boolean }
+      error.retryable = !!result?.retryable
+      throw error
+    }
+    return `local-upload:///${result.data.path.replace(/\\/g, '/')}`
   }
 
   async textToVideo(params: TextToVideoParams): Promise<VideoResult> {

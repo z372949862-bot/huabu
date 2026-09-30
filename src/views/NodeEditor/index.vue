@@ -1,5 +1,10 @@
 <template>
-  <div class="node-editor" @contextmenu="handleContextMenu">
+  <div
+    class="node-editor"
+    @contextmenu="handleContextMenu"
+    @dragover.prevent="onCanvasDragOver"
+    @drop.prevent="onCanvasDrop"
+  >
     <VueFlow
       v-model:nodes="nodes"
       v-model:edges="edges"
@@ -8,10 +13,13 @@
       :max-zoom="4"
       :snap-to-grid="true"
       :snap-grid="[15, 15]"
+      :nodes-draggable="true"
+      :elements-selectable="true"
       :is-valid-connection="isValidConnection"
       :default-edge-options="{ type: 'animated' }"
-      :selection-key="'Shift'"
-      :multi-selection-key="'Shift'"
+      :selection-key-code="ctrlPressed"
+      :multi-selection-key-code="'Control'"
+      :pan-on-drag="!ctrlPressed"
       @pane-context-menu="onPaneContextMenu"
       @node-context-menu="onNodeContextMenu"
       @node-click="onNodeClick"
@@ -205,7 +213,17 @@ let savedViewport: { x: number; y: number; zoom: number } | null = null
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
-const { project, onConnect, setNodes, setEdges, viewport, getSelectedNodes } = useVueFlow({
+const {
+  project,
+  onConnect,
+  setNodes,
+  setEdges,
+  viewport,
+  getSelectedNodes,
+  addSelectedNodes,
+  removeSelectedNodes,
+  onSelectionEnd,
+} = useVueFlow({
   nodeTypes: {
     'ai-image': markRaw(CustomNode),
     'ai-video': markRaw(CustomNode),
@@ -241,8 +259,17 @@ watch(() => nodeStore.nodes, (newNodes) => {
   nodes.value = [...newNodes]
 }, { deep: true, immediate: true })
 
-watch(() => nodeStore.edges, (newEdges) => {
-  edges.value = newEdges
+let edgeSyncVersion = 0
+watch(() => nodeStore.edges, async (newEdges) => {
+  const version = ++edgeSyncVersion
+  const pendingEdges = [...newEdges]
+
+  // 项目加载和初始化时 nodes / edges 会在同一批次写入。Vue Flow 偶尔先处理
+  // edge，节点 lookup 尚未建立就会丢弃该边，表现为“数据还在但连线看不见”。
+  // 等节点完成一帧注册后再同步边，并用版本号避免快速更新时写回旧快照。
+  await nextTick()
+  if (version !== edgeSyncVersion) return
+  edges.value = pendingEdges
 }, { deep: true, immediate: true })
 
 // 同步本地nodes的位置变化回nodeStore
@@ -255,16 +282,124 @@ watch(nodes, (newNodes) => {
   })
 }, { deep: true })
 
+const copyableNodeTypes = new Set(['ai-image', 'ai-video', 'asset-ref'])
+
+const isCopyableNode = (node: Node) => {
+  if (!copyableNodeTypes.has(node.type || '')) return false
+  if (node.type !== 'asset-ref') return true
+  const assetType = (node.data as any)?.assetType
+  return assetType === 'image' || assetType === 'video'
+}
+
+// 框选可能暂时包含其他类型节点；结束时只保留图片/视频相关节点。
+onSelectionEnd(() => {
+  nodes.value.forEach((node) => {
+    if (node.selected && !isCopyableNode(node)) node.selected = false
+  })
+})
+
+interface NodeClipboard {
+  nodes: Node[]
+  edges: Edge[]
+}
+
+let nodeClipboard: NodeClipboard | null = null
+let pasteOffset = 0
+
+const cloneData = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+
+const selectedCopyableNodes = () => nodes.value.filter((node) => node.selected && isCopyableNode(node))
+
+const copySelectedNodes = (fallbackNode?: Node) => {
+  const selected = selectedCopyableNodes()
+  const sourceNodes = selected.length > 0
+    ? selected
+    : (fallbackNode && isCopyableNode(fallbackNode) ? [fallbackNode] : [])
+  if (sourceNodes.length === 0) return false
+
+  const selectedIds = new Set(sourceNodes.map((node) => node.id))
+  nodeClipboard = {
+    nodes: sourceNodes.map((node) => ({
+      ...cloneData(node),
+      selected: false,
+      position: { ...node.position },
+    })),
+    edges: nodeStore.edges
+      .filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target))
+      .map((edge) => cloneData(edge)),
+  }
+  pasteOffset = 0
+  return true
+}
+
+const pasteCopiedNodes = () => {
+  if (!nodeClipboard || nodeClipboard.nodes.length === 0) return false
+
+  const idMap = new Map<string, string>()
+  const stamp = Date.now()
+  const offset = 45 + (pasteOffset % 6) * 15
+  pasteOffset += 1
+  const pastedNodes = nodeClipboard.nodes.map((node, index) => {
+    const newId = `${node.id}-copy-${stamp}-${index}`
+    idMap.set(node.id, newId)
+    return {
+      ...cloneData(node),
+      id: newId,
+      draggable: true,
+      selectable: true,
+      selected: true,
+      position: { x: node.position.x + offset, y: node.position.y + offset },
+    } as Node
+  })
+  const pastedEdges = nodeClipboard.edges
+    .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
+    .map((edge, index) => ({
+      ...cloneData(edge),
+      id: `e${stamp}-${index}-${idMap.get(edge.source)}-${idMap.get(edge.target)}`,
+      source: idMap.get(edge.source)!,
+      target: idMap.get(edge.target)!,
+    }))
+
+  // 粘贴后让新组成为当前选择，旧节点取消选中。
+  nodes.value.forEach((node) => { node.selected = false })
+  pastedNodes.forEach((node) => nodeStore.addNode(node))
+  pastedEdges.forEach((edge) => nodeStore.addEdge(edge))
+  nextTick(() => {
+    const pastedIds = new Set(pastedNodes.map((node) => node.id))
+    nodes.value.forEach((node) => {
+      node.selected = pastedIds.has(node.id)
+      if (pastedIds.has(node.id)) node.draggable = true
+    })
+    // 同步 Vue Flow 内部的选择集合，确保拖动一组粘贴节点时能移动整组。
+    removeSelectedNodes(nodes.value)
+    addSelectedNodes(nodes.value.filter((node) => pastedIds.has(node.id)))
+    nodeStore.selectNode(pastedNodes[0]?.id || null)
+  })
+  return true
+}
+
 // 监听连线创建（拖拽手柄）
 onConnect((connection) => {
+  addCanvasEdge(connection.source, connection.target)
+})
+
+/**
+ * Add a canvas connection once. Vue Flow normally calls this from a target
+ * handle, while the body-drop fallback below uses the same path so both
+ * connection gestures persist identical edges.
+ */
+const addCanvasEdge = (source: string, target: string) => {
+  if (!source || !target || source === target) return
+  if (nodeStore.edges.some((edge) => edge.source === source && edge.target === target)) return
+
   const edge: Edge = {
-    id: `e${connection.source}-${connection.target}`,
-    source: connection.source,
-    target: connection.target,
+    id: `e${source}-${target}`,
+    source,
+    target,
     type: 'animated',
   }
   nodeStore.addEdge(edge)
-})
+}
 
 // 监听连线开始拖拽（显示节点选择菜单）
 const { onConnectStart, onConnectEnd } = useVueFlow()
@@ -280,9 +415,24 @@ onConnectStart((params) => {
 })
 
 onConnectEnd((event) => {
-  // 如果没有连接到目标节点，显示创建节点菜单
+  // 放到节点主体上也视为连接到该节点，不再要求精确命中左侧 target 手柄。
+  // 真正的 handle 命中会先触发 onConnect，这里跳过以免重复创建边。
   if (connectingFrom.value && event instanceof MouseEvent) {
     const targetElement = event.target as HTMLElement
+    const droppedOnHandle = Boolean(targetElement.closest?.('.vue-flow__handle'))
+    const droppedNodeElement = targetElement.closest?.('.vue-flow__node')
+      || document.elementsFromPoint(event.clientX, event.clientY).find((element) =>
+        element.classList.contains('vue-flow__node')
+      )
+    const droppedNodeId = droppedNodeElement?.getAttribute('data-id')
+
+    if (!droppedOnHandle && connectingFrom.value.handleType === 'source' && droppedNodeId) {
+      addCanvasEdge(connectingFrom.value.nodeId, droppedNodeId)
+      connectingFrom.value = null
+      return
+    }
+
+    // 如果没有连接到目标节点，显示创建节点菜单
     // 检查是否点击到了空白画布
     if (targetElement.classList.contains('vue-flow__pane') ||
         targetElement.classList.contains('vue-flow__background')) {
@@ -306,17 +456,37 @@ onConnectEnd((event) => {
   connectingFrom.value = null
 })
 
-// 键盘删除监听 — 必须在 onMounted 最前面注册，否则 early return 会跳过
+const isTextEditingTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  return element.tagName === 'INPUT' ||
+    element.tagName === 'TEXTAREA' ||
+    element.isContentEditable ||
+    Boolean(element.closest('[contenteditable="true"]')) ||
+    Boolean(element.closest('.generator-input'))
+}
+
+// Vue Flow 1.33 对字符串 selectionKeyCode 的运行时声明有误，会把
+// "Control" 当成非法 prop。直接追踪 Ctrl 状态：按住时关闭平移并启用框选，
+// 松开后恢复左键平移，行为仍然是 Ctrl + 鼠标左键拖拽框选。
+const ctrlPressed = ref(false)
+
+// 键盘删除、复制、粘贴监听 — 必须在 onMounted 最前面注册，否则 early return 会跳过
 const handleKeyDown = (event: KeyboardEvent) => {
+  if (event.key === 'Control') ctrlPressed.value = true
+  if (isTextEditingTarget(event.target)) return
+
+  const modifier = event.ctrlKey || event.metaKey
+  if (modifier && event.key.toLowerCase() === 'c') {
+    if (copySelectedNodes()) event.preventDefault()
+    return
+  }
+  if (modifier && event.key.toLowerCase() === 'v') {
+    if (pasteCopiedNodes()) event.preventDefault()
+    return
+  }
+
   if (event.key === 'Delete') {
-    const target = event.target as HTMLElement
-    if (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable ||
-        target.closest('[contenteditable="true"]') ||
-        target.closest('.generator-input')) {
-      return
-    }
     const sel = getSelectedNodes.value
     if (sel.length > 0) {
       sel.forEach(n => nodeStore.removeNode(n.id))
@@ -326,10 +496,20 @@ const handleKeyDown = (event: KeyboardEvent) => {
     event.preventDefault()
   }
 }
+const handleKeyUp = (event: KeyboardEvent) => {
+  if (event.key === 'Control') ctrlPressed.value = false
+}
+const handleWindowBlur = () => {
+  ctrlPressed.value = false
+}
 window.addEventListener('keydown', handleKeyDown)
+window.addEventListener('keyup', handleKeyUp)
+window.addEventListener('blur', handleWindowBlur)
 onUnmounted(() => {
   savedViewport = { x: viewport.value.x, y: viewport.value.y, zoom: viewport.value.zoom }
   window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('keyup', handleKeyUp)
+  window.removeEventListener('blur', handleWindowBlur)
 })
 
 // 初始化示例节点
@@ -487,6 +667,89 @@ const onContextMenuSelect = (action: string) => {
   contextMenu.visible = false
 }
 
+type CanvasAssetType = 'image' | 'video' | 'audio'
+
+const inferCanvasAssetType = (file: File): CanvasAssetType | null => {
+  const mime = file.type.toLowerCase()
+  if (mime.startsWith('image/')) return 'image'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('audio/')) return 'audio'
+
+  const extension = file.name.toLowerCase().split('.').pop() || ''
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'tif', 'tiff'].includes(extension)) return 'image'
+  if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(extension)) return 'video'
+  if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(extension)) return 'audio'
+  return null
+}
+
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(reader.result as string)
+  reader.onerror = () => reject(reader.error)
+  reader.readAsDataURL(file)
+})
+
+const addFilesToCanvas = async (files: File[], clientX: number, clientY: number) => {
+  const supportedFiles = files.filter((file) => inferCanvasAssetType(file))
+  if (supportedFiles.length === 0) return
+
+  const basePosition = project({
+    x: clientX || window.innerWidth / 2,
+    y: clientY || window.innerHeight / 2,
+  })
+
+  for (const [index, file] of supportedFiles.entries()) {
+    const type = inferCanvasAssetType(file)
+    if (!type) continue
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      let assetUrl = dataUrl
+      const base64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl
+
+      // 本地文件落盘后用自定义协议引用，重启软件后素材仍然可用。
+      if (window.electronAPI?.upload?.save) {
+        try {
+          const savedPath = await window.electronAPI.upload.save(base64, file.name)
+          if (savedPath) assetUrl = 'local-upload:///' + savedPath.replace(/\\/g, '/')
+        } catch { /* 落盘失败时保留 data URL，保证本次拖入仍可用 */ }
+      }
+
+      const column = index % 4
+      const row = Math.floor(index / 4)
+      nodeStore.addNode({
+        id: `asset-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'asset-ref',
+        position: {
+          x: basePosition.x + column * 45,
+          y: basePosition.y + row * 45,
+        },
+        data: {
+          label: file.name,
+          assetType: type,
+          assetUrl,
+          assetName: file.name,
+        },
+      })
+    } catch (error) {
+      console.warn('[canvas-drop] failed to import file:', file.name, error)
+    }
+  }
+}
+
+const onCanvasDragOver = (event: DragEvent) => {
+  if (event.dataTransfer?.types.includes('Files')) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+const onCanvasDrop = (event: DragEvent) => {
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) return
+  contextMenu.visible = false
+  void addFilesToCanvas(Array.from(files), event.clientX, event.clientY)
+}
+
 // 处理上传素材（通过右键菜单）
 const handleUploadAsset = () => {
   const input = document.createElement('input')
@@ -497,52 +760,11 @@ const handleUploadAsset = () => {
   input.onchange = async (e: Event) => {
     const files = (e.target as HTMLInputElement).files
     if (!files || files.length === 0) return
-
-    for (const file of Array.from(files)) {
-      // 判断文件类型
-      let type: 'image' | 'video' | 'audio' = 'image'
-      if (file.type.startsWith('video/')) type = 'video'
-      else if (file.type.startsWith('audio/')) type = 'audio'
-
-      // 先读成 data URL 确保即时显示，同时落盘持久化
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.readAsDataURL(file)
-      })
-
-      let assetUrl: string = dataUrl
-      // 落盘：data URL → 磁盘文件 → local-upload:/// URL，重启不丢
-      const base64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl
-      if (window.electronAPI?.upload?.save) {
-        try {
-          const savedPath = await window.electronAPI.upload.save(base64, file.name)
-          if (savedPath) {
-            // C:\...\file.png → local-upload:///C:/.../file.png
-            assetUrl = 'local-upload:///' + savedPath.replace(/\\/g, '/')
-          }
-        } catch { /* 落盘失败回退 data URL */ }
-      }
-
-      const position = project({
-        x: contextMenu.data?.clientX || window.innerWidth / 2,
-        y: contextMenu.data?.clientY || window.innerHeight / 2,
-      })
-
-      const node: Node = {
-        id: `asset-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'asset-ref',
-        position,
-        data: {
-          label: file.name,
-          assetType: type,
-          assetUrl,
-          assetName: file.name,
-        },
-      }
-
-      nodeStore.addNode(node)
-    }
+    await addFilesToCanvas(
+      Array.from(files),
+      contextMenu.data?.clientX || window.innerWidth / 2,
+      contextMenu.data?.clientY || window.innerHeight / 2,
+    )
   }
 
   input.click()
@@ -603,8 +825,7 @@ const handleNodeAction = (action: string) => {
       // 展开节点底部的生成卡片
       break
     case 'copy':
-      // TODO: 实现复制功能
-      console.log('复制节点:', node)
+      copySelectedNodes(node)
       break
     case 'delete':
       nodeStore.removeNode(node.id)

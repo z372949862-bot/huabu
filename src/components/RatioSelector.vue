@@ -154,6 +154,7 @@ watch(openSelector, (currentOpen) => {
 
 const ratioOptions: RatioOption[] = [
   { label: 'Auto', value: 'auto', aspect: '1/1', icon: '⚡' },
+  { label: 'Adaptive', value: 'adaptive', aspect: '1/1', icon: '✦' },
   { label: '16:9', value: '16:9', aspect: '16/9', icon: '▭' },
   { label: '21:9', value: '21:9', aspect: '21/9', icon: '▬' },
   { label: '9:16', value: '9:16', aspect: '9/16', icon: '▯' },
