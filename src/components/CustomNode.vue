@@ -252,6 +252,8 @@
             </label>
           </div>
 
+          <div v-if="data.referenceWarning" class="reference-warning" role="status">{{ data.referenceWarning }}</div>
+
           <!-- 富文本提示词输入 -->
           <div class="prompt-input-wrap">
             <div
@@ -602,6 +604,7 @@ interface Props {
     status?: string
     prompt?: string
     progress?: number
+    referenceWarning?: string
   }
 }
 
@@ -2782,6 +2785,17 @@ const typeLabel = computed(() => {
 /* Prompt 改写按钮 */
 .prompt-input-wrap {
   position: relative;
+}
+.reference-warning {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  border-radius: 6px;
+  color: #e6bf64;
+  background: rgba(234, 179, 8, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .prompt-char-count {
   position: absolute;

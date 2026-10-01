@@ -95,21 +95,21 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
   {
     id: 'SD2.5-满血-CB-720P',
     name: 'SD2.5 满血 CB · 720P',
-    description: '器灵 CB 主线路，固定 30 秒，支持图 / 视频 / 音频参考',
+    description: '器灵 CB 主线路，固定 30 秒，最多 9 张公网 HTTPS 参考图',
     capabilities: {
       ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
       resolutions: ['720p'],
       durationRange: { min: 30, max: 30 },
-      audioGeneration: true,
-      maxImages: 30,
-      maxVideos: 10,
-      maxAudios: 10,
+      audioGeneration: false,
+      maxImages: 9,
+      maxVideos: 0,
+      maxAudios: 0,
     },
   },
   {
     id: 'SD2.5-满血-HN-720P',
     name: 'SD2.5 满血 HN · 720P',
-    description: '器灵 HN 线路，5 / 10 / 20 / 30 秒，最多 30 图 / 15 视频 / 15 音频参考',
+    description: '器灵 HN 线路，5 / 10 / 20 / 30 秒，最多 30 张公网参考图',
     capabilities: {
       ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
       resolutions: ['720p'],
@@ -117,8 +117,8 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
       durationOptions: [5, 10, 20, 30],
       audioGeneration: false,
       maxImages: 30,
-      maxVideos: 15,
-      maxAudios: 15,
+      maxVideos: 0,
+      maxAudios: 0,
     },
   },
   {

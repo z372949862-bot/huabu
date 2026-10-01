@@ -20,6 +20,7 @@ interface Window {
       download: (payload: any) => Promise<any>
     }
     qiling?: {
+      upload: (payload: { apiKey: string; dataUrl: string }) => Promise<any>
       download: (payload: { apiKey: string; taskId?: string; videoUrl?: string }) => Promise<any>
     }
     store: {

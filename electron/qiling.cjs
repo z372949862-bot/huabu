@@ -6,8 +6,10 @@ const { pipeline } = require('stream/promises')
 
 const BASE = 'https://api.qilingze.com'
 
-module.exports = function registerQiling({ ipcMain, net, app }) {
+module.exports = function registerQiling({ ipcMain, net, app, uploadRetryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const downloads = new Map()
+  const uploads = new Map()
+  const uploadedImages = new Map()
   const wrap = fn => async (_event, args) => {
     try { return { ok: true, data: await fn(args || {}) } }
     catch (error) {
@@ -16,6 +18,62 @@ module.exports = function registerQiling({ ipcMain, net, app }) {
       return { ok: false, error: message, retryable: !!error.retryable }
     }
   }
+
+  ipcMain.handle('qiling:upload', wrap(async ({ apiKey, dataUrl }) => {
+    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的器灵 API Key')
+    const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i)
+    if (!match) throw new Error('器灵图片上传仅支持 JPEG、PNG、WebP 图片')
+    const bytes = Buffer.from(match[2], 'base64')
+    if (!bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error('参考图片为空或超过 20 MB，请压缩后重试')
+    const hash = crypto.createHash('sha256').update(apiKey.trim()).update('\0').update(bytes).digest('hex')
+    const cached = uploadedImages.get(hash)
+    if (cached && Date.now() - cached.createdAt < 3600000) return { url: cached.url }
+    if (uploads.has(hash)) return uploads.get(hash)
+    const job = (async () => {
+      // Match the plugin's fallback host. Never send the Qiling API key to it.
+      const targets = [
+        { label: '器灵图床', url: `${BASE}/qiling-reference-upload`, headers: { Authorization: `Bearer ${apiKey.trim()}` }, timeout: 45000 },
+        { label: '备用图床', url: 'https://imageproxy.zhongzhuan.chat/api/upload', headers: {}, timeout: 60000 },
+      ]
+      const failures = []
+      for (const target of targets) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const form = new FormData()
+          form.append('file', new Blob([bytes], { type: match[1] }), `reference.${match[1].split('/')[1]}`)
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), target.timeout)
+          try {
+            const response = await net.fetch(target.url, {
+              method: 'POST', headers: target.headers, body: form, signal: controller.signal,
+            })
+            const result = await response.json().catch(() => null)
+            if (!response.ok) {
+              throw Object.assign(new Error(`${target.label}上传失败（HTTP ${response.status}）：${result?.error?.message || result?.message || ''}`), {
+                retryable: response.status >= 500 || [408, 429].includes(response.status),
+                allowFallback: response.status === 404,
+              })
+            }
+            let url
+            try { url = new URL(result?.url) } catch { throw new Error(`${target.label}未返回有效图片地址`) }
+            if (url.protocol !== 'https:' || url.username || url.password) throw new Error(`${target.label}返回了无效的 HTTPS 图片地址`)
+            uploadedImages.delete(hash)
+            uploadedImages.set(hash, { url: url.href, createdAt: Date.now() })
+            while (uploadedImages.size > 128) uploadedImages.delete(uploadedImages.keys().next().value)
+            return { url: url.href }
+          } catch (error) {
+            if (error.name === 'AbortError') error = Object.assign(new Error(`${target.label}上传超时`), { retryable: true })
+            else if (error instanceof TypeError) error = Object.assign(new Error(`${target.label}连接失败`), { retryable: true })
+            if (!error.retryable && !error.allowFallback) throw error
+            if (attempt === 0 && error.retryable) await uploadRetryDelay(1000)
+            else { failures.push(error.message); break }
+          } finally { clearTimeout(timer) }
+        }
+      }
+      throw new Error(`参考图片上传失败，已重试并尝试备用图床：${failures.join('；')}。视频任务尚未提交，请稍后重试`)
+    })()
+    uploads.set(hash, job)
+    try { return await job } finally { uploads.delete(hash) }
+  }))
 
   async function fetchVideo(url, apiKey, temporary) {
     const controller = new AbortController()
