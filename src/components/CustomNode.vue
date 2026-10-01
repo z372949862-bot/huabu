@@ -258,12 +258,14 @@
               ref="editableRef"
               contenteditable="true"
               @input="handleContentEdit"
+              @blur="formatInlinePrompt"
               @wheel.stop
               @click.stop
               @mousedown="(e) => e.stopPropagation()"
               class="generator-input editable"
               data-placeholder="描述你想要生成的画面内容，输入 @ 引用素材..."
             ></div>
+            <span class="prompt-char-count" title="字数（不计空格与换行）">{{ promptCharacterCount }} 字</span>
             <button
               class="prompt-fullscreen-btn"
               type="button"
@@ -481,7 +483,10 @@
               <div class="prompt-modal-title">提示词</div>
               <div class="prompt-modal-hint">可使用鼠标滚轮浏览长提示词，引用图片会保留为缩略图。</div>
             </div>
-            <button class="prompt-modal-close" type="button" @click="closePromptModal">完成</button>
+            <div class="prompt-modal-actions">
+              <span class="prompt-char-count fullscreen" title="字数（不计空格与换行）">{{ promptCharacterCount }} 字</span>
+              <button class="prompt-modal-close" type="button" @click="closePromptModal">完成</button>
+            </div>
           </div>
           <div
             ref="fullscreenEditableRef"
@@ -489,6 +494,7 @@
             class="prompt-modal-editor"
             data-placeholder="描述你想要生成的画面内容..."
             @input="handleFullscreenContentEdit"
+            @blur="formatFullscreenPrompt"
             @wheel.stop
             @keydown.esc.prevent="closePromptModal"
           ></div>
@@ -586,6 +592,7 @@ import type { VideoModelCapabilities } from '@/services/videoModelService'
 import { enhancePrompt, ENHANCE_OPTIONS, type EnhanceStyle } from '@/services/promptEnhancer'
 import { applyPreset, type StylePreset } from '@/services/stylePresets'
 import { persistImage } from '@/services/imageStorage'
+import { countPromptCharacters, formatStructuredPrompt } from '@/utils/promptFormatting'
 
 interface Props {
   id: string
@@ -603,7 +610,8 @@ const nodeStore = useNodeStore()
 const aiStore = useAIStore()
 const assetStore = useAssetStore()
 
-const localPrompt = ref(props.data.prompt || '')
+const localPrompt = ref(formatStructuredPrompt(props.data.prompt || ''))
+const promptCharacterCount = computed(() => countPromptCharacters(localPrompt.value))
 const isSelected = computed(() => nodeStore.selectedNodeId === props.id)
 const currentTab = ref('text-to-video')
 // 比例从节点 data.ratio 恢复（没有才用默认 16:9）；否则切走再切回会丢失用户选择
@@ -836,14 +844,35 @@ const focusEditable = () => {
   }
 }
 
-// 处理contenteditable输入
-const handleContentEdit = (event: Event) => {
-  const div = event.target as HTMLDivElement
+const placeCaretAtEnd = (div: HTMLDivElement) => {
+  const range = document.createRange()
+  const selection = window.getSelection()
+  range.selectNodeContents(div)
+  range.collapse(false)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
 
-  // 获取纯文本内容（用于保存）
-  localPrompt.value = extractTextContent(div)
+const syncPromptEditor = (div: HTMLDivElement, shouldFormat: boolean) => {
+  const raw = extractTextContent(div)
+  const next = shouldFormat ? formatStructuredPrompt(raw) : raw
+  localPrompt.value = next
+
+  if (shouldFormat && next !== raw) {
+    div.innerHTML = promptTextToHtml(next)
+    placeCaretAtEnd(div)
+  }
+
   // 立刻写回 store，否则切换节点时 vue-flow 重建 DOM 会丢失未保存的文本
   updatePrompt()
+  return next
+}
+
+// 普通输入不重建 DOM，避免打断光标；粘贴长提示词时立即自动排版。
+const handleContentEdit = (event: Event) => {
+  const div = event.target as HTMLDivElement
+  const inputType = event instanceof InputEvent ? event.inputType : ''
+  syncPromptEditor(div, inputType === 'insertFromPaste')
 
   // 检测@触发
   checkForMention(div)
@@ -851,13 +880,26 @@ const handleContentEdit = (event: Event) => {
 
 const handleFullscreenContentEdit = (event: Event) => {
   const div = event.target as HTMLDivElement
-  localPrompt.value = extractTextContent(div)
-  updatePrompt()
+  const inputType = event instanceof InputEvent ? event.inputType : ''
+  syncPromptEditor(div, inputType === 'insertFromPaste')
+  if (editableRef.value) editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
+}
+
+const formatInlinePrompt = () => {
+  if (!editableRef.value) return
+  syncPromptEditor(editableRef.value, true)
+}
+
+const formatFullscreenPrompt = () => {
+  if (!fullscreenEditableRef.value) return
+  syncPromptEditor(fullscreenEditableRef.value, true)
   if (editableRef.value) editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
 }
 
 const openPromptModal = async () => {
   showAssetMention.value = false
+  localPrompt.value = formatStructuredPrompt(localPrompt.value)
+  updatePrompt()
   showPromptModal.value = true
   await nextTick()
   if (!fullscreenEditableRef.value) return
@@ -867,31 +909,53 @@ const openPromptModal = async () => {
 
 const closePromptModal = () => {
   if (fullscreenEditableRef.value) {
-    localPrompt.value = extractTextContent(fullscreenEditableRef.value)
-    updatePrompt()
+    syncPromptEditor(fullscreenEditableRef.value, true)
   }
   if (editableRef.value) editableRef.value.innerHTML = promptTextToHtml(localPrompt.value)
   showPromptModal.value = false
 }
 
 // 提取纯文本和引用标记
+const extractNodeText = (node: Node): string => {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent || ''
+  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+  const el = node as HTMLElement
+  if (el.classList.contains('asset-badge')) {
+    const assetId = el.getAttribute('data-asset-id') || ''
+    const assetName = el.getAttribute('data-asset-name') || ''
+    return `@[${assetName}](${assetId})`
+  }
+  if (el.tagName === 'BR') return '\n'
+
+  let text = ''
+  el.childNodes.forEach((child) => { text += extractNodeText(child) })
+  return text
+}
+
+// 提取纯文本、手动换行和引用标记。contenteditable 会用 div/p/br 表示回车，
+// 不能只取 textContent，否则重新打开节点时所有镜头会黏在一起。
 const extractTextContent = (div: HTMLDivElement): string => {
   let text = ''
-  div.childNodes.forEach(node => {
+  const nodes = Array.from(div.childNodes)
+  nodes.forEach((node, index) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      text += node.textContent
+      text += node.textContent || ''
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as HTMLElement
       if (el.classList.contains('asset-badge')) {
-        const assetId = el.getAttribute('data-asset-id')
-        const assetName = el.getAttribute('data-asset-name')
-        text += `@[${assetName}](${assetId})`
+        text += extractNodeText(el)
+      } else if (el.tagName === 'BR') {
+        text += '\n'
       } else {
-        text += el.textContent
+        text += extractNodeText(el)
+        if (['DIV', 'P', 'LI'].includes(el.tagName) && index < nodes.length - 1 && !text.endsWith('\n')) {
+          text += '\n'
+        }
       }
     }
   })
-  return text
+  return text.replace(/\u00a0/g, ' ')
 }
 
 // 检测@触发提及
@@ -1041,6 +1105,12 @@ onMounted(async () => {
       ...a,
       url: filePathToUrl(a.url),
     }))
+  }
+  // 旧项目中的单行长提示词也按结构恢复成易读格式。
+  const formattedPrompt = formatStructuredPrompt(localPrompt.value)
+  if (formattedPrompt !== localPrompt.value || formattedPrompt !== (props.data.prompt || '')) {
+    localPrompt.value = formattedPrompt
+    updatePrompt()
   }
   // 恢复提示词中的 @[name](id) 徽章（此时 allAssets 已包含上传的素材）
   if (editableRef.value && localPrompt.value) {
@@ -2682,6 +2752,7 @@ const typeLabel = computed(() => {
 }
 
 .generator-input.editable {
+  padding-right: 92px;
   overflow-y: auto;
   overscroll-behavior: contain;
   white-space: pre-wrap;
@@ -2711,6 +2782,27 @@ const typeLabel = computed(() => {
 /* Prompt 改写按钮 */
 .prompt-input-wrap {
   position: relative;
+}
+.prompt-char-count {
+  position: absolute;
+  top: 8px;
+  right: 38px;
+  z-index: 5;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(8, 14, 22, 0.78);
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 11px;
+  line-height: 18px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.prompt-char-count.fullscreen {
+  position: static;
+  padding: 3px 8px;
+  background: rgba(0, 217, 255, 0.08);
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
 }
 .prompt-fullscreen-btn {
   position: absolute;
@@ -3248,6 +3340,11 @@ const typeLabel = computed(() => {
   gap: 20px;
   padding: 16px 20px;
   border-bottom: 1px solid rgba(0, 217, 255, 0.2);
+}
+.prompt-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .prompt-modal-title {
   color: #fff;
