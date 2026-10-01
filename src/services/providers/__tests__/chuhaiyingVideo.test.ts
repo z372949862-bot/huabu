@@ -52,7 +52,7 @@ describe('Qiling Seedance 2.5 models', () => {
     const ids = QILING_VIDEO_MODEL_TEMPLATES.map((model) => model.id)
     expect(ids).toContain('SD2.5-满血-CB-720P')
     expect(ids).toContain('SD2.5-满血-HN-720P')
-    expect(ids).not.toContain('SD2.5-满血-CB-720P-备用')
+    expect(ids).toContain('SD2.5-满血-CB-720P-备用')
     expect(ids.some((id) => /^(?:sd2-|SD2\.0-)/i.test(id))).toBe(false)
   })
 
@@ -87,6 +87,19 @@ describe('Qiling Seedance 2.5 models', () => {
     expect(body).toEqual({ model: 'SD2.5-满血-CB-720P', prompt: '镜头向前推进', duration: 30, aspect_ratio: '16:9', images: ['https://example.com/person.png'] })
   })
 
+  it.each([5, 10, 15, 30])('submits CB backup at %s seconds with the bound prompt and clean image payload', async duration => {
+    const body = await captureCreate('SD2.5-满血-CB-720P-备用', {
+      duration, ratio: '9:16', prompt: '角色：@图片1是沈知意。\n内容：端起茶杯。',
+      generate_audio: true, resolution: '720p', image_urls: ['https://example.com/person.png'],
+    })
+    expect(body).toEqual({ model: 'SD2.5-满血-CB-720P-备用', prompt: '角色：@图片1是沈知意。\n内容：端起茶杯。', duration, aspect_ratio: '9:16', images: ['https://example.com/person.png'] })
+  })
+
+  it('defaults unsupported CB backup durations to 30 seconds and rejects unsupported ratios', async () => {
+    expect((await captureCreate('SD2.5-满血-CB-720P-备用', { duration: 20 })).duration).toBe(30)
+    await expect(captureCreate('SD2.5-满血-CB-720P-备用', { ratio: '21:9' })).rejects.toThrow('只支持 16:9')
+  })
+
   it('uses the HN seconds field and supported duration values', async () => {
     const body = await captureCreate('SD2.5-满血-HN-720P', {
       duration: 20,
@@ -110,13 +123,13 @@ describe('Qiling Seedance 2.5 models', () => {
     expect(body.duration).toBe(30)
   })
 
-  it.each(['SD2.5-满血-CB-720P', 'SD2.5-满血-HN-720P'])('rejects unsupported video/audio references for %s before submitting', async model => {
+  it.each(['SD2.5-满血-CB-720P', 'SD2.5-满血-CB-720P-备用', 'SD2.5-满血-HN-720P'])('rejects unsupported video/audio references for %s before submitting', async model => {
     await expect(captureCreate(model, { content: [{ type: 'video_url', video_url: 'https://example.com/source.mp4' }] })).rejects.toThrow('多媒体参考请使用 XG')
   })
 
-  it('rejects too many CB images and unsafe URLs instead of dropping media silently', async () => {
-    await expect(captureCreate('SD2.5-满血-CB-720P', { image_urls: Array.from({ length: 10 }, (_, i) => `https://example.com/${i}.png`) })).rejects.toThrow('最多支持 9')
-    await expect(captureCreate('SD2.5-满血-CB-720P', { image_urls: ['http://example.com/image.png'] })).rejects.toThrow('公网 HTTPS')
-    await expect(captureCreate('SD2.5-满血-CB-720P', { prompt: '字'.repeat(12001) })).rejects.toThrow('12000')
+  it.each(['SD2.5-满血-CB-720P', 'SD2.5-满血-CB-720P-备用'])('rejects too many images and unsafe URLs for %s instead of dropping media silently', async model => {
+    await expect(captureCreate(model, { image_urls: Array.from({ length: 10 }, (_, i) => `https://example.com/${i}.png`) })).rejects.toThrow('最多支持 9')
+    await expect(captureCreate(model, { image_urls: ['http://example.com/image.png'] })).rejects.toThrow('公网 HTTPS')
+    await expect(captureCreate(model, { prompt: '字'.repeat(12001) })).rejects.toThrow('12000')
   })
 })

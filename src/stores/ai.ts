@@ -583,7 +583,6 @@ export const useAIStore = defineStore('ai', () => {
       const storedModels = provider.models || []
       const current = storedModels.filter((model) => {
         if (provider.kind !== 'qiling') return true
-        if (model.id === 'SD2.5-满血-CB-720P-备用') return false
         if (/^(?:sd2-|SD2\.0-|doubao-seedance-2-0)/i.test(model.id)) return false
         return !/^Seedance\s*2(?:\.0)?(?:\s|·|$)/i.test(model.name || '')
       })
