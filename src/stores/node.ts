@@ -8,6 +8,7 @@ import { ensureRemoteAssetUrl, urlToFile } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
 import { prepareQilingReferences } from '@/services/qilingReferences'
 import { ensureQilingImageUrl } from '@/services/qilingImageHost'
+import { isQilingCbModel } from '@/services/providers/chuhaiyingVideo'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
 
@@ -611,13 +612,13 @@ export const useNodeStore = defineStore('node', () => {
     const refVideos = isQilingSeedance25 ? [...qilingMedia.videos] : []
     const refAudios = isQilingSeedance25 ? [...qilingMedia.audios] : []
 
-    if (isQilingSeedance25 && /(?:CB|HN)-720P$/i.test(modelId)) {
-      const maxImages = /CB-720P$/i.test(modelId) ? 9 : 30
+    if (isQilingSeedance25 && (isQilingCbModel(modelId) || /HN-720P$/i.test(modelId))) {
+      const maxImages = isQilingCbModel(modelId) ? 9 : 30
       if (refImages.length > maxImages || refVideos.length || refAudios.length) {
         failNode(nodeId, `${modelId} 按器灵插件协议最多支持 ${maxImages} 张参考图片，请移除超量图片及参考视频、音频；多媒体参考可使用 XG 线路`)
         return
       }
-      if (/CB-720P$/i.test(modelId) && Array.from(qilingMedia.prompt || '').length > 12000) {
+      if (isQilingCbModel(modelId) && Array.from(qilingMedia.prompt || '').length > 12000) {
         failNode(nodeId, '器灵 CB 线路提示词不能超过 12000 个字符')
         return
       }

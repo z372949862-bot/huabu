@@ -41,6 +41,14 @@ function isQilingHnModel(model: string): boolean {
   return /HN-720P$/i.test(model)
 }
 
+export function isQilingCbModel(model: string): boolean {
+  return /CB-720P(?:-备用)?$/i.test(model)
+}
+
+function isQilingCbBackupModel(model: string): boolean {
+  return /CB-720P-备用$/i.test(model)
+}
+
 /**
  * 把 ratio 字符串归一成出海营接受的 aspect_ratio 字段（保持原样，因为它接受 '16:9' / '9:16' 等）
  * 'auto' 不传，让网关默认。
@@ -244,9 +252,17 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       // 器灵 SD2.5 满血线路使用标准数组字段，固定 720P，不发送旧版 metadata。
       const requestedRatio = normalizeRatio(params.ratio)
       const aspectRatio = requestedRatio && requestedRatio !== 'adaptive' ? requestedRatio : '16:9'
+      const isCbBackup = isQilingCbBackupModel(model)
+      const isImageOnly = isQilingCbModel(model) || isQilingHnModel(model)
+      if (isCbBackup && !['16:9', '9:16', '1:1'].includes(aspectRatio)) {
+        throw new Error('器灵 CB 备用线路只支持 16:9、9:16、1:1 画幅')
+      }
       body.aspect_ratio = aspectRatio
 
-      if (isQilingHnModel(model)) {
+      if (isCbBackup) {
+        const requested = Number(params.duration)
+        body.duration = [5, 10, 15, 30].includes(requested) ? requested : 30
+      } else if (isQilingHnModel(model)) {
         const allowedDurations = [5, 10, 20, 30]
         const requested = Number(params.duration)
         body.seconds = String(allowedDurations.includes(requested) ? requested : 30)
@@ -260,7 +276,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       }
 
       if (refs.length) body.images = refs
-      if (/(?:CB|HN)-720P$/i.test(model)) {
+      if (isImageOnly) {
         const maxImages = isQilingHnModel(model) ? 30 : 9
         if (refs.length > maxImages) throw new Error(`${model} 最多支持 ${maxImages} 张参考图片`)
         if (videoRefs.length || audioRefs.length) throw new Error(`${model} 按器灵插件协议使用图片参考，多媒体参考请使用 XG 线路`)
@@ -269,7 +285,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       }
       if (videoRefs.length) body.videos = videoRefs
       if (audioRefs.length) body.audios = audioRefs
-      if (!/(?:CB|HN)-720P$/i.test(model) && params.generate_audio !== undefined) {
+      if (!isImageOnly && params.generate_audio !== undefined) {
         body.generate_audio = !!params.generate_audio
       }
     } else if (isSd2) {

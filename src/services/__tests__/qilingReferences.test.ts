@@ -39,7 +39,7 @@ describe('Qiling reference binding', () => {
       .toThrow('素材「沈知意」已失效')
   })
 
-  it.each(['SD2.5-满血-CB-720P', 'SD2.5-满血-HN-720P'])('sends the complete bound prompt and exact media array for %s', async model => {
+  it.each(['SD2.5-满血-CB-720P', 'SD2.5-满血-CB-720P-备用', 'SD2.5-满血-HN-720P'])('sends the complete bound prompt and exact media array for %s', async model => {
     const result = prepareQilingReferences('video', nodes, edges)
     const original = globalThis.fetch
     let body: any
