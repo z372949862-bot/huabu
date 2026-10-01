@@ -78,13 +78,16 @@ function ratioToSize(ratio: string, resolution?: string): string {
  * 把 /v1/videos/{id} 返回归一成内部 TaskStatus 形状。
  * 出海营状态枚举：queued / in_progress / completed / failed。
  */
-export function mapVideoTaskResponse(raw: any): TaskStatus {
+export function mapVideoTaskResponse(raw: any, inspectReferenceErrors = false): TaskStatus {
   // Qiling 返回格式：{ status: "QUEUED", data: { status: "queued", progress: 0, metadata: { url: "" } } }
   const dataObj = raw?.data || raw
   // Qiling 顶层 status 和 data.status 可能不一致，优先取顶层（完成时是 "success"）
   const topStatus = (raw?.status || '').toLowerCase()
   const innerStatus = (dataObj?.status || '').toLowerCase()
-  const rawStatus: string = (topStatus === 'success' ? topStatus : innerStatus || topStatus || 'queued')
+  const failedStatuses = ['failed', 'failure', 'error', 'cancelled', 'canceled', 'timeout']
+  const rawStatus: string = failedStatuses.includes(innerStatus) ? innerStatus
+    : failedStatuses.includes(topStatus) ? topStatus
+    : (topStatus === 'success' ? topStatus : innerStatus || topStatus || 'queued')
   const statusMap: Record<string, TaskStatus['status']> = {
     queued: 'pending',
     in_progress: 'processing',
@@ -143,12 +146,22 @@ export function mapVideoTaskResponse(raw: any): TaskStatus {
     detail?.pending_info?.failure_reason
     || detail?.failure_reason
     || raw?.error?.message
+    || dataObj?.error?.message
+    || (typeof dataObj?.error === 'string' ? dataObj.error : undefined)
+    || raw?.fail_reason
     || raw?.message
     || (typeof raw?.error === 'string' ? raw.error : undefined)
     || undefined
 
   console.log('[mapVideoTask] rawStatus=', rawStatus, 'videoUrl=', videoUrl, 'raw keys=', Object.keys(raw||{}).join(','), 'data keys=', Object.keys(dataObj||{}).join(','))
-  return { status, progress, videoUrl, error: errorMsg }
+  const referenceErrors = inspectReferenceErrors
+    ? [dataObj?.input, ...(Array.isArray(dataObj?.images) ? dataObj.images : [])]
+      .filter((value): value is string => typeof value === 'string' && /生成失败|素材.*(?:失败|错误)|引用.*(?:失败|错误)|failed to (?:load|fetch)/i.test(value))
+    : []
+  const warning = referenceErrors.length
+    ? `器灵回显的参考素材含错误信息，无法确认素材是否被正常使用，请检查视频结果。${[...new Set(referenceErrors)].join('；')}`
+    : undefined
+  return { status, progress, videoUrl, error: errorMsg, ...(warning ? { warning } : {}) }
 }
 
 export class ChuhaiyingVideoProvider implements AIProvider {
@@ -247,9 +260,16 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       }
 
       if (refs.length) body.images = refs
+      if (/(?:CB|HN)-720P$/i.test(model)) {
+        const maxImages = isQilingHnModel(model) ? 30 : 9
+        if (refs.length > maxImages) throw new Error(`${model} 最多支持 ${maxImages} 张参考图片`)
+        if (videoRefs.length || audioRefs.length) throw new Error(`${model} 按器灵插件协议使用图片参考，多媒体参考请使用 XG 线路`)
+        if (refs.some(url => !/^https:\/\//i.test(url))) throw new Error(`${model} 参考图片必须是公网 HTTPS 地址`)
+        if (!isQilingHnModel(model) && Array.from(params.prompt).length > 12000) throw new Error('器灵 CB 线路提示词不能超过 12000 个字符')
+      }
       if (videoRefs.length) body.videos = videoRefs
       if (audioRefs.length) body.audios = audioRefs
-      if (!isQilingHnModel(model) && params.generate_audio !== undefined) {
+      if (!/(?:CB|HN)-720P$/i.test(model) && params.generate_audio !== undefined) {
         body.generate_audio = !!params.generate_audio
       }
     } else if (isSd2) {
@@ -343,7 +363,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       `/v1/videos/${encodeURIComponent(taskId)}`,
       { method: 'GET' }
     )
-    return mapVideoTaskResponse(data)
+    return mapVideoTaskResponse(data, /(?:^|\.)qilingze\.com$/i.test(new URL(this.baseUrl).hostname))
   }
 
   async download(taskId: string, videoUrl?: string): Promise<string> {

@@ -75,6 +75,7 @@ export interface TaskStatus {
   progress?: number
   videoUrl?: string
   error?: string
+  warning?: string
 }
 
 export interface AuthResult {
