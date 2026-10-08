@@ -135,7 +135,9 @@ function normalizeContent(content: ContentItem[] | undefined, prompt: string): A
       if (value !== undefined) next[key] = typeof value === 'string' ? { url: value } : value
     }
     if (item.role) next.role = item.role
-    if (item.name) next.name = item.name
+    // DMXAPI Responses input content items do not accept a `name` field.
+    // The API identifies reference assets by their order in `input`; the prompt
+    // can still refer to them as @图片1 / @视频1 without serializing this hint.
     return next
   })
 }
