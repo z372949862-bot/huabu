@@ -69,15 +69,36 @@ function stringField(value: unknown): string {
 }
 
 function findVideoUrl(raw: any): string | undefined {
-  const text = textFromResponse(raw)
-  const embedded = parseEmbeddedText(text)
-  const direct = responseValues(raw)
-    .concat(responseValues(embedded))
-    .flatMap((value) => [value?.video_url, value?.output_url, value?.url])
-    .find((value) => typeof value === 'string' && /^https?:\/\//i.test(value))
+  const isVideoUrl = (value: unknown): value is string => {
+    if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return false
+    try {
+      return /\.(?:mp4|mov|m4v|webm|mkv)$/i.test(new URL(value).pathname)
+    } catch {
+      return false
+    }
+  }
+
+  // Only inspect result/output branches. Scanning the entire response can pick
+  // an input image or source video and mistakenly archive it as the generated clip.
+  const outputRoots = [raw?.output, raw?.result, raw?.content,
+    raw?.data?.output, raw?.data?.result, raw?.data?.content].filter(Boolean)
+  const outputValues = outputRoots.flatMap((value) => responseValues(value))
+  const direct = [raw?.video_url, raw?.result?.video_url, raw?.data?.video_url]
+    .concat(outputValues.flatMap((value) => [value?.video_url, value?.output_url, value?.url]))
+    .find(isVideoUrl)
   if (direct) return direct
-  const url = text.match(/https?:\/\/[^\s"'<>]+/i)?.[0]
-  return url?.replace(/[),.]$/, '')
+
+  // DMXAPI's documented result places a signed MP4/MOV URL in output_text.
+  const outputText = outputRoots.map((value) => textFromResponse(value)).join('\n')
+  const embedded = parseEmbeddedText(outputText)
+  const embeddedUrl = responseValues(embedded)
+    .flatMap((value) => [value?.video_url, value?.output_url, value?.url])
+    .find(isVideoUrl)
+  if (embeddedUrl) return embeddedUrl
+
+  return Array.from(outputText.matchAll(/https?:\/\/[^\s"'<>]+/gi))
+    .map(([url]) => url.replace(/[),.]$/, ''))
+    .find(isVideoUrl)
 }
 
 export function mapDmxApiTask(raw: any): TaskStatus {
