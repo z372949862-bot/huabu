@@ -71,6 +71,8 @@ export const useAssetStore = defineStore('asset', () => {
   }
 
   function addAsset(input: Omit<GeneratedAsset, 'id' | 'createdAt'>): GeneratedAsset {
+    const duplicate = assets.value.find((asset) => asset.nodeId === input.nodeId && asset.url === input.url)
+    if (duplicate) return duplicate
     const asset: GeneratedAsset = {
       ...input,
       id: uid(),

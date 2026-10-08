@@ -291,20 +291,19 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
   {
+    version: '0.3.9',
+    date: '2026-10-08',
+    items: [
+      '🎞️ 修复 DMXAPI 误把输入参考图或原视频识别为生成结果，导致视频预览错误的问题',
+      '🧹 同一节点的相同结果不再重复写入生成历史',
+    ],
+  },
+  {
     version: '0.3.8',
     date: '2026-10-08',
     items: [
       '🎞️ 修复 DMXAPI Seedance 2.5 因素材项携带不支持的 name 字段而提交失败的问题',
       '🔢 保留提示词中的 @图片编号 / @视频编号，素材顺序由 input 数组传递',
-    ],
-  },
-  {
-    version: '0.3.7',
-    date: '2026-10-01',
-    items: [
-      '🎬 新增器灵 SD2.5 满血 CB 备用 · 720P，已有器灵配置自动补充该模型',
-      '⏱️ CB 备用支持 5 / 10 / 15 / 30 秒，画幅支持 16:9、9:16、1:1',
-      '🖼️ 按器灵插件协议提交完整提示词与图片编号，支持最多 9 张公网 HTTPS 参考图',
     ],
   },
 ] as const
