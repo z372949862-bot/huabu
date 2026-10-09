@@ -16,150 +16,128 @@ export const DMXAPI_MODEL = 'doubao-seedance-2-5-260628'
 const CREATE_TIMEOUT_MS = 180_000
 const QUERY_TIMEOUT_MS = 90_000
 
-function textFromResponse(raw: any): string {
-  const texts: string[] = []
-  const visit = (value: any, depth = 0) => {
-    if (depth > 8 || value === null || value === undefined) return
-    if (typeof value === 'string') {
-      if (value.trim()) texts.push(value)
-      return
-    }
-    if (Array.isArray(value)) {
-      value.forEach((item) => visit(item, depth + 1))
-      return
-    }
-    if (typeof value !== 'object') return
-    if (typeof value.text === 'string' && value.text.trim()) texts.push(value.text)
-    Object.values(value).forEach((item) => visit(item, depth + 1))
-  }
-  visit(raw)
-  return texts.join('\n')
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value.trim()
+    : typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
 }
 
-function parseEmbeddedText(text: string): any {
-  if (!text) return undefined
+function parseEmbeddedText(text: string): unknown {
   try { return JSON.parse(text) } catch {
-    const start = text.indexOf('{')
-    const end = text.lastIndexOf('}')
-    if (start >= 0 && end > start) {
-      try { return JSON.parse(text.slice(start, end + 1)) } catch { /* plain text */ }
-    }
+    const match = text.match(/\x60{3}(?:json)?\s*([\s\S]*?)\x60{3}/i)
+    if (match) { try { return JSON.parse(match[1]) } catch { /* plain text */ } }
     return undefined
   }
 }
 
-function responseValues(raw: any): any[] {
-  const values: any[] = []
-  const seen = new Set<any>()
+/** Visit response fields only. Input/prompt echoes are never task results.
+ * Parse each text block separately, with inner task payloads before envelopes.
+ */
+function responseParts(raw: unknown) {
+  const records: any[] = [], texts: string[] = []
+  const seen = new Set<unknown>()
   const visit = (value: any, depth = 0) => {
-    if (depth > 8 || value === null || value === undefined || typeof value !== 'object' || seen.has(value)) return
+    if (depth > 12 || value == null || seen.has(value)) return
     seen.add(value)
-    values.push(value)
-    if (Array.isArray(value)) value.forEach((item) => visit(item, depth + 1))
-    else Object.values(value).forEach((item) => visit(item, depth + 1))
+    if (typeof value === 'string') {
+      const embedded = parseEmbeddedText(value)
+      if (embedded && typeof embedded === 'object') visit(embedded, depth + 1)
+      else texts.push(value.trim())
+      return
+    }
+    if (Array.isArray(value)) { value.forEach(item => visit(item, depth + 1)); return }
+    if (typeof value !== 'object') return
+    if (/^reference_|^(first|last)_frame$/.test(value.role || '') ||
+        ['image_url', 'video_url', 'audio_url', 'input_image', 'input_video', 'input_text'].includes(value.type)) return
+    for (const key of ['data', 'result', 'output', 'content', 'task', 'response', 'video', 'text', 'output_text']) {
+      visit(value[key], depth + 1)
+    }
+    records.push(value)
   }
   visit(raw)
-  return values
+  return { records, texts }
 }
 
-function stringField(value: unknown): string {
-  if (typeof value === 'string') return value.trim()
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return ''
+function isEnvelope(value: any): boolean {
+  return value?.object === 'response' || ['message', 'output_text'].includes(value?.type)
 }
 
-function findVideoUrl(raw: any): string | undefined {
-  const isVideoUrl = (value: unknown): value is string => {
-    if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return false
-    try {
-      return /\.(?:mp4|mov|m4v|webm|mkv)$/i.test(new URL(value).pathname)
-    } catch {
-      return false
+function validVideoUrl(value: unknown, explicit = false): value is string {
+  if (typeof value !== 'string') return false
+  try {
+    const url = new URL(value)
+    if (!['https:', 'http:'].includes(url.protocol)) return false
+    if (/\.(?:png|jpe?g|webp|gif|bmp|tiff?|heic|heif|mp3|wav|ogg|aac)$/i.test(url.pathname)) return false
+    return explicit || /\.(?:mp4|mov|m4v|webm|mkv)$/i.test(url.pathname)
+  } catch { return false }
+}
+
+function findVideoUrl(raw: unknown): string | undefined {
+  const { records, texts } = responseParts(raw)
+  for (const value of records) {
+    for (const key of ['video_url', 'output_url', 'result_url', 'download_url']) {
+      if (validVideoUrl(value[key], true)) return value[key]
+    }
+    if (validVideoUrl(value.url)) return value.url
+  }
+  for (const text of texts) {
+    for (const [candidate] of text.matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
+      const url = candidate.replace(/[),.]+$/, '')
+      if (validVideoUrl(url)) return url
     }
   }
-
-  // Only inspect result/output branches. Scanning the entire response can pick
-  // an input image or source video and mistakenly archive it as the generated clip.
-  const outputRoots = [raw?.output, raw?.result, raw?.content,
-    raw?.data?.output, raw?.data?.result, raw?.data?.content].filter(Boolean)
-  const outputValues = outputRoots.flatMap((value) => responseValues(value))
-  const direct = [raw?.video_url, raw?.result?.video_url, raw?.data?.video_url]
-    .concat(outputValues.flatMap((value) => [value?.video_url, value?.output_url, value?.url]))
-    .find(isVideoUrl)
-  if (direct) return direct
-
-  // DMXAPI's documented result places a signed MP4/MOV URL in output_text.
-  const outputText = outputRoots.map((value) => textFromResponse(value)).join('\n')
-  const embedded = parseEmbeddedText(outputText)
-  const embeddedUrl = responseValues(embedded)
-    .flatMap((value) => [value?.video_url, value?.output_url, value?.url])
-    .find(isVideoUrl)
-  if (embeddedUrl) return embeddedUrl
-
-  return Array.from(outputText.matchAll(/https?:\/\/[^\s"'<>]+/gi))
-    .map(([url]) => url.replace(/[),.]$/, ''))
-    .find(isVideoUrl)
+  return undefined
 }
 
 export function mapDmxApiTask(raw: any): TaskStatus {
-  const embedded = parseEmbeddedText(textFromResponse(raw))
-  const values = responseValues(raw).concat(responseValues(embedded))
-  const status = values.map((value) => stringField(value?.status || value?.state).toLowerCase()).find(Boolean) || ''
-  const failed = ['failed', 'failure', 'error', 'cancelled', 'canceled', 'expired', 'timeout']
-  const completed = ['completed', 'complete', 'succeeded', 'success', 'done', 'finished', 'ready']
-  const pending = ['queued', 'pending', 'submitted', 'created']
-  const progressRaw = values.map((value) => value?.progress).find((value) => value !== undefined && value !== null)
+  const { records } = responseParts(raw)
+  const taskRecords = records.filter(value => !isEnvelope(value))
+  const rootTask = !isEnvelope(raw) && /^task[_-]/i.test(stringField(raw?.id || raw?.task_id)) && (raw?.status || raw?.state)
+  const statusRecord = rootTask ? raw : taskRecords.find(value => stringField(value.status || value.state))
+  const status = stringField(statusRecord?.status || statusRecord?.state).toLowerCase()
+  const errorValue = records.map(value => stringField(value?.error?.message || value?.error || value?.fail_reason)).find(Boolean)
+  const failed = ['failed', 'failure', 'error', 'cancelled', 'canceled', 'expired', 'timeout'].includes(status) || (!!errorValue && !status)
+  const progressRaw = statusRecord?.progress ?? taskRecords.find(value => value.progress != null)?.progress
   const progress = Number.parseFloat(String(progressRaw ?? '').replace('%', ''))
-  const errorValue = values.map((value) => stringField(value?.error?.message || value?.error || value?.message)).find(Boolean)
+  const videoUrl = findVideoUrl(raw)
+  // A URL can be reserved before generation finishes. Explicit status wins.
+  const done = !failed && (['completed', 'complete', 'succeeded', 'success', 'done', 'finished', 'ready'].includes(status) || (!status && !!videoUrl))
   return {
-    status: failed.includes(status)
-      ? 'failed'
-      : completed.includes(status) || !!findVideoUrl(raw)
-        ? 'completed'
-        : pending.includes(status)
-          ? 'pending'
-          : 'processing',
+    status: failed ? 'failed' : done ? 'completed' : ['queued', 'pending', 'submitted', 'created'].includes(status) ? 'pending' : 'processing',
     progress: Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : undefined,
-    videoUrl: findVideoUrl(raw),
-    error: errorValue || undefined,
+    videoUrl: done ? videoUrl : undefined,
+    error: failed ? errorValue || stringField(statusRecord?.message) || 'DMXAPI 任务失败' : undefined,
   }
 }
 
-function taskIdFromResponse(raw: any): string {
-  const fields = ['task_id', 'request_id', 'response_id', 'id']
-  const direct = responseValues(raw)
-    .flatMap((value) => fields.map((field) => stringField(value?.[field])))
-    .find(Boolean)
-  if (direct) return direct
-  const text = textFromResponse(raw)
-  const embedded = parseEmbeddedText(text)
-  const embeddedId = responseValues(embedded)
-    .flatMap((value) => fields.map((field) => stringField(value?.[field])))
-    .find(Boolean)
-  if (embeddedId) return embeddedId
-  const labeled = text.match(/\b(task|request|response)\s*id\s*[:：]\s*([A-Za-z0-9][A-Za-z0-9_-]*)/i)
-  if (labeled) {
-    const prefix = labeled[1].toLowerCase()
-    const value = labeled[2]
-    return /^(task|request|response)[_-]/i.test(value) ? value : `${prefix}_${value}`
+function taskIdFromResponse(raw: unknown): string {
+  const { records, texts } = responseParts(raw)
+  const root = raw as any
+  const gatewayId = stringField(root?.task_id) || (/^task[_-]/i.test(stringField(root?.id)) ? stringField(root.id) : '')
+  if (gatewayId) return gatewayId
+  const tasks = records.filter(value => !isEnvelope(value))
+  const explicit = tasks.map(value => stringField(value.task_id)).find(Boolean)
+  if (explicit) return explicit
+  const taskId = tasks.map(value => stringField(value.id)).find(value => /^task[_-]/i.test(value))
+  if (taskId) return taskId
+  for (const text of texts) {
+    const labeled = text.match(/\b(?:task|request|response)\s*id\s*[:：]\s*([A-Za-z0-9][A-Za-z0-9_-]*)/i)
+    if (labeled) return labeled[1]
+    const token = text.match(/\btask_[A-Za-z0-9_-]+/i)?.[0]
+    if (token) return token
   }
-  return text.match(/(?:task|request|response)_[A-Za-z0-9_-]+/i)?.[0] || ''
+  return tasks.map(value => stringField(value.id))
+    .find(value => value && !/^(?:msg|resp|response|request)[_-]/i.test(value)) || ''
 }
 
 function normalizeContent(content: ContentItem[] | undefined, prompt: string): Array<Record<string, any>> {
   const source = content?.length ? content : [{ type: 'text', text: prompt } as ContentItem]
-  return source.map((item) => {
-    const next: Record<string, any> = { type: item.type }
-    if (item.text !== undefined) next.text = item.text
-    for (const key of ['image_url', 'video_url', 'audio_url'] as const) {
-      const value = item[key]
-      if (value !== undefined) next[key] = typeof value === 'string' ? { url: value } : value
-    }
-    if (item.role) next.role = item.role
-    // DMXAPI Responses input content items do not accept a `name` field.
-    // The API identifies reference assets by their order in `input`; the prompt
-    // can still refer to them as @图片1 / @视频1 without serializing this hint.
-    return next
+  return source.map(item => {
+    if (item.type === 'text') return { type: 'text', text: item.text || '' }
+    const value = item[item.type]
+    const url = typeof value === 'string' ? value : value?.url
+    if (!url) throw new Error('DMXAPI 参考素材地址为空')
+    // A media item must contain exactly one payload, without name or text.
+    return { type: item.type, [item.type]: { url }, ...(item.role ? { role: item.role } : {}) }
   })
 }
 
@@ -173,7 +151,7 @@ export class DmxApiProvider implements AIProvider {
     this.setBaseUrl(baseUrl)
   }
 
-  setApiKey(apiKey: string) { this.apiKey = apiKey || '' }
+  setApiKey(apiKey: string) { this.apiKey = (apiKey || '').trim().replace(/^Bearer\s+/i, '') }
   setBaseUrl(baseUrl: string) { this.baseUrl = (baseUrl || DMXAPI_BASE).trim().replace(/\/+$/, '').replace(/\/v1$/, '') }
 
   async testAuth(apiKey: string): Promise<AuthResult> {
@@ -183,36 +161,46 @@ export class DmxApiProvider implements AIProvider {
     return { success: true }
   }
 
-  async createTask(params: CreateTaskParams): Promise<{ taskId: string; videoUrl?: string }> {
+  async createTask(params: CreateTaskParams, signal?: AbortSignal): Promise<{ taskId: string; videoUrl?: string }> {
+    const duration = params.omniReferenceTaskType === 'edit' ? -1 : params.duration
+    if (duration !== undefined && duration !== -1 && (!Number.isInteger(duration) || duration < 4 || duration > 30)) {
+      throw new Error('DMXAPI 视频时长须为 4–30 秒的整数，或 -1（自动）')
+    }
     const body: Record<string, any> = {
       model: params.model || DMXAPI_MODEL,
       input: normalizeContent(params.content, params.prompt),
       ...(params.ratio ? { ratio: params.ratio } : {}),
       ...(params.resolution ? { resolution: params.resolution } : {}),
-      ...(params.duration !== undefined ? { duration: params.duration } : {}),
+      ...(duration !== undefined ? { duration } : {}),
       ...(params.generate_audio !== undefined ? { generate_audio: params.generate_audio } : {}),
       ...(params.omniReferenceTaskType ? { omni_reference_task_type: params.omniReferenceTaskType } : {}),
-      ...(params.outputFormat ? { output_format: params.outputFormat } : {}),
+      output_format: params.outputFormat || 'mp4',
       ...(params.returnLastFrame !== undefined ? { return_last_frame: params.returnLastFrame } : {}),
+      ...(['edit', 'extend'].includes(params.omniReferenceTaskType || '') ? { ratio: 'adaptive' } : {}),
+    }
+    const serialized = JSON.stringify(body)
+    if (new TextEncoder().encode(serialized).byteLength > 64 * 1024 * 1024) {
+      throw new Error('DMXAPI 请求超过 64 MB，请缩小参考图或使用公网图片链接')
     }
     const raw = await this.request<any>('/v1/responses', {
       method: 'POST',
-      body: JSON.stringify(body),
-    }, CREATE_TIMEOUT_MS)
+      body: serialized,
+    }, CREATE_TIMEOUT_MS, signal)
+    const mapped = mapDmxApiTask(raw)
+    if (mapped.status === 'failed') throw new Error(mapped.error || 'DMXAPI 创建任务失败')
     const taskId = taskIdFromResponse(raw)
-    const videoUrl = findVideoUrl(raw)
+    const videoUrl = mapped.videoUrl
     if (!taskId && !videoUrl) {
-      const summary = JSON.stringify(raw).slice(0, 500)
-      throw new Error(`DMXAPI 未返回可识别的任务 ID，请到平台确认任务，避免重复提交（返回：${summary}）`)
+      throw new Error('DMXAPI 未返回可识别的任务 ID，请到平台确认任务，避免重复提交')
     }
     return { taskId, videoUrl }
   }
 
-  async getTaskStatus(taskId: string): Promise<TaskStatus> {
+  async getTaskStatus(taskId: string, signal?: AbortSignal): Promise<TaskStatus> {
     const raw = await this.request<any>('/v1/responses', {
       method: 'POST',
       body: JSON.stringify({ model: 'seedance-2-5-get', input: taskId }),
-    }, QUERY_TIMEOUT_MS)
+    }, QUERY_TIMEOUT_MS, signal)
     return mapDmxApiTask(raw)
   }
 
@@ -234,7 +222,7 @@ export class DmxApiProvider implements AIProvider {
       model: params.model || DMXAPI_MODEL,
       prompt: params.prompt || '',
       image_url: params.imageUrl,
-      ratio: params.ratio,
+      ratio: 'adaptive',
       resolution: params.resolution,
       duration: params.duration,
       fps: params.fps,
@@ -251,9 +239,12 @@ export class DmxApiProvider implements AIProvider {
     throw new Error('DMXAPI Seedance 2.5 不支持文生图，请接入图片中转站')
   }
 
-  private async request<T>(path: string, init: RequestInit, timeoutMs = QUERY_TIMEOUT_MS): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, timeoutMs = QUERY_TIMEOUT_MS, signal?: AbortSignal): Promise<T> {
     if (!this.apiKey) throw new Error('未配置 DMXAPI API Key')
+    signal?.throwIfAborted()
     const controller = new AbortController()
+    const abort = () => controller.abort()
+    signal?.addEventListener('abort', abort, { once: true })
     const timer = window.setTimeout(() => controller.abort(), timeoutMs)
     try {
       const res = await fetch(this.baseUrl + path, {
@@ -266,19 +257,20 @@ export class DmxApiProvider implements AIProvider {
         },
       })
       if (!res.ok) {
-        let detail = ''
-        try { detail = JSON.stringify(await res.json()) } catch { detail = res.statusText }
+        const detail = (await res.text()).slice(0, 1200) || res.statusText
         if (res.status === 401) throw new Error('DMXAPI Key 无效或已过期')
         throw new Error(`DMXAPI 请求失败 ${res.status}：${detail}`)
       }
       return await res.json() as T
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (signal?.aborted) throw new DOMException('已停止查询', 'AbortError')
+      if (controller.signal.aborted) {
         throw new Error(`DMXAPI 请求超时（${Math.round(timeoutMs / 1000)} 秒），请到平台确认任务状态，避免重复提交`)
       }
       throw error
     } finally {
       window.clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
     }
   }
 }

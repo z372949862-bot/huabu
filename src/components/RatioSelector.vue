@@ -46,7 +46,7 @@
         <div v-if="durationRange" class="dropdown-section">
           <div class="duration-header">
             <span class="section-title">时长</span>
-            <span class="duration-value">{{ selectedDuration }}秒</span>
+            <span class="duration-value">{{ selectedDuration === -1 ? '自动' : selectedDuration + '秒' }}</span>
           </div>
           <div v-if="durationOptions.length" class="duration-options">
             <button
@@ -55,7 +55,7 @@
               class="duration-option"
               :class="{ active: selectedDuration === seconds }"
               @click.stop="selectedDuration = seconds"
-            >{{ seconds }}秒</button>
+            >{{ seconds === -1 ? '自动' : seconds + '秒' }}</button>
           </div>
           <div v-else class="duration-slider">
             <input

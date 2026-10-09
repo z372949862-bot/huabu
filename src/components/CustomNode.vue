@@ -253,6 +253,10 @@
           </div>
 
           <div v-if="data.referenceWarning" class="reference-warning" role="status">{{ data.referenceWarning }}</div>
+          <div v-if="data.dmxTask && data.status !== 'running'" class="reference-warning">
+            <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询上次任务</button>
+            <span>任务已保存，不会重新提交生成。</span>
+          </div>
 
           <!-- 富文本提示词输入 -->
           <div class="prompt-input-wrap">
@@ -417,6 +421,7 @@
 
             <button
               class="generate-btn"
+              :title="data.dmxTask ? (data.status === 'running' ? '停止本地查询' : '继续查询上次任务') : undefined"
               @click.stop="handleGenerateClick"
             >
               <svg v-if="data.status !== 'running'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -445,6 +450,9 @@
       <div v-if="showVideoModal" class="video-modal-overlay" @click="closeVideo">
         <div class="video-modal-content" @click.stop>
           <div class="modal-toolbar">
+            <span v-if="currentVideoAsset?.saveStatus === 'saving'" style="color: white">正在保存到本地…</span>
+            <button v-else-if="currentVideoAsset?.localPath" class="modal-download" @click="revealSavedVideo">已保存本地 · 打开文件夹</button>
+            <button v-else-if="currentVideoAsset" class="modal-download" :title="currentVideoAsset.saveError" @click="assetStore.retrySaveVideo(currentVideoAsset.id)">{{ currentVideoAsset.saveStatus === 'error' ? '本地保存失败 · 重试保存' : '保存到本地' }}</button>
             <button class="modal-download" @click="downloadAsset(data.outputVideo, 'video')">⬇ 下载</button>
             <button class="video-modal-close" @click="closeVideo"><svg viewBox="0 0 16 16" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg></button>
           </div>
@@ -605,6 +613,9 @@ interface Props {
     prompt?: string
     progress?: number
     referenceWarning?: string
+    videoMode?: 'reference' | 'edit' | 'extend'
+    dmxFrameMode?: 'first_frame' | 'first_last_frame'
+    dmxTask?: import('@/services/dmxapiTask').DmxPendingTask
   }
 }
 
@@ -612,11 +623,19 @@ const props = defineProps<Props>()
 const nodeStore = useNodeStore()
 const aiStore = useAIStore()
 const assetStore = useAssetStore()
+const currentVideoAsset = computed(() => assetStore.assets.find(a => a.type === 'video'
+  && (a.url === props.data.outputVideo || a.sourceUrl === props.data.outputVideo)))
+const revealSavedVideo = () => {
+  if (currentVideoAsset.value?.localPath) (window as any).electronAPI?.shell?.showItem(currentVideoAsset.value.localPath)
+}
 
 const localPrompt = ref(formatStructuredPrompt(props.data.prompt || ''))
 const promptCharacterCount = computed(() => countPromptCharacters(localPrompt.value))
 const isSelected = computed(() => nodeStore.selectedNodeId === props.id)
-const currentTab = ref('text-to-video')
+const currentTab = ref(props.data.videoMode === 'edit' ? 'video-edit'
+  : props.data.videoMode === 'extend' ? 'video-extend'
+  : props.data.dmxFrameMode === 'first_frame' ? 'image-to-video'
+  : props.data.dmxFrameMode === 'first_last_frame' ? 'first-last-frame' : 'text-to-video')
 // 比例从节点 data.ratio 恢复（没有才用默认 16:9）；否则切走再切回会丢失用户选择
 const selectedRatio = ref<string>((props.data as any).ratio || '16:9')
 const localSeed = ref<number>(((props.data as any).seed as number) || 0)
@@ -1321,12 +1340,12 @@ const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
 const currentModelCapabilities = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   const model = config?.models.find(m => m.id === selectedModel.value)
-  if (isDmxApi25.value && activeDmxMode.value !== 'reference') {
+  if (isDmxApi25.value) {
     return {
       ...model?.capabilities,
-      ratios: ['adaptive'],
-      durationRange: activeDmxMode.value === 'edit' ? undefined : { min: 4, max: 30 },
-      durationOptions: activeDmxMode.value === 'edit' ? [] : undefined,
+      ratios: activeDmxMode.value !== 'reference' || ['image-to-video', 'first-last-frame'].includes(currentTab.value) ? ['adaptive'] : model?.capabilities.ratios,
+      durationRange: activeDmxMode.value === 'edit' ? undefined : { min: -1, max: 30 },
+      durationOptions: activeDmxMode.value === 'edit' ? [] : [-1, ...Array.from({ length: 27 }, (_, i) => i + 4)],
     }
   }
   return model?.capabilities
@@ -1366,6 +1385,7 @@ const nodeSize = computed(() => {
 
 // 检查是否有图片节点连接
 const hasImageInput = computed(() => {
+  if (isDmxApi25.value) return allAssets.value.some(asset => asset.type === 'image')
   const incomingEdges = nodeStore.edges.filter(edge => edge.target === props.id)
   return incomingEdges.some(edge => {
     const sourceNode = nodeStore.nodes.find(n => n.id === edge.source)
@@ -1499,6 +1519,13 @@ watch(activeDmxMode, (mode) => {
     if (mode === 'edit') nodeStore.updateNodeData(props.id, { duration: -1 } as any)
   }
 }, { immediate: true })
+
+watch(currentTab, (tab) => {
+  if (!isDmxApi25.value) return
+  nodeStore.updateNodeData(props.id, {
+    dmxFrameMode: tab === 'image-to-video' ? 'first_frame' : tab === 'first-last-frame' ? 'first_last_frame' : undefined,
+  })
+})
 
 watch(() => props.data.prompt, (newPrompt) => {
   const value = newPrompt || ''
@@ -1676,6 +1703,10 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
+  if (props.data.dmxTask) {
+    nodeStore.executeNode(props.id)
+    return
+  }
   executeNode()
 }
 
@@ -1710,6 +1741,8 @@ const executeNode = async () => {
       inputVideos: refVideos,
       inputAudios: refAudios,
       videoMode: activeDmxMode.value,
+      dmxFrameMode: isDmxApi25.value && currentTab.value === 'image-to-video' ? 'first_frame'
+        : isDmxApi25.value && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
     } as any)
   }
   console.log('[executeNode] refImages:', refImageUrls.length, 'video:', !!inputVideo)

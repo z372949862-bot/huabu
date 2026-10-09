@@ -8,6 +8,58 @@ import {
 } from '../providers/unmau'
 import { YU25_MODELS, adaptYu25CreateBody, buildYu25Body, mapYu25Task } from '../providers/yu25'
 import { XINSHUJU_MODELS, adaptXinshujuCreateBody, buildXinshujuBody, mapXinshujuTask } from '../providers/xinshuju'
+import { FMGO_MODELS, buildFmgoBody, mapFmgoTask } from '../providers/fmgo'
+import { getModelTemplatesByKind } from '../modelTemplates'
+
+describe('FMGO Feimiao 2.5 adapter', () => {
+  it('registers the fixed 720p 30-second model with a 30-image cap', () => {
+    expect(FMGO_MODELS.map(model => model.id)).toEqual(['feimiao-v2.5-720p-30s'])
+    expect(FMGO_MODELS[0].capabilities.maxImages).toBe(30)
+    expect(getModelTemplatesByKind('fmgo')).toEqual(FMGO_MODELS)
+  })
+
+  it('builds the documented request shape and keeps the fixed model duration', () => {
+    expect(buildFmgoBody({
+      model: 'feimiao-v2.5-720p-30s',
+      prompt: '角色 @[阿宿](asset-1) 向前走',
+      ratio: '9:16',
+      duration: 5,
+      resolution: '480p',
+      generateAudio: true,
+    }, {
+      images: ['https://example.com/a.png'],
+      videos: ['https://example.com/ref.mp4'],
+      audios: ['https://example.com/music.mp3'],
+    })).toEqual({
+      model: 'feimiao-v2.5-720p-30s',
+      prompt: '角色 阿宿 向前走',
+      aspect_ratio: '9:16',
+      resolution: '720p',
+      seconds: '30',
+      images: ['https://example.com/a.png'],
+      reference_videos: ['https://example.com/ref.mp4'],
+      reference_audios: ['https://example.com/music.mp3'],
+      motion_has_audio: true,
+    })
+  })
+
+  it('rejects images beyond the 30-image cap and audio without an image or video', () => {
+    const base = { model: 'feimiao-v2.5-720p-30s', prompt: '测试' }
+    expect(() => buildFmgoBody(base, {
+      images: Array.from({ length: 31 }, (_, index) => `https://example.com/${index}.png`), videos: [], audios: [],
+    })).toThrow('最多支持 30 张参考图')
+    expect(() => buildFmgoBody(base, {
+      images: [], videos: [], audios: ['https://example.com/music.mp3'],
+    })).toThrow('不能只传参考音频')
+  })
+
+  it('maps task IDs and completion URLs from the documented response envelope', () => {
+    expect(mapFmgoTask({ data: { status: 'completed', result_url: 'https://static.fmgo.top/video.mp4', progress: 100 } })).toMatchObject({
+      status: 'completed', videoUrl: 'https://static.fmgo.top/video.mp4', progress: 100,
+    })
+    expect(mapFmgoTask({ status: 'queued' }).status).toBe('pending')
+  })
+})
 
 describe('New API Seedance 2.5 adapter', () => {
   it('publishes the complete 12-model catalog and builds a valid request', () => {

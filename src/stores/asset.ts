@@ -18,6 +18,10 @@ export interface GeneratedAsset {
   type: AssetType
   /** 直接可用于 <img> / <video> 的地址，可能是 https URL，也可能是 data:image/...;base64,xxx */
   url: string
+  sourceUrl?: string
+  localPath?: string
+  saveStatus?: 'saving' | 'saved' | 'error'
+  saveError?: string
   prompt: string
   model: string
   providerId: string
@@ -71,12 +75,16 @@ export const useAssetStore = defineStore('asset', () => {
   }
 
   function addAsset(input: Omit<GeneratedAsset, 'id' | 'createdAt'>): GeneratedAsset {
-    const duplicate = assets.value.find((asset) => asset.nodeId === input.nodeId && asset.url === input.url)
+    const duplicate = assets.value.find((asset) => asset.nodeId === input.nodeId && asset.projectId === input.projectId && (asset.url === input.url || asset.sourceUrl === input.url))
     if (duplicate) return duplicate
     const asset: GeneratedAsset = {
       ...input,
       id: uid(),
       createdAt: Date.now(),
+    }
+    if (asset.type === 'video' && asset.url.startsWith('local-upload:///')) {
+      asset.localPath = decodeURIComponent(asset.url.slice('local-upload:///'.length))
+      asset.saveStatus = 'saved'
     }
     assets.value.push(asset)
     // LRU 上限：超过就把最旧的扔掉
@@ -85,7 +93,52 @@ export const useAssetStore = defineStore('asset', () => {
       assets.value.splice(0, assets.value.length - MAX_ASSETS)
     }
     persist()
+    if (asset.type === 'video' && /^https?:\/\//i.test(asset.url) && (window as any).electronAPI?.video?.saveGenerated) {
+      void retrySaveVideo(asset.id)
+    }
     return asset
+  }
+
+  const saving = new Map<string, Promise<void>>()
+  function retrySaveVideo(id: string): Promise<void> {
+    if (saving.has(id)) return saving.get(id)!
+    const asset = assets.value.find(a => a.id === id)
+    if (!asset || asset.type !== 'video' || asset.saveStatus === 'saved') return Promise.resolve()
+    const sourceUrl = asset.sourceUrl || asset.url
+    if (!/^https?:\/\//i.test(sourceUrl)) return Promise.resolve()
+    asset.sourceUrl = sourceUrl
+    asset.saveStatus = 'saving'
+    asset.saveError = undefined
+    const job = (async () => {
+      await persistNow()
+      try {
+        const bridge = (window as any).electronAPI?.video?.saveGenerated
+        if (!bridge) throw new Error('请在桌面软件中保存视频')
+        const result = await bridge({ url: sourceUrl, assetId: id, projectId: asset.projectId })
+        if (!result?.ok || !result.path) throw new Error(result?.error || '本地保存失败')
+        const target = assets.value.find(a => a.id === id)
+        if (!target) return
+        target.localPath = result.path
+        target.url = 'local-upload:///' + result.path.replace(/\\/g, '/')
+        target.saveStatus = 'saved'
+        target.saveError = undefined
+      } catch (error) {
+        const target = assets.value.find(a => a.id === id)
+        if (target) {
+          target.saveStatus = 'error'
+          target.saveError = error instanceof Error ? error.message : '本地保存失败'
+        }
+      } finally {
+        await persistNow()
+      }
+    })()
+    saving.set(id, job)
+    void job.finally(() => saving.delete(id))
+    return job
+  }
+
+  function remoteVideoUrl(url: string): string {
+    return assets.value.find(a => a.type === 'video' && a.url === url)?.sourceUrl || url
   }
 
   function removeAsset(id: string) {
@@ -110,6 +163,13 @@ export const useAssetStore = defineStore('asset', () => {
   // ---------- 持久化 ----------
 
   let persistDebounce: number | null = null
+  async function persistNow() {
+    if (persistDebounce) clearTimeout(persistDebounce)
+    persistDebounce = null
+    try {
+      await window.electronAPI?.store?.set(STORE_KEY, JSON.stringify(assets.value))
+    } catch (error) { console.warn('persist assets failed:', error) }
+  }
   function persist() {
     if (persistDebounce) clearTimeout(persistDebounce)
     persistDebounce = window.setTimeout(async () => {
@@ -142,6 +202,9 @@ export const useAssetStore = defineStore('asset', () => {
     } catch (err) {
       console.warn('load assets failed:', err)
     }
+    for (const asset of assets.value) {
+      if (asset.saveStatus === 'saving') void retrySaveVideo(asset.id)
+    }
   }
 
   return {
@@ -151,6 +214,8 @@ export const useAssetStore = defineStore('asset', () => {
     videos,
     assetsForNode,
     addAsset,
+    retrySaveVideo,
+    remoteVideoUrl,
     removeAsset,
     toggleFavorite,
     clearAll,
