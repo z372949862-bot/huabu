@@ -11,6 +11,7 @@ import { ensureQilingImageUrl } from '@/services/qilingImageHost'
 import { isQilingCbModel } from '@/services/providers/chuhaiyingVideo'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
+import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
 
 export interface NodeData {
   label: string
@@ -45,9 +46,12 @@ export interface NodeData {
   inputAudios?: string[]
   /** DMXAPI Seedance 2.5: reference / edit / extend. */
   videoMode?: 'reference' | 'edit' | 'extend'
+  dmxFrameMode?: 'first_frame' | 'first_last_frame'
   outputFormat?: 'mp4' | 'mov'
   returnLastFrame?: boolean
   taskId?: string
+  /** Durable DMXAPI query state; kept across restarts without persisting credentials. */
+  dmxTask?: DmxPendingTask
   // 本地上传素材（data URL，跨会话持久化）
   _uploads?: Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>
   /** 参考图角色标签：assetId → subject/style/scene。subject 优先序最高。 */
@@ -90,6 +94,14 @@ export const useNodeStore = defineStore('node', () => {
   const cancelledImageNodes = new Set<string>()
   const initialized = ref(false)
   const currentProjectId = ref<string | null>(null)
+  const assetStore = useAssetStore()
+  watch([() => assetStore.assets, nodes, currentProjectId], () => {
+    for (const node of nodes.value) {
+      const saved = assetStore.assets?.find(a => a.type === 'video' && a.saveStatus === 'saved'
+        && a.projectId === currentProjectId.value && !!a.sourceUrl && a.sourceUrl === node.data?.outputVideo)
+      if (saved) updateNodeData(node.id, { outputVideo: saved.url })
+    }
+  }, { deep: true })
 
   /** 设置节点错误状态并弹出 toast */
   function failNode(nodeId: string, error: string) {
@@ -168,7 +180,9 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: hasOutput ? 'completed' : 'idle', progress: hasOutput ? 100 : 0 },
+              data: { ...data, status: data.dmxTask ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.dmxTask ? undefined : hasOutput ? 100 : 0,
+                taskId: data.dmxTask?.taskId },
             }
           })
         : []
@@ -218,6 +232,7 @@ export const useNodeStore = defineStore('node', () => {
   /** 切换到已有项目：先把当前项目落盘，再加载目标项目。 */
   async function loadProject(projectId: string) {
     if (currentProjectId.value === projectId) return
+    nodes.value.forEach(node => cancelExecution(node.id))
     await flushPersist()
     currentProjectId.value = projectId
     await _loadProjectData(projectId)
@@ -230,6 +245,7 @@ export const useNodeStore = defineStore('node', () => {
 
   /** 新建项目：把旧项目落盘，切到新 ID，清空画布。 */
   async function createProject(projectId: string) {
+    nodes.value.forEach(node => cancelExecution(node.id))
     await flushPersist()
     currentProjectId.value = projectId
     nodes.value = []
@@ -249,6 +265,7 @@ export const useNodeStore = defineStore('node', () => {
 
   /** 删除项目：从盘上抹掉该项目数据；若删的是当前项目，currentProjectId 置为 null。 */
   async function deleteProject(projectId: string) {
+    if (currentProjectId.value === projectId) nodes.value.forEach(node => cancelExecution(node.id))
     const electronStore = window.electronAPI?.store
     if (electronStore) {
       try { await electronStore.delete(PROJECT_PERSIST_PREFIX + projectId) } catch {}
@@ -322,6 +339,7 @@ export const useNodeStore = defineStore('node', () => {
   }
 
   function cancelExecution(nodeId: string) {
+    cancelDmxApiNode(nodeId)
     cancelUnmauNode(nodeId)
     const t = runningTasks.get(nodeId)
     if (t) {
@@ -363,148 +381,22 @@ export const useNodeStore = defineStore('node', () => {
   }
 
   async function executeDmxApiNode(nodeId: string, provider: any, providerConfig: any, data: NodeData) {
-    const mode = data.videoMode || 'reference'
-    const promptText = String(data.prompt || '').replace(/@\[([^\]]*)\]\([^)]*\)/g, '@$1').trim()
-    const images: string[] = []
-    const videos: string[] = []
-    const audios: string[] = []
-    const addUnique = (list: string[], value: unknown) => {
-      if (typeof value === 'string' && value && !list.includes(value)) list.push(value)
-    }
-    const addNodeMedia = (source: any) => {
-      const sourceData = source?.data || {}
-      if (source?.type === 'asset-ref' && sourceData.assetUrl) {
-        const type = sourceData.assetType || 'image'
-        addUnique(type === 'video' ? videos : type === 'audio' ? audios : images, sourceData.assetUrl)
-      } else if (sourceData.outputImage) addUnique(images, sourceData.outputImage)
-      else if (sourceData.outputVideo) addUnique(videos, sourceData.outputVideo)
-      else if (sourceData.outputAudio) addUnique(audios, sourceData.outputAudio)
-    }
-    edges.value.filter((edge) => edge.target === nodeId).forEach((edge) => {
-      addNodeMedia(nodes.value.find((item) => item.id === edge.source))
+    const projectId = currentProjectId.value
+    return runDmxApiNode({
+      id: nodeId, data: { ...data }, nodes: nodes.value, edges: edges.value,
+      providerId: providerConfig.id, provider, readFile: urlToFile,
+      resolveVideoUrl: (url) => assetStore.remoteVideoUrl(url),
+      update: (patch) => updateNodeData(nodeId, patch),
+      persist: flushPersist,
+      isCurrent: () => currentProjectId.value === projectId && nodes.value.some(item => item.id === nodeId),
+      complete: (url, task) => useAssetStore().addAsset({
+        type: 'video', url, prompt: task.prompt, model: task.model,
+        providerId: task.providerId, providerName: providerConfig.name,
+        nodeId, nodeType: 'ai-video', projectId: projectId || undefined,
+        ratio: task.ratio, resolution: task.resolution,
+        duration: task.duration > 0 ? task.duration : undefined,
+      }),
     })
-    ;(data.inputImages || []).forEach((url) => addUnique(images, url))
-    ;(data.inputVideos || []).forEach((url) => addUnique(videos, url))
-    ;(data.inputAudios || []).forEach((url) => addUnique(audios, url))
-    addUnique(images, data.inputImage)
-    addUnique(videos, data.inputVideo)
-
-    if (!promptText) {
-      failNode(nodeId, mode === 'reference' ? '请输入视频提示词' : '请写明视频编辑或延长指令')
-      return
-    }
-    if ((mode === 'edit' || mode === 'extend') && videos.length === 0) {
-      failNode(nodeId, mode === 'edit' ? '视频编辑需要连接一个视频素材' : '视频延长需要连接一个视频素材')
-      return
-    }
-    if (images.length > 30) { failNode(nodeId, 'DMXAPI Seedance 2.5 最多支持 30 张参考图'); return }
-    if (videos.length > 10) { failNode(nodeId, 'DMXAPI Seedance 2.5 最多支持 10 个参考视频'); return }
-    if (audios.length > 10) { failNode(nodeId, 'DMXAPI Seedance 2.5 最多支持 10 段参考音频'); return }
-
-    const toRemote = async (url: string) => {
-      if (/^(https?:|asset:)/i.test(url)) return url
-      return ensureRemoteAssetUrl(url, providerConfig.apiKey)
-    }
-    try {
-      for (let i = 0; i < images.length; i++) images[i] = await toRemote(images[i])
-      for (let i = 0; i < videos.length; i++) videos[i] = await toRemote(videos[i])
-      for (let i = 0; i < audios.length; i++) audios[i] = await toRemote(audios[i])
-    } catch (error) {
-      failNode(nodeId, error instanceof Error ? `素材上传失败：${error.message}` : '素材上传失败')
-      return
-    }
-
-    const content: import('@/services/ai-provider').ContentItem[] = [{ type: 'text', text: promptText }]
-    images.forEach((url, index) => content.push({ type: 'image_url', image_url: { url }, role: 'reference_image', name: String(index + 1) }))
-    videos.forEach((url, index) => content.push({ type: 'video_url', video_url: { url }, role: 'reference_video', name: String(index + 1) }))
-    audios.forEach((url, index) => content.push({ type: 'audio_url', audio_url: { url }, role: 'reference_audio', name: String(index + 1) }))
-
-    const ratio = mode === 'reference' ? (data.ratio || 'adaptive') : 'adaptive'
-    const duration = mode === 'edit' ? -1 : (data.duration ?? 5)
-    const outputFormat = mode === 'reference' ? (data.outputFormat || 'mp4') : (data.outputFormat || 'mov')
-    updateNodeData(nodeId, { status: 'running', progress: 0, error: undefined, outputVideo: undefined })
-    const startedAt = Date.now()
-    const estimatedTotalMs = Math.max(90_000, (duration > 0 ? duration : 8) * 30_000)
-    const progressTimer = window.setInterval(() => {
-      const current = nodes.value.find((item) => item.id === nodeId)
-      if (!current || current.data?.status !== 'running') return
-      const elapsed = Date.now() - startedAt
-      const estimate = Math.min(95, Math.max(1, Math.floor((elapsed / estimatedTotalMs) * 90)))
-      const previous = Number(current.data?.progress || 0)
-      if (estimate > previous) updateNodeData(nodeId, { progress: estimate })
-    }, 1000) as unknown as number
-    progressTimers.set(nodeId, progressTimer)
-    let taskId = ''
-    try {
-      const result = await provider.createTask({
-        model: data.model || 'doubao-seedance-2-5-260628',
-        prompt: promptText,
-        mode: mode === 'extend' ? 'extend' : mode === 'edit' ? 'edit' : 'reference_material',
-        content,
-        ratio,
-        resolution: data.resolution || '720p',
-        duration,
-        generate_audio: data.generateAudio,
-        omniReferenceTaskType: (images.length + videos.length + audios.length) > 0 ? mode : undefined,
-        outputFormat,
-        returnLastFrame: data.returnLastFrame,
-      })
-      taskId = result.taskId
-      if (!taskId && result.videoUrl) {
-        cancelExecution(nodeId)
-        updateNodeData(nodeId, { status: 'completed', progress: 100, outputVideo: result.videoUrl })
-        useAssetStore().addAsset({ type: 'video', url: result.videoUrl, prompt: promptText, model: data.model, providerId: data.providerId || '', providerName: providerConfig.name, nodeId, nodeType: 'ai-video', projectId: currentProjectId.value || undefined, ratio, resolution: data.resolution, duration })
-        return
-      }
-      if (!taskId) throw new Error('DMXAPI 未返回任务 ID')
-      updateNodeData(nodeId, { taskId })
-      await flushPersist()
-    } catch (error) {
-      cancelExecution(nodeId)
-      failNode(nodeId, error instanceof Error ? error.message : '创建 DMXAPI 任务失败')
-      return
-    }
-
-    let polling = false
-    let transientFailures = 0
-    const intervalId = window.setInterval(async () => {
-      if (polling) return
-      if (Date.now() - startedAt > MAX_RUNTIME_MS) {
-        cancelExecution(nodeId)
-        failNode(nodeId, `DMXAPI 任务超时，请保留任务 ID：${taskId}`)
-        return
-      }
-      polling = true
-      try {
-        const status = await provider.getTaskStatus(taskId)
-        transientFailures = 0
-        if (status.status === 'completed' && status.videoUrl) {
-          cancelExecution(nodeId)
-          updateNodeData(nodeId, { status: 'completed', progress: 100, outputVideo: status.videoUrl, taskId: undefined })
-          useAssetStore().addAsset({ type: 'video', url: status.videoUrl, prompt: promptText, model: data.model, providerId: data.providerId || '', providerName: providerConfig.name, nodeId, nodeType: 'ai-video', projectId: currentProjectId.value || undefined, ratio, resolution: data.resolution, duration })
-        } else if (status.status === 'failed') {
-          cancelExecution(nodeId)
-          updateNodeData(nodeId, { status: 'error', error: status.error || 'DMXAPI 任务失败', taskId: undefined })
-        } else {
-          const estimated = Math.min(95, Math.max(1, Math.floor(((Date.now() - startedAt) / estimatedTotalMs) * 90)))
-          const current = nodes.value.find((item) => item.id === nodeId)
-          const previous = Number(current?.data?.progress || 0)
-          updateNodeData(nodeId, { progress: typeof status.progress === 'number' ? Math.max(previous, Math.min(99, Math.round(status.progress))) : Math.max(previous, estimated), error: undefined })
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '查询 DMXAPI 任务失败'
-        if (/请求超时|连接中断|Failed to fetch/i.test(message) && transientFailures < 5) {
-          transientFailures += 1
-          updateNodeData(nodeId, { error: `DMXAPI 查询暂时超时，正在重试（${transientFailures}/5）` })
-        } else {
-          cancelExecution(nodeId)
-          updateNodeData(nodeId, { status: 'error', error: message })
-        }
-      } finally {
-        polling = false
-      }
-    }, POLL_INTERVAL_MS) as unknown as number
-    runningTasks.set(nodeId, { intervalId, startedAt })
   }
 
   async function executeNode(nodeId: string) {
@@ -528,7 +420,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
-    const providerId = data.providerId || aiStore.defaultProviderId
+    const providerId = data.dmxTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
       failNode(nodeId, '请先在「设置」中添加中转站')
       return
@@ -666,9 +558,19 @@ export const useNodeStore = defineStore('node', () => {
       referenceWarning: undefined,
     })
 
+    const projectId = currentProjectId.value
+    const run: RunningTask = { intervalId: 0, startedAt: Date.now() }
+    runningTasks.set(nodeId, run)
+    const active = () => runningTasks.get(nodeId) === run && currentProjectId.value === projectId
+      && nodes.value.includes(node)
+    const stop = () => {
+      clearInterval(run.intervalId)
+      if (runningTasks.get(nodeId) === run) runningTasks.delete(nodeId)
+    }
     // 本地 blob:/data: URL 视频 API 拿不到，先全部上传到图床换公网 URL
     const uploadRefs = async (refs: string[], label: string, qilingImages = false) => {
       for (let i = 0; i < refs.length; i++) {
+        if (!active()) return
         const u = refs[i]
         if (!u || (!qilingImages && /^(https?:|asset:)/i.test(u))) continue
         try {
@@ -680,9 +582,14 @@ export const useNodeStore = defineStore('node', () => {
     }
     try {
       await uploadRefs(refImages, '参考图第 ', isQilingSeedance25)
+      if (!active()) return
       await uploadRefs(refVideos, '参考视频第 ')
+      if (!active()) return
       await uploadRefs(refAudios, '参考音频第 ')
+      if (!active()) return
     } catch (err) {
+      if (!active()) return
+      stop()
       updateNodeData(nodeId, {
         status: 'error',
         error: err instanceof Error ? err.message : '参考素材上传失败',
@@ -693,7 +600,10 @@ export const useNodeStore = defineStore('node', () => {
     if (videoUrl && !/^(https?:|asset:)/i.test(videoUrl)) {
       try {
         videoUrl = await ensureRemoteAssetUrl(videoUrl, apiKey)
+        if (!active()) return
       } catch (err) {
+        if (!active()) return
+        stop()
         updateNodeData(nodeId, {
           status: 'error',
           error: err instanceof Error ? err.message : '源视频上传失败',
@@ -753,7 +663,10 @@ export const useNodeStore = defineStore('node', () => {
         generate_audio: data.generateAudio,
       })
       taskId = res.taskId
+      if (!active()) return
     } catch (err) {
+      if (!active()) return
+      stop()
       failNode(nodeId, err instanceof Error ? err.message : '创建任务失败')
       return
     }
@@ -764,16 +677,21 @@ export const useNodeStore = defineStore('node', () => {
     // 估算总时长：视频秒数 × 15（保守估计，5s 视频约 75s 出，10s 视频约 150s 出）
     const estimatedTotalMs = (data.duration || 5) * 15 * 1000
 
-    const intervalId = window.setInterval(async () => {
+    let polling = false
+    run.intervalId = window.setInterval(async () => {
+      if (!active()) { stop(); return }
+      if (polling) return
       // 超时保护
       if (Date.now() - startedAt > MAX_RUNTIME_MS) {
-        cancelExecution(nodeId)
-        failNode(nodeId, '生成超时（超过 10 分钟）')
+        stop()
+        failNode(nodeId, '查询已超过 30 分钟，请在平台确认任务状态，避免重复提交')
         return
       }
 
       try {
+        polling = true
         const status = await provider.getTaskStatus(taskId)
+        if (!active()) return
 
         // 进度计算：网关给真值优先；否则按已耗时估算（cap 95，留 5% 给收尾）
         const elapsed = Date.now() - startedAt
@@ -788,48 +706,57 @@ export const useNodeStore = defineStore('node', () => {
         }
 
         if (status.status === 'completed') {
-          cancelExecution(nodeId)
+          clearInterval(run.intervalId)
           let outputVideo = status.videoUrl
           if (providerConfig.kind === 'qiling') {
             updateNodeData(nodeId, { progress: 99, taskId })
             try {
               outputVideo = await (provider as typeof provider & { download: (id: string, url?: string) => Promise<string> }).download(taskId, status.videoUrl)
+              if (!active()) return
             } catch (error) {
-              updateNodeData(nodeId, {
+              if (!active()) return
+              if (!outputVideo) {
+                stop()
+                updateNodeData(nodeId, {
                 status: 'error',
                 progress: 99,
                 taskId,
                 error: error instanceof Error ? `视频已生成，但下载到本地失败：${error.message}` : '视频已生成，但下载到本地失败',
-              })
-              return
+                })
+                return
+              }
             }
           }
+          if (!outputVideo) throw new Error('任务已完成，但平台未返回成片链接，请在平台查询')
+          stop()
           updateNodeData(nodeId, {
             status: 'completed',
             progress: 100,
             outputVideo,
             taskId: undefined,
             referenceWarning: status.warning,
+            error: undefined,
           })
           // 推到全局资产库 / 历史
           if (outputVideo) {
             useAssetStore().addAsset({
               type: 'video',
               url: outputVideo,
+              sourceUrl: status.videoUrl,
               prompt: promptText,
               model: modelId,
               providerId,
               providerName: providerConfig.name,
               nodeId,
               nodeType: 'ai-video',
-              projectId: currentProjectId.value || undefined,
+              projectId: projectId || undefined,
               ratio: data.ratio,
               resolution: data.resolution,
               duration: data.duration,
             })
           }
         } else if (status.status === 'failed') {
-          cancelExecution(nodeId)
+          stop()
           updateNodeData(nodeId, {
             status: 'error',
             error: status.error || '生成失败',
@@ -838,15 +765,15 @@ export const useNodeStore = defineStore('node', () => {
           updateNodeData(nodeId, { progress: nextProgress })
         }
       } catch (err) {
-        cancelExecution(nodeId)
+        if (!active()) return
+        stop()
         updateNodeData(nodeId, {
           status: 'error',
           error: err instanceof Error ? err.message : '查询任务失败',
         })
-      }
+      } finally { polling = false }
     }, POLL_INTERVAL_MS) as unknown as number
 
-    runningTasks.set(nodeId, { intervalId, startedAt })
   }
 
   /** 图片节点执行：GeekNow 是同步 API，请求一次直接拿到图，不走轮询 */

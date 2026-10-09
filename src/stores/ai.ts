@@ -6,6 +6,7 @@ import { UnmauProvider } from '@/services/providers/unmau'
 import { Yu25Provider } from '@/services/providers/yu25'
 import { XinshujuProvider } from '@/services/providers/xinshuju'
 import { DmxApiProvider } from '@/services/providers/dmxapi'
+import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
@@ -85,6 +86,7 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   yu25: 'https://api.yu25.xyz',
   xinshuju: 'https://www.xinshuju.net',
   dmxapi: 'https://www.dmxapi.cn',
+  fmgo: FMGO_BASE,
 }
 const CURRENT_MIGRATION = 11
 
@@ -150,6 +152,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'yu25') return 'yu25'
   if (conf.kind === 'xinshuju') return 'xinshuju'
   if (conf.kind === 'dmxapi') return 'dmxapi'
+  if (conf.kind === 'fmgo') return 'fmgo'
   return 'seedance'
 }
 
@@ -198,6 +201,8 @@ export const useAIStore = defineStore('ai', () => {
       const kind = videoKindOf(conf)
       inst = kind === 'xinshuju'
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'fmgo'
+          ? new FmgoProvider(conf.apiKey, conf.baseUrl)
         : kind === 'dmxapi'
           ? new DmxApiProvider(conf.apiKey, conf.baseUrl)
         : kind === 'yu25'
@@ -297,7 +302,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -305,6 +310,8 @@ export const useAIStore = defineStore('ai', () => {
       defaultModels = defaultVideoModelSet(vidKind)
       defaultName = vidKind === 'unmau'
         ? 'New API · Seedance 2.5'
+        : vidKind === 'fmgo'
+          ? 'FMGO API · Feimiao 2.5'
         : vidKind === 'xinshuju'
           ? '心数据 · Seedance 2.5'
         : vidKind === 'yu25'

@@ -9,8 +9,17 @@ const log = require('electron-log')
 const jianying = require('./jianyingDraft.cjs')
 require('./unmau.cjs')({ ipcMain, net, app })
 require('./yu25.cjs')({ ipcMain, net, app })
+require('./fmgo.cjs')({ ipcMain, net, app })
 require('./xinshuju.cjs')({ ipcMain, net, app })
 require('./qiling.cjs')({ ipcMain, net, app })
+const saveGeneratedVideo = require('./videoStorage.cjs').createVideoSaver({
+  root: path.join(app.getPath('userData'), 'generated-videos', 'automatic'),
+  fetch: (...args) => net.fetch(...args),
+})
+ipcMain.handle('video:save-generated', async (_event, payload) => {
+  try { return { ok: true, ...(await saveGeneratedVideo(payload)) } }
+  catch (error) { return { ok: false, error: error.message || '成片保存失败' } }
+})
 
 const store = new Store({ name: 'ai-video-canvas-config' })
 

@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (payload) => ipcRenderer.invoke('yu25:upload', payload),
     download: (payload) => ipcRenderer.invoke('yu25:download', payload),
   },
+  fmgo: {
+    request: (payload) => ipcRenderer.invoke('fmgo:request', payload),
+    download: (payload) => ipcRenderer.invoke('fmgo:download', payload),
+  },
   xinshuju: {
     request: (payload) => ipcRenderer.invoke('xinshuju:request', payload),
     download: (payload) => ipcRenderer.invoke('xinshuju:download', payload),
@@ -44,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exportDraft: (clips, draftName) => ipcRenderer.invoke('jianying:export-draft', clips, draftName),
   },
   video: {
+    saveGenerated: (payload) => ipcRenderer.invoke('video:save-generated', payload),
     // clips: Array<{ url, trimStart, trimEnd }>（也兼容旧的 url 字符串数组）。返回保存路径或 null（取消）。
     export: (clips, outputDir) => ipcRenderer.invoke('video:export', clips, outputDir),
     // 用主进程 ffmpeg 给时间轴抽缩略图，返回 data URL 数组
