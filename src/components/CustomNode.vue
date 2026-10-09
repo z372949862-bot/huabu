@@ -1,7 +1,9 @@
 <template>
-  <div class="custom-node" :class="{ selected: isSelected }">
+  <div class="custom-node" :class="{ selected: isSelected, 'connection-receiving': receivingNodeId === id, 'connection-disabled': videoConnection && isImageNode }" :style="{ '--handle-scale': 1 / viewport.zoom, '--receiving-offset-x': receivingNodeId === id ? receivingOffset.x + 'px' : '0px', '--receiving-offset-y': receivingNodeId === id ? receivingOffset.y + 'px' : '0px' }">
     <!-- 节点主体 - 动态尺寸 -->
-    <div class="node-main" @click="selectNode" :style="{ width: nodeSize.width + 'px', height: nodeSize.height + 'px' }">
+    <div class="node-surface" :style="{ width: nodeSize.width + 'px', height: nodeSize.height + 'px' }">
+    <div v-if="appearingNodes.has(id)" class="node-creation-glow" aria-hidden="true" @animationend="appearingNodes.delete(id)"></div>
+    <div class="node-main" @click="selectNode" :style="{ width: nodeSize.width + 'px', height: nodeSize.height + 'px', ...receivingFrameStyle }">
       <div class="node-content" :class="{ generating: data.status === 'running' }">
         <!-- 素材引用节点 - 显示上传的素材 -->
         <template v-if="type === 'asset-ref' && data.assetUrl">
@@ -138,8 +140,9 @@
     </div>
 
     <!-- 生成卡片 - 选中时在底部展开 -->
+    </div>
     <transition name="expand">
-      <div v-show="isSelected && type !== 'asset-ref'" class="generator-card">
+      <div v-show="isSelected && type !== 'asset-ref'" class="generator-card nodrag nopan nowheel">
         <div class="generator-content">
           <!-- 历史缩略图条（图片/视频节点才显示，且有历史时才显示） -->
           <div v-if="nodeHistory.length > 0" class="history-strip">
@@ -442,8 +445,8 @@
     </transition>
 
     <!-- 连接点 -->
-    <Handle type="target" :position="Position.Left" id="target" class="custom-handle" />
-    <Handle type="source" :position="Position.Right" id="source" class="custom-handle" />
+    <Handle type="target" :position="Position.Left" id="target" class="custom-handle" :class="handleClass('target')" :style="handleStyle('target')" />
+    <Handle type="source" :position="Position.Right" id="source" class="custom-handle" :class="handleClass('source')" :style="handleStyle('source')" />
 
     <!-- 视频播放弹窗 -->
     <Teleport to="body">
@@ -585,8 +588,11 @@
 </style>
 
 <script setup lang="ts">
-import { ref, computed, watch, provide, onMounted, nextTick } from 'vue'
-import { Handle, Position } from '@vue-flow/core'
+import { ref, computed, watch, provide, inject, onMounted, nextTick } from 'vue'
+import { receivingNodeKey, receivingOffsetKey, receivingSurfaceKey, connectionPointerKey, connectionFrameTilt } from '@/utils/canvasConnection'
+import { imageConnectionKey, videoConnectionKey, handleMagnetKey } from '@/utils/canvasConnection'
+import { appearingNodesKey } from '@/utils/nodeAppearance'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { useNodeStore } from '@/stores/node'
 import type { RefImageTag } from '@/stores/node'
@@ -609,6 +615,7 @@ interface Props {
   type: string
   data: {
     label: string
+    assetType?: string
     status?: string
     prompt?: string
     progress?: number
@@ -620,6 +627,36 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const appearingNodes = inject(appearingNodesKey, ref(new Set<string>()))
+const receivingNodeId = inject(receivingNodeKey, ref<string | null>(null))
+const receivingOffset = inject(receivingOffsetKey, ref({ x: 0, y: 0 }))
+const receivingSurface = inject(receivingSurfaceKey, ref(null))
+const connectionPointer = inject(connectionPointerKey, ref(null))
+const { viewport } = useVueFlow()
+const imageConnection = inject(imageConnectionKey, ref(false))
+const videoConnection = inject(videoConnectionKey, ref(false))
+const isImageNode = computed(() => props.type === 'ai-image' || (props.type === 'asset-ref' && props.data.assetType === 'image'))
+const handleMagnet = inject(handleMagnetKey, ref(null))
+const isMagnetic = (side: string) => handleMagnet.value?.nodeId === props.id && handleMagnet.value?.side === side
+const handleClass = (side: string) => ({
+  'handle-magnetic': isMagnetic(side),
+  'handle-hidden-receiving': props.type === 'ai-video' && imageConnection.value,
+})
+const handleStyle = (side: string) => ({
+  '--magnet-x': (isMagnetic(side) ? handleMagnet.value!.x / viewport.value.zoom : 0) + 'px',
+  '--magnet-y': (isMagnetic(side) ? handleMagnet.value!.y / viewport.value.zoom : 0) + 'px',
+})
+const receivingFrameStyle = computed(() => {
+  if (receivingNodeId.value !== props.id) return {}
+  const zoom = viewport.value.zoom
+  const { x, y } = receivingOffset.value
+  // Positive rotateX lifts the bottom edge; negative rotateY lifts the right.
+  const tilt = receivingSurface.value && connectionPointer.value
+    ? connectionFrameTilt(connectionPointer.value, receivingSurface.value) : { x: 0, y: 0 }
+  return {
+    transform: `translate(${x}px, ${y}px) perspective(${800 / zoom}px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+  }
+})
 const nodeStore = useNodeStore()
 const aiStore = useAIStore()
 const assetStore = useAssetStore()
@@ -1801,24 +1838,96 @@ const typeLabel = computed(() => {
 }
 
 /* 节点主体 */
+.node-surface {
+  position: relative;
+  isolation: isolate;
+}
+
+.node-creation-glow {
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: 22px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(139, 211, 255, 0.48) 0%, rgba(74, 161, 234, 0.32) 55%, rgba(76, 122, 232, 0) 78%);
+  box-shadow: 0 0 22px 8px rgba(112, 192, 255, 0.24);
+  filter: blur(14px);
+  animation: node-creation-spread 950ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes node-creation-spread {
+  0% { opacity: 0; transform: scale(0.9); }
+  18% { opacity: 0.9; }
+  55% { opacity: 0.4; }
+  100% { opacity: 0; transform: scale(1.32, 1.42); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-creation-glow { display: none; animation: none; }
+}
+
 .node-main {
   width: 350px;
   height: 350px;
-  background: #262626;
-  border: 1px solid rgba(0, 217, 255, 0.3);
+  background: #202123;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
   border-radius: 12px;
   cursor: pointer;
-  transition: width 0.3s, height 0.3s, border-color 0.3s, box-shadow 0.3s;
+  transition: width 0.3s, height 0.3s, border-color 0.3s, box-shadow 0.3s, transform 90ms ease-out;
   overflow: hidden;
 }
 
 .custom-node.selected .node-main {
-  border-color: #00D9FF;
-  box-shadow: inset 0 0 0 2px #00D9FF;
+  border-color: #7fd2f5;
+  box-shadow: 0 0 0 3px rgba(126, 204, 242, 0.13), 0 12px 32px rgba(0, 0, 0, 0.34);
 }
 
 .node-main:hover {
-  border-color: #00D9FF;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* Outline preserves node dimensions and anchor positions while receiving. */
+.custom-node.connection-receiving .node-main {
+  border-color: transparent;
+  outline: calc(2px * var(--handle-scale)) solid #008ee5;
+  outline-offset: 0;
+}
+
+.custom-node.connection-receiving .node-main {
+  pointer-events: none;
+}
+
+.custom-node.connection-receiving .node-main :deep(*) {
+  pointer-events: none !important;
+}
+
+.custom-node.connection-disabled {
+  filter: grayscale(1) opacity(0.42);
+  cursor: not-allowed;
+}
+
+.custom-node.connection-disabled .node-main,
+.custom-node.connection-disabled .node-main :deep(*) {
+  pointer-events: none !important;
+}
+
+.custom-node.connection-disabled :deep(.custom-handle) {
+  pointer-events: none !important;
+}
+
+.custom-node.connection-disabled :deep(.custom-handle::before),
+.custom-node.connection-disabled :deep(.custom-handle::after) {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+.custom-node.connection-disabled .generator-card {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .custom-node .node-main { transform: none !important; transition: none; }
 }
 
 .node-content {
@@ -3087,15 +3196,73 @@ const typeLabel = computed(() => {
 
 /* 连接点样式 */
 :deep(.custom-handle) {
+  /* Keep Vue Flow's measured anchor on the node border. The larger hit area
+     lives in ::before so it cannot push the visual edge endpoint outward. */
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  /* The measured handle stays at the border, but must receive pointer events
+     so Vue Flow can start/end a connection. The pseudo-element enlarges it. */
+  pointer-events: auto !important;
+  opacity: 1 !important;
+  transition: opacity 0.2s !important;
+  box-shadow: none;
+}
+
+:deep(.custom-handle.vue-flow__handle-left) {
+  left: 0.5px;
+}
+
+:deep(.custom-handle.vue-flow__handle-right) {
+  right: 0.5px;
+}
+
+:deep(.custom-handle::after) {
+  content: '';
+  position: absolute;
   width: 20px;
   height: 20px;
-  background: #00D9FF !important;
-  border: 3px solid #262626 !important;
+  top: 50%;
+  left: calc(50% + 22px * var(--handle-scale));
+  transform: translate(-50%, -50%) translate(var(--magnet-x, 0px), var(--magnet-y, 0px)) scale(var(--handle-scale));
   border-radius: 50%;
-  pointer-events: auto;
-  opacity: 0 !important;
-  transition: opacity 0.2s !important;
-  box-shadow: 0 0 12px #00D9FF;
+  background: linear-gradient(#a9adb5, #a9adb5) center / 8px 1px no-repeat, linear-gradient(#a9adb5, #a9adb5) center / 1px 8px no-repeat, #202123;
+  border: 1px solid #71757c;
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 300ms cubic-bezier(0.22, 1.5, 0.36, 1);
+  pointer-events: none;
+}
+
+.custom-node:hover :deep(.custom-handle::after),
+.custom-node :deep(.custom-handle.handle-magnetic::after),
+.custom-node.selected :deep(.custom-handle::after),
+:deep(.custom-handle:hover::after),
+:deep(.custom-handle.connecting::after) {
+  opacity: 1;
+}
+
+:deep(.custom-handle.handle-magnetic::after) {
+  transition: opacity 0.18s ease, transform 70ms ease-out;
+}
+
+.custom-node :deep(.custom-handle.handle-hidden-receiving::after) {
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :deep(.custom-handle::after) {
+    transform: translate(-50%, -50%) scale(var(--handle-scale));
+    transition: none;
+  }
+}
+
+:deep(.custom-node:hover .custom-handle) {
+  opacity: 1 !important;
 }
 
 :deep(.custom-handle:hover) {
@@ -3122,13 +3289,21 @@ const typeLabel = computed(() => {
 :deep(.custom-handle::before) {
   content: '';
   position: absolute;
-  width: 80px;
-  height: 80px;
+  width: calc(40px * var(--handle-scale));
+  height: calc(80px * var(--handle-scale));
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
+  transform: translateY(-50%);
+  border-radius: 0;
   pointer-events: auto;
+}
+
+:deep(.custom-handle.vue-flow__handle-left::before) {
+  transform: translate(-100%, -50%);
+}
+
+:deep(.custom-handle.vue-flow__handle-left::after) {
+  left: calc(50% - 22px * var(--handle-scale));
 }
 
 /* 展开动画 */

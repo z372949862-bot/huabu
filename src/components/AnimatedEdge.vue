@@ -1,11 +1,5 @@
 <template>
   <g class="edge-interaction">
-    <defs>
-      <linearGradient :id="`edge-gradient-${id}`" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" style="stop-color:#00D9FF;stop-opacity:1" />
-        <stop offset="100%" style="stop-color:#B432FF;stop-opacity:1" />
-      </linearGradient>
-    </defs>
     <!-- 加宽的透明命中区，让悬停和删除不要求精确点中细线 -->
     <path :d="path" class="edge-hit-path" />
     <path
@@ -16,21 +10,12 @@
       :marker-end="markerEnd"
     />
 
-    <!-- 流动粒子 -->
-    <circle
-      v-for="i in 3"
-      :key="i"
-      r="3"
-      :fill="particleColor"
-      class="edge-particle"
-    >
-      <animateMotion
-        :path="path"
-        :dur="`${2 + i * 0.3}s`"
-        repeatCount="indefinite"
-        :begin="`${i * 0.3}s`"
-      />
-    </circle>
+    <!-- 独立流光层：底线保持低亮，短亮段沿同一路径移动 -->
+    <path
+      :d="path"
+      pathLength="100"
+      class="edge-flow-path"
+    />
 
     <!-- 连线删除按钮：仅在鼠标悬停连线时显示 -->
     <g
@@ -70,6 +55,7 @@ interface Props {
   sourceNode?: GraphNode
   targetNode?: GraphNode
   markerEnd?: string
+  selected?: boolean
 }
 
 const props = defineProps<Props>()
@@ -123,26 +109,27 @@ const removeConnection = () => {
   nodeStore.removeEdge(props.id)
 }
 
-const edgeStyle = computed(() => ({
-  stroke: '#00D9FF',
-  strokeWidth: 3,
-  fill: 'none',
-  opacity: 0.8,
-  filter: 'drop-shadow(0 0 4px #00D9FF)',
-}))
+const active = computed(() => props.selected || props.sourceNode?.selected || props.targetNode?.selected
+  || (Boolean(nodeStore.selectedNodeId) && (nodeStore.selectedNodeId === props.sourceNode?.id || nodeStore.selectedNodeId === props.targetNode?.id)))
 
-const particleColor = computed(() => '#00D9FF')
+const edgeStyle = computed(() => ({
+  stroke: active.value ? '#008EE5' : '#ffffff',
+  strokeWidth: 1,
+  fill: 'none',
+  opacity: active.value ? 1 : 0.16,
+}))
 </script>
 
 <style scoped>
 .edge-interaction {
   pointer-events: visiblePainted;
+  color: #8e97a8;
 }
 
 .edge-hit-path {
   fill: none;
   stroke: transparent;
-  stroke-width: 24;
+  stroke-width: 20;
   pointer-events: stroke;
 }
 
@@ -166,31 +153,51 @@ const particleColor = computed(() => '#00D9FF')
 }
 
 .edge-delete-bg {
-  fill: rgba(22, 25, 36, 0.96);
-  stroke: #ff6b8a;
-  stroke-width: 1.5;
-  filter: drop-shadow(0 0 5px rgba(255, 107, 138, 0.75));
+  fill: rgba(25, 27, 32, 0.96);
+  stroke: #f08b9d;
+  stroke-width: 1.25;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.45));
 }
 
 .edge-delete-icon {
-  fill: #ffb3c2;
+  fill: #f4a8b5;
   pointer-events: none;
 }
 
 .animated-edge {
-  animation: edge-glow 2s ease-in-out infinite;
+  transition: stroke 0.2s ease, opacity 0.2s ease;
 }
 
-@keyframes edge-glow {
-  0%, 100% {
-    filter: drop-shadow(0 0 4px #00D9FF);
-  }
-  50% {
-    filter: drop-shadow(0 0 8px #B432FF);
-  }
+.edge-flow-path {
+  fill: none;
+  stroke: #58c8ff;
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  stroke-dasharray: 10 90;
+  stroke-dashoffset: 100;
+  opacity: 0.42;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px rgba(88, 200, 255, 0.72));
+  animation: edge-flow 2.4s linear infinite;
 }
 
-.edge-particle {
-  filter: drop-shadow(0 0 4px currentColor);
+.edge-interaction:hover .animated-edge {
+  stroke: #008EE5 !important;
+  opacity: 1 !important;
+  stroke-width: 1px !important;
+}
+
+.edge-interaction:hover .edge-flow-path {
+  opacity: 0.95;
+  stroke-width: 3px;
+}
+
+@keyframes edge-flow {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-edge { transition: none; }
+  .edge-flow-path { animation: none; opacity: 0.2; }
 }
 </style>

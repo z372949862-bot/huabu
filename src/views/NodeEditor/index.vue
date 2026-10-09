@@ -23,13 +23,17 @@
       @pane-context-menu="onPaneContextMenu"
       @node-context-menu="onNodeContextMenu"
       @node-click="onNodeClick"
+      @pane-click="nodeStore.selectNode(null)"
       @node-drag="onNodeDrag"
       @node-drag-stop="onNodeDragStop"
       class="vue-flow-container"
     >
-      <Background pattern-color="#00D9FF" :gap="20" :size="1" />
+      <template #connection-line="connectionLineProps">
+        <ConnectionPreview v-bind="connectionLineProps" />
+      </template>
+      <Background pattern-color="#333943" :gap="24" :size="1" />
       <Controls />
-      <MiniMap :pannable="true" :zoomable="true" />
+      <MiniMap :pannable="true" :zoomable="true" mask-color="rgba(0, 0, 0, 0.35)" node-color="#626975" />
     </VueFlow>
 
     <!-- 空画布引导 -->
@@ -72,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, markRaw, onMounted, watch, onUnmounted, computed, nextTick } from 'vue'
+import { ref, reactive, markRaw, onMounted, watch, onUnmounted, computed, nextTick, provide } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -82,9 +86,43 @@ import { useRoute, useRouter } from 'vue-router'
 import ContextMenu from '@/components/ContextMenu.vue'
 import CustomNode from '@/components/CustomNode.vue'
 import AnimatedEdge from '@/components/AnimatedEdge.vue'
+import ConnectionPreview from '@/components/ConnectionPreview.vue'
 import { useNodeStore } from '@/stores/node'
+import { receivingNodeKey, receivingOffsetKey, receivingSurfaceKey, connectionPointerKey, connectionFrameOffset, connectionDropNode, canConnectNodes, normalizeCanvasEdges, trackConnectionPointer } from '@/utils/canvasConnection'
+import type { ConnectionSurface } from '@/utils/canvasConnection'
+import { imageConnectionKey, videoConnectionKey, handleMagnetKey, magneticHandleOffset, isImageNode } from '@/utils/canvasConnection'
+import type { HandleMagnet } from '@/utils/canvasConnection'
+import { appearingNodesKey } from '@/utils/nodeAppearance'
+import { compatibleConnection, isVideoNode } from '@/utils/canvasConnection'
 
 const nodeStore = useNodeStore()
+const appearingNodes = ref(new Set<string>())
+let appearanceReady = false
+onMounted(async () => {
+  await nextTick()
+  appearanceReady = true
+})
+const appearanceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+provide(appearingNodesKey, appearingNodes)
+const stopAppearanceTracking = nodeStore.$onAction(({ name, args, after }) => {
+  if (!appearanceReady || name !== 'addNode') return
+  const id = args[0]?.id
+  if (!id) return
+  after(() => {
+    appearingNodes.value.add(id)
+    clearTimeout(appearanceTimers.get(id))
+    appearanceTimers.set(id, setTimeout(() => {
+      appearingNodes.value.delete(id)
+      appearanceTimers.delete(id)
+    }, 1200))
+  })
+})
+onUnmounted(() => {
+  stopAppearanceTracking()
+  appearanceTimers.forEach(timer => clearTimeout(timer))
+  appearanceTimers.clear()
+  appearingNodes.value.clear()
+})
 
 // 对齐辅助线
 const alignmentLines = ref<Array<{ id: string; type: 'horizontal' | 'vertical'; position: number }>>([])
@@ -93,15 +131,11 @@ const MAX_ALIGNMENT_DISTANCE = 15 // 最大对齐距离（像素），超过不�
 
 // 连接验证：只允许从source连接到target
 const isValidConnection = (connection: any) => {
-  // 不允许连接到自己
-  if (connection.source === connection.target) {
-    return false
-  }
-
-  // sourceHandle应该是null或undefined（默认source handle）
-  // targetHandle应该是null或undefined（默认target handle）
-  // 这样可以确保从右侧source连接到左侧target
-  return true
+  const sourceNode = nodeStore.nodes.find(node => node.id === connection.source)
+  const targetNode = nodeStore.nodes.find(node => node.id === connection.target)
+  return Boolean(connection.source && connection.target && connection.source !== connection.target &&
+    sourceNode && targetNode &&
+    compatibleConnection(sourceNode, targetNode))
 }
 
 // 节点拖动时检测对齐
@@ -269,7 +303,7 @@ watch(() => nodeStore.edges, async (newEdges) => {
   // 等节点完成一帧注册后再同步边，并用版本号避免快速更新时写回旧快照。
   await nextTick()
   if (version !== edgeSyncVersion) return
-  edges.value = pendingEdges
+  edges.value = normalizeCanvasEdges(pendingEdges, nodes.value)
 }, { deep: true, immediate: true })
 
 // 同步本地nodes的位置变化回nodeStore
@@ -380,6 +414,7 @@ const pasteCopiedNodes = () => {
 
 // 监听连线创建（拖拽手柄）
 onConnect((connection) => {
+  if (connectionCancelled) return
   addCanvasEdge(connection.source, connection.target)
 })
 
@@ -389,8 +424,7 @@ onConnect((connection) => {
  * connection gestures persist identical edges.
  */
 const addCanvasEdge = (source: string, target: string) => {
-  if (!source || !target || source === target) return
-  if (nodeStore.edges.some((edge) => edge.source === source && edge.target === target)) return
+  if (!canConnectNodes(source, target, nodeStore.nodes, nodeStore.edges)) return
 
   const edge: Edge = {
     id: `e${source}-${target}`,
@@ -402,10 +436,107 @@ const addCanvasEdge = (source: string, target: string) => {
 }
 
 // 监听连线开始拖拽（显示节点选择菜单）
-const { onConnectStart, onConnectEnd } = useVueFlow()
+const { onConnectStart, onConnectEnd, endConnection } = useVueFlow()
 const connectingFrom = ref<{ nodeId: string; handleType: string } | null>(null)
+const imageConnection = computed(() => {
+  if (connectingFrom.value?.handleType !== 'source') return false
+  const source = nodeStore.nodes.find(n => n.id === connectingFrom.value?.nodeId)
+  return isImageNode(source)
+})
+provide(imageConnectionKey, imageConnection)
+const videoConnection = computed(() => {
+  if (connectingFrom.value?.handleType !== 'source') return false
+  const source = nodeStore.nodes.find(n => n.id === connectingFrom.value?.nodeId)
+  return isVideoNode(source)
+})
+provide(videoConnectionKey, videoConnection)
+const handleMagnet = ref<HandleMagnet | null>(null)
+provide(handleMagnetKey, handleMagnet)
+const resetHandleMagnet = () => { handleMagnet.value = null }
+const updateHandleMagnet = (event: MouseEvent) => {
+  if (connectingFrom.value || event.buttons) { resetHandleMagnet(); return }
+  const flow = (event.target as Element | null)?.closest?.('.vue-flow')
+  if (!flow) { resetHandleMagnet(); return }
+  let nearest: HandleMagnet | null = null
+  let nearestDistance = 48
+  flow.querySelectorAll<HTMLElement>('.custom-handle').forEach(handle => {
+    const rect = handle.getBoundingClientRect()
+    const side = handle.classList.contains('source') ? 'source' : 'target'
+    const dx = event.clientX - (rect.left + rect.width / 2 + (side === 'source' ? 22 : -22))
+    const dy = event.clientY - (rect.top + rect.height / 2)
+    const distance = Math.hypot(dx, dy)
+    const offset = magneticHandleOffset(dx, dy)
+    const nodeId = handle.closest('.vue-flow__node')?.getAttribute('data-id')
+    if (offset && nodeId && distance < nearestDistance) {
+      nearestDistance = distance
+      nearest = { nodeId, side, ...offset }
+    }
+  })
+  handleMagnet.value = nearest
+}
+const stopHandleMagnetTracking = trackConnectionPointer(updateHandleMagnet)
+document.documentElement.addEventListener('pointerleave', resetHandleMagnet)
+watch(viewport, resetHandleMagnet, { deep: true })
+let connectionCancelled = false
+const receivingNodeId = ref<string | null>(null)
+const receivingOffset = ref({ x: 0, y: 0 })
+const receivingSurface = ref<ConnectionSurface | null>(null)
+provide(receivingSurfaceKey, receivingSurface)
+const connectionPointer = ref<{ x: number; y: number } | null>(null)
+provide(connectionPointerKey, connectionPointer)
+provide(receivingNodeKey, receivingNodeId)
+provide(receivingOffsetKey, receivingOffset)
+const clearConnectionFeedback = () => {
+  receivingSurface.value = null
+  connectionPointer.value = null
+  receivingNodeId.value = null
+  receivingOffset.value = { x: 0, y: 0 }
+  connectingFrom.value = null
+}
+const dropCandidateAt = (x: number, y: number) => {
+  const from = connectingFrom.value
+  if (!from || from.handleType !== 'source') return null
+  const target = connectionDropNode(document.elementFromPoint(x, y))
+  const targetNode = target ? nodeStore.nodes.find(node => node.id === target) : null
+  if (videoConnection.value && isImageNode(targetNode)) return null
+  return target && canConnectNodes(from.nodeId, target, nodeStore.nodes, nodeStore.edges) ? target : null
+}
+const updateConnectionFeedback = (event: MouseEvent) => {
+  if (!connectingFrom.value) return
+  connectionPointer.value = { x: event.clientX, y: event.clientY }
+  const candidate = dropCandidateAt(event.clientX, event.clientY)
+  receivingNodeId.value = candidate
+  if (!candidate) {
+    receivingSurface.value = null
+    receivingOffset.value = { x: 0, y: 0 }
+    return
+  }
+  const nodeElement = document.querySelector<HTMLElement>(`.vue-flow__node[data-id="${CSS.escape(candidate)}"]`)
+  const rect = nodeElement?.querySelector('.node-surface')?.getBoundingClientRect()
+  if (!rect) {
+    receivingSurface.value = null
+    return
+  }
+  receivingSurface.value = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+  receivingOffset.value = connectionFrameOffset(event.clientX, event.clientY, rect, viewport.value.zoom)
+}
+const cancelCanvasConnection = () => {
+  if (!connectingFrom.value) return
+  connectionCancelled = true
+  clearConnectionFeedback()
+  endConnection()
+}
+const stopConnectionPointerTracking = trackConnectionPointer(updateConnectionFeedback)
+window.addEventListener('pointercancel', cancelCanvasConnection)
 
 onConnectStart((params) => {
+  resetHandleMagnet()
+  receivingSurface.value = null
+  connectionPointer.value = params.event instanceof MouseEvent
+    ? { x: params.event.clientX, y: params.event.clientY } : null
+  connectionCancelled = false
+  receivingNodeId.value = null
+  receivingOffset.value = { x: 0, y: 0 }
   if (params.nodeId && params.handleType) {
     connectingFrom.value = {
       nodeId: params.nodeId,
@@ -419,16 +550,10 @@ onConnectEnd((event) => {
   // 真正的 handle 命中会先触发 onConnect，这里跳过以免重复创建边。
   if (connectingFrom.value && event instanceof MouseEvent) {
     const targetElement = event.target as HTMLElement
-    const droppedOnHandle = Boolean(targetElement.closest?.('.vue-flow__handle'))
-    const droppedNodeElement = targetElement.closest?.('.vue-flow__node')
-      || document.elementsFromPoint(event.clientX, event.clientY).find((element) =>
-        element.classList.contains('vue-flow__node')
-      )
-    const droppedNodeId = droppedNodeElement?.getAttribute('data-id')
-
-    if (!droppedOnHandle && connectingFrom.value.handleType === 'source' && droppedNodeId) {
+    const droppedNodeId = dropCandidateAt(event.clientX, event.clientY)
+    if (droppedNodeId) {
       addCanvasEdge(connectingFrom.value.nodeId, droppedNodeId)
-      connectingFrom.value = null
+      clearConnectionFeedback()
       return
     }
 
@@ -453,7 +578,7 @@ onConnectEnd((event) => {
       }
     }
   }
-  connectingFrom.value = null
+  clearConnectionFeedback()
 })
 
 const isTextEditingTarget = (target: EventTarget | null) => {
@@ -473,6 +598,10 @@ const ctrlPressed = ref(false)
 
 // 键盘删除、复制、粘贴监听 — 必须在 onMounted 最前面注册，否则 early return 会跳过
 const handleKeyDown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && connectingFrom.value) {
+    cancelCanvasConnection()
+    return
+  }
   if (event.key === 'Control') ctrlPressed.value = true
   if (isTextEditingTarget(event.target)) return
 
@@ -500,12 +629,19 @@ const handleKeyUp = (event: KeyboardEvent) => {
   if (event.key === 'Control') ctrlPressed.value = false
 }
 const handleWindowBlur = () => {
+  resetHandleMagnet()
+  cancelCanvasConnection()
   ctrlPressed.value = false
 }
 window.addEventListener('keydown', handleKeyDown)
 window.addEventListener('keyup', handleKeyUp)
 window.addEventListener('blur', handleWindowBlur)
 onUnmounted(() => {
+  stopHandleMagnetTracking()
+  document.documentElement.removeEventListener('pointerleave', resetHandleMagnet)
+  clearConnectionFeedback()
+  stopConnectionPointerTracking()
+  window.removeEventListener('pointercancel', cancelCanvasConnection)
   savedViewport = { x: viewport.value.x, y: viewport.value.y, zoom: viewport.value.zoom }
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('keyup', handleKeyUp)
@@ -803,7 +939,7 @@ const addNodeByType = (type: string) => {
       target: connectFrom.handleType === 'source' ? nodeId : connectFrom.nodeId,
       type: 'animated',
     }
-    nodeStore.addEdge(edge)
+    addCanvasEdge(edge.source, edge.target)
   }
 }
 
@@ -849,13 +985,24 @@ const getNodeLabel = (type: string): string => {
 .node-editor {
   width: 100%;
   height: 100%;
-  background: #020308;
+  background: radial-gradient(circle at 52% 42%, rgba(44, 53, 68, 0.16), transparent 42%), linear-gradient(180deg, #111214 0%, #0d0e10 100%);
   position: relative;
 }
 
 .vue-flow-container {
   width: 100%;
   height: 100%;
+}
+
+/* Keep the pointer-following line under opaque node surfaces, including their
+   temporary 3D transform. Its interior segment must never paint on the card. */
+:deep(.vue-flow__connectionline) {
+  z-index: 1;
+  pointer-events: none;
+}
+
+:deep(.vue-flow__nodes) {
+  z-index: 2;
 }
 
 /* 对齐辅助线 overlay：跟随 vue-flow viewport 一起 transform */
@@ -884,39 +1031,51 @@ const getNodeLabel = (type: string): string => {
 }
 
 :deep(.vue-flow__background) {
-  background-color: #020308;
+  background-color: #0d0e10;
+  opacity: 0.88;
 }
 
 :deep(.vue-flow__minimap) {
-  background-color: rgba(2, 3, 8, 0.9);
-  border: 1px solid #00D9FF;
+  background-color: rgba(25, 27, 31, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
 }
 
 :deep(.vue-flow__controls) {
-  border: 1px solid #00D9FF;
-  background: rgba(2, 3, 8, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(25, 27, 31, 0.94);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
 }
 
 :deep(.vue-flow__controls button) {
-  background: rgba(0, 217, 255, 0.1);
-  border-bottom: 1px solid #00D9FF;
-  color: #00D9FF;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.64);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 :deep(.vue-flow__controls button:hover) {
-  background: rgba(0, 217, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+:deep(.vue-flow__controls button svg) {
+  fill: currentColor;
 }
 
 /* 框选矩形 */
 :deep(.vue-flow__selection) {
-  background: rgba(0, 217, 255, 0.08);
-  border: 1px solid rgba(0, 217, 255, 0.5);
+  background: rgba(89, 183, 232, 0.12);
+  border: 1px solid rgba(126, 204, 242, 0.7);
 }
 
 /* 被选中的节点高亮 */
 :deep(.vue-flow__node.selected) > .custom-node .node-main {
-  border-color: #00D9FF !important;
-  box-shadow: 0 0 12px rgba(0, 217, 255, 0.4), inset 0 0 0 2px #00D9FF !important;
+  border-color: rgba(127, 210, 245, 0.92) !important;
+  box-shadow: 0 0 0 3px rgba(126, 204, 242, 0.13), 0 12px 32px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(177, 229, 255, 0.82) !important;
 }
 
 /* 空画布引导 */
