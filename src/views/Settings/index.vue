@@ -2,7 +2,12 @@
   <div class="settings">
     <div class="settings-container">
       <div class="settings-header">
-        <h2>AI 服务配置</h2>
+        <div>
+          <div class="settings-kicker">WORKSPACE SETTINGS</div>
+          <h2>中转站设置</h2>
+          <p class="settings-subtitle">管理图片、视频和文本服务的连接信息与模型</p>
+        </div>
+        <button class="back-canvas-button" @click="returnToCanvas">返回当前画布</button>
       </div>
 
       <!-- Tab 切换 -->
@@ -190,6 +195,7 @@
             <div class="button-group">
               <button
                 class="btn-primary"
+                title="验证当前中转站的地址和 API Key，不会生成内容"
                 :disabled="!provider.apiKey || testing[provider.id]"
                 @click="testConnection(provider.id)"
               >
@@ -206,6 +212,7 @@
                 删除
               </button>
             </div>
+            <p class="connection-help">测试连接只验证认证信息，不会生成图片或视频。</p>
 
             <div v-if="provider.error" class="error-message">
               ❌ {{ provider.error }}
@@ -223,7 +230,9 @@
 
 <script setup lang="ts">
 import { reactive, computed, ref, onErrorCaptured } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAIStore } from '@/stores/ai'
+import { useNodeStore } from '@/stores/node'
 import type { ProviderStatus, Provider } from '@/stores/ai'
 import { getModelTemplatesByKind, type VideoProviderKind } from '@/services/modelTemplates'
 
@@ -233,6 +242,12 @@ onErrorCaptured((err) => {
 })
 
 const aiStore = useAIStore()
+const nodeStore = useNodeStore()
+const router = useRouter()
+const returnToCanvas = () => {
+  const projectId = nodeStore.currentProjectId || undefined
+  router.push(projectId ? { path: '/nodes', query: { project: projectId } } : '/nodes')
+}
 
 const activeTab = ref<'video' | 'image' | 'text'>('video')
 // 添加图片中转站时选哪种 kind；默认 chuhaiying（最新接入）
@@ -396,7 +411,7 @@ const getStatusText = (status: ProviderStatus): string => ({
 }
 
 .settings-container {
-  max-width: 800px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 40px 20px;
 }
@@ -407,6 +422,10 @@ const getStatusText = (status: ProviderStatus): string => ({
   align-items: center;
   justify-content: space-between;
 }
+.settings-kicker { color: rgba(255,255,255,.38); font-size: 11px; letter-spacing: .12em; }
+.settings-subtitle { margin: 6px 0 0; color: rgba(255,255,255,.46); font-size: 13px; }
+.back-canvas-button { padding: 9px 14px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; color: rgba(255,255,255,.82); background: rgba(255,255,255,.08); cursor: pointer; font: inherit; }
+.back-canvas-button:hover { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.34); }
 
 .settings-header h2 {
   font-size: 28px;
@@ -499,8 +518,8 @@ const getStatusText = (status: ProviderStatus): string => ({
 }
 
 .settings-content {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 20px;
 }
 
@@ -770,4 +789,26 @@ const getStatusText = (status: ProviderStatus): string => ({
   color: #00ff88;
   font-size: 13px;
 }
+.connection-help { margin: -7px 0 0; color: rgba(255,255,255,.34); font-size: 11px; }
+
+/* 统一为画布使用的中性灰白层级。 */
+.settings { background: #111214; }
+.settings-header h2 { margin: 4px 0 0; color: #f1f1f1; font-size: 26px; font-weight: 500; }
+.tabs { padding: 8px; border: 1px solid rgba(255,255,255,.10); border-bottom: 1px solid rgba(255,255,255,.10); border-radius: 12px; background: rgba(255,255,255,.035); }
+.tab.active { color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.12); }
+.provider-card { padding: 18px; border-color: rgba(255,255,255,.11); background: rgba(255,255,255,.035); box-shadow: 0 8px 28px rgba(0,0,0,.16); }
+.provider-card:has(.star) { border-color: rgba(255,255,255,.28); box-shadow: 0 8px 28px rgba(0,0,0,.22); }
+.provider-header { border-bottom-color: rgba(255,255,255,.10); }
+.input-group label, .model-toggle { color: rgba(255,255,255,.60); }
+.text-input, .api-key-input, .model-select { border-color: rgba(255,255,255,.16); background: rgba(0,0,0,.18); }
+.text-input:focus, .api-key-input:focus { border-color: rgba(255,255,255,.44); box-shadow: 0 0 0 3px rgba(255,255,255,.06); }
+.btn-primary { border-color: rgba(255,255,255,.28); color: #fff; background: rgba(255,255,255,.12); }
+.btn-primary:hover:not(:disabled) { background: rgba(255,255,255,.20); box-shadow: none; }
+.btn-secondary:hover:not(:disabled) { border-color: rgba(255,255,255,.42); color: #fff; }
+.kind-select { color: rgba(255,255,255,.86); background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.22); }
+.kind-select:hover, .kind-select:focus { color: #fff; background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.42); box-shadow: none; }
+.kind-select option { color: #f1f1f1; background: #242526; }
+.empty-tip { color: rgba(255,255,255,.54); border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.025); }
+.empty-tip::selection { background: rgba(255,255,255,.20); }
+@media (max-width: 640px) { .settings-container { padding: 24px 16px; } .settings-header { align-items: flex-start; flex-direction: column; gap: 14px; } .settings-content { grid-template-columns: 1fr; } .tab-spacer { display: none; } .tabs { flex-wrap: wrap; } }
 </style>

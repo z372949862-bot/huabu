@@ -15,6 +15,13 @@ import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services
 
 export interface NodeData {
   label: string
+  displayNumber?: number
+  assetType?: 'image' | 'video' | 'audio'
+  assetUrl?: string
+  assetName?: string
+  /** Original dimensions for an image/video material node, used to keep its canvas frame proportional. */
+  assetWidth?: number
+  assetHeight?: number
   status: 'idle' | 'running' | 'completed' | 'error'
   progress?: number
   output?: any
@@ -94,6 +101,17 @@ export const useNodeStore = defineStore('node', () => {
   const cancelledImageNodes = new Set<string>()
   const initialized = ref(false)
   const currentProjectId = ref<string | null>(null)
+  const nodeNumberCounters = ref<Record<string, number>>({})
+
+  function assignNodeNumber(node: Node, preserve = false) {
+    if (node.type !== 'ai-image' && node.type !== 'ai-video') return
+    const stored = node.data?.displayNumber
+    const number = preserve && Number.isInteger(stored) && stored > 0
+      ? stored : (nodeNumberCounters.value[node.type] || 0) + 1
+    nodeNumberCounters.value[node.type] = Math.max(nodeNumberCounters.value[node.type] || 0, number)
+    node.data = { ...node.data, displayNumber: number,
+      label: `${node.type === 'ai-image' ? '图片' : '视频'} ${String(number).padStart(2, '0')}` }
+  }
   const assetStore = useAssetStore()
   watch([() => assetStore.assets, nodes, currentProjectId], () => {
     for (const node of nodes.value) {
@@ -125,7 +143,7 @@ export const useNodeStore = defineStore('node', () => {
           for (const k of RUNTIME_FIELDS) delete data[k]
           return { id: n.id, type: n.type, position: n.position, data }
         })
-        const payload = JSON.stringify({ nodes: cleanNodes, edges: edges.value })
+        const payload = JSON.stringify({ nodes: cleanNodes, edges: edges.value, nodeNumberCounters: nodeNumberCounters.value })
         await electronStore.set(PROJECT_PERSIST_PREFIX + pid, payload)
         await electronStore.set(CURRENT_PROJECT_KEY, pid)
       } catch (err) {
@@ -150,7 +168,7 @@ export const useNodeStore = defineStore('node', () => {
         for (const k of RUNTIME_FIELDS) delete data[k]
         return { id: n.id, type: n.type, position: n.position, data }
       })
-      const payload = JSON.stringify({ nodes: cleanNodes, edges: edges.value })
+      const payload = JSON.stringify({ nodes: cleanNodes, edges: edges.value, nodeNumberCounters: nodeNumberCounters.value })
       await electronStore.set(PROJECT_PERSIST_PREFIX + pid, payload)
       await electronStore.set(CURRENT_PROJECT_KEY, pid)
     } catch (err) {
@@ -160,6 +178,7 @@ export const useNodeStore = defineStore('node', () => {
 
   /** 读盘一个项目的 nodes/edges，写到 store 里。不存在则置空。 */
   async function _loadProjectData(projectId: string) {
+    nodeNumberCounters.value = {}
     const electronStore = window.electronAPI?.store
     if (!electronStore) {
       nodes.value = []
@@ -174,6 +193,10 @@ export const useNodeStore = defineStore('node', () => {
         return
       }
       const parsed = JSON.parse(raw)
+      for (const type of ['ai-image', 'ai-video']) {
+        const saved = parsed?.nodeNumberCounters?.[type]
+        if (Number.isInteger(saved) && saved > 0) nodeNumberCounters.value[type] = saved
+      }
       nodes.value = Array.isArray(parsed?.nodes)
         ? parsed.nodes.map((n: any) => {
             const data = { ...(n.data || {}) }
@@ -186,6 +209,14 @@ export const useNodeStore = defineStore('node', () => {
             }
           })
         : []
+      // Reserve saved numbers before assigning numbers to legacy nodes.
+      for (const node of nodes.value) {
+        const number = node.data?.displayNumber
+        if ((node.type === 'ai-image' || node.type === 'ai-video') && Number.isInteger(number) && number > 0) {
+          nodeNumberCounters.value[node.type] = Math.max(nodeNumberCounters.value[node.type] || 0, number)
+        }
+      }
+      nodes.value.forEach(node => assignNodeNumber(node, true))
       edges.value = Array.isArray(parsed?.edges) ? parsed.edges : []
     } catch (err) {
       console.warn('load project failed:', err)
@@ -231,7 +262,9 @@ export const useNodeStore = defineStore('node', () => {
 
   /** 切换到已有项目：先把当前项目落盘，再加载目标项目。 */
   async function loadProject(projectId: string) {
-    if (currentProjectId.value === projectId) return
+    // 从设置页返回当前画布时，项目 ID 可能相同；已有节点直接复用，
+    // 但如果页面刷新期间节点尚未恢复，仍要从磁盘重新载入。
+    if (currentProjectId.value === projectId && nodes.value.length > 0) return
     nodes.value.forEach(node => cancelExecution(node.id))
     await flushPersist()
     currentProjectId.value = projectId
@@ -248,6 +281,7 @@ export const useNodeStore = defineStore('node', () => {
     nodes.value.forEach(node => cancelExecution(node.id))
     await flushPersist()
     currentProjectId.value = projectId
+    nodeNumberCounters.value = {}
     nodes.value = []
     edges.value = []
     // 立刻写一份空白的入盘，保证新项目 key 存在；并标记为当前项目
@@ -289,6 +323,8 @@ export const useNodeStore = defineStore('node', () => {
   })
 
   function addNode(node: Node) {
+    // Copies are new nodes too, so they receive a fresh number.
+    assignNodeNumber(node)
     nodes.value.push(node)
   }
 
@@ -868,7 +904,9 @@ export const useNodeStore = defineStore('node', () => {
         prompt: promptText,
         imageUrls: refImages,
         aspectRatio: data.ratio || '1:1',
-        imageSize: modelMeta?.supportsImageSize2K ? '2K' : '1K',
+        imageSize: modelMeta?.capabilities?.resolutions?.includes(String(data.resolution || '').toUpperCase())
+          ? String(data.resolution).toUpperCase() as '1K' | '2K' | '4K'
+          : modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: allowSeed && typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: allowNegative && data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
         n: 1,
@@ -908,7 +946,9 @@ export const useNodeStore = defineStore('node', () => {
           nodeType: 'ai-image',
           projectId: currentProjectId.value || undefined,
           ratio: data.ratio,
-          resolution: modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K',
+          resolution: data.resolution
+            || modelMetaForAsset?.capabilities?.resolutions?.[0]
+            || (modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K'),
         })
       }
       imageAborts.delete(nodeId)

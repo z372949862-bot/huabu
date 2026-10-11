@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="canvasRef"
     class="node-editor"
     @contextmenu="handleContextMenu"
     @dragover.prevent="onCanvasDragOver"
@@ -17,9 +18,9 @@
       :elements-selectable="true"
       :is-valid-connection="isValidConnection"
       :default-edge-options="{ type: 'animated' }"
-      :selection-key-code="ctrlPressed"
+      :selection-key-code="ctrlPressed || selectionMode"
       :multi-selection-key-code="'Control'"
-      :pan-on-drag="!ctrlPressed"
+      :pan-on-drag="ctrlPressed || selectionMode ? [1, 2] : true"
       @pane-context-menu="onPaneContextMenu"
       @node-context-menu="onNodeContextMenu"
       @node-click="onNodeClick"
@@ -27,23 +28,40 @@
       @node-drag="onNodeDrag"
       @node-drag-stop="onNodeDragStop"
       class="vue-flow-container"
+      :class="{ 'edges-hidden': !showEdges }"
     >
       <template #connection-line="connectionLineProps">
         <ConnectionPreview v-bind="connectionLineProps" />
       </template>
       <Background pattern-color="#333943" :gap="24" :size="1" />
-      <Controls />
-      <MiniMap :pannable="true" :zoomable="true" mask-color="rgba(0, 0, 0, 0.35)" node-color="#626975" />
+      <MiniMap v-if="showMiniMap" position="bottom-left" :pannable="true" :zoomable="true" mask-color="rgba(0, 0, 0, 0.35)" node-color="#626975" />
     </VueFlow>
+
+    <CanvasToolbar
+      :zoom="viewport.zoom"
+      :selection-mode="selectionMode"
+      :show-mini-map="showMiniMap"
+      :show-edges="showEdges"
+      :nodes="nodes"
+      @create="addFromToolbar"
+      @upload="uploadFromToolbar"
+      @navigate="router.push($event)"
+      @toggle-selection="selectionMode = !selectionMode"
+      @toggle-mini-map="showMiniMap = !showMiniMap"
+      @toggle-edges="showEdges = !showEdges"
+      @zoom="zoomTo($event, { duration: 180 })"
+      @fit="fitCanvas"
+      @focus-node="focusCanvasNode"
+    />
 
     <!-- 空画布引导 -->
     <div v-if="nodes.length === 0" class="canvas-hint">
-      <div class="canvas-hint-icon">🎨</div>
-      <div class="canvas-hint-text">右键画布添加节点开始创作</div>
+      <div class="canvas-hint-text">从左侧添加节点，开始创作</div>
       <div class="canvas-hint-keys">
         <kbd>Delete</kbd> 删除节点 &nbsp;·&nbsp;
         <kbd>滚轮</kbd> 缩放 &nbsp;·&nbsp;
-        <kbd>拖拽</kbd> 平移
+        <kbd>拖拽</kbd> 平移 &nbsp;·&nbsp;
+        <kbd>Ctrl + 拖拽</kbd> 框选
       </div>
     </div>
 
@@ -79,15 +97,17 @@
 import { ref, reactive, markRaw, onMounted, watch, onUnmounted, computed, nextTick, provide } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import type { Node, Edge } from '@vue-flow/core'
 import { useRoute, useRouter } from 'vue-router'
 import ContextMenu from '@/components/ContextMenu.vue'
+import type { CanvasMenuItem } from '@/utils/canvasMenu'
 import CustomNode from '@/components/CustomNode.vue'
 import AnimatedEdge from '@/components/AnimatedEdge.vue'
 import ConnectionPreview from '@/components/ConnectionPreview.vue'
+import CanvasToolbar from '@/components/CanvasToolbar.vue'
 import { useNodeStore } from '@/stores/node'
+import { useMaterialStore } from '@/stores/material'
 import { receivingNodeKey, receivingOffsetKey, receivingSurfaceKey, connectionPointerKey, connectionFrameOffset, connectionDropNode, canConnectNodes, normalizeCanvasEdges, trackConnectionPointer } from '@/utils/canvasConnection'
 import type { ConnectionSurface } from '@/utils/canvasConnection'
 import { imageConnectionKey, videoConnectionKey, handleMagnetKey, magneticHandleOffset, isImageNode } from '@/utils/canvasConnection'
@@ -96,6 +116,31 @@ import { appearingNodesKey } from '@/utils/nodeAppearance'
 import { compatibleConnection, isVideoNode } from '@/utils/canvasConnection'
 
 const nodeStore = useNodeStore()
+const materialStore = useMaterialStore()
+
+// 将旧版本画布中已经存在的素材引用节点补登记到独立素材库。
+const syncCanvasMaterials = (canvasNodes: Node[]) => {
+  for (const node of canvasNodes) {
+    if (node.type !== 'asset-ref' || !node.data?.assetUrl || !node.data?.assetName) continue
+    const assetUrl = String(node.data.assetUrl)
+    const localPath = assetUrl.startsWith('local-upload:///')
+      ? assetUrl.slice('local-upload:///'.length).replace(/\//g, '\\')
+      : undefined
+    materialStore.addMaterial({
+      type: node.data.assetType || 'image',
+      name: node.data.assetName,
+      url: assetUrl,
+      localPath,
+      width: node.data.assetWidth,
+      height: node.data.assetHeight,
+    })
+  }
+}
+const router = useRouter()
+const canvasRef = ref<HTMLElement>()
+const selectionMode = ref(false)
+const showMiniMap = ref(false)
+const showEdges = ref(true)
 const appearingNodes = ref(new Set<string>())
 let appearanceReady = false
 onMounted(async () => {
@@ -248,7 +293,10 @@ const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
 const {
-  project,
+  screenToFlowCoordinate,
+  zoomTo,
+  fitView,
+  setCenter,
   onConnect,
   setNodes,
   setEdges,
@@ -291,6 +339,7 @@ const overlayStyle = computed(() => {
 // 否则 store 内部修改 node.data 时数组引用不变，VueFlow 不会重渲染 CustomNode
 watch(() => nodeStore.nodes, (newNodes) => {
   nodes.value = [...newNodes]
+  syncCanvasMaterials(newNodes as Node[])
 }, { deep: true, immediate: true })
 
 let edgeSyncVersion = 0
@@ -366,12 +415,15 @@ const copySelectedNodes = (fallbackNode?: Node) => {
   return true
 }
 
-const pasteCopiedNodes = () => {
+const pasteCopiedNodes = (at?: { clientX: number; clientY: number }) => {
   if (!nodeClipboard || nodeClipboard.nodes.length === 0) return false
 
   const idMap = new Map<string, string>()
   const stamp = Date.now()
   const offset = 45 + (pasteOffset % 6) * 15
+  const anchor = at ? screenToFlowCoordinate({ x: at.clientX, y: at.clientY }) : null
+  const offsetX = anchor ? anchor.x - Math.min(...nodeClipboard.nodes.map(node => node.position.x)) : offset
+  const offsetY = anchor ? anchor.y - Math.min(...nodeClipboard.nodes.map(node => node.position.y)) : offset
   pasteOffset += 1
   const pastedNodes = nodeClipboard.nodes.map((node, index) => {
     const newId = `${node.id}-copy-${stamp}-${index}`
@@ -382,7 +434,7 @@ const pasteCopiedNodes = () => {
       draggable: true,
       selectable: true,
       selected: true,
-      position: { x: node.position.x + offset, y: node.position.y + offset },
+      position: { x: node.position.x + offsetX, y: node.position.y + offsetY },
     } as Node
   })
   const pastedEdges = nodeClipboard.edges
@@ -565,11 +617,11 @@ onConnectEnd((event) => {
       contextMenu.x = event.clientX
       contextMenu.y = event.clientY
       contextMenu.items = [
-        { label: '添加AI绘图节点', icon: '🎨', action: 'add-ai-image' },
-        { label: '添加AI视频节点', icon: '🎬', action: 'add-ai-video' },
-        { label: '添加AI文本节点', icon: '💬', action: 'add-ai-text' },
-        { label: '添加资产引用节点', icon: '📦', action: 'add-asset-ref' },
-        { label: '添加后处理节点', icon: '⚡', action: 'add-post-process' },
+        { label: '图片', icon: 'image', action: 'add-ai-image' },
+        { label: '视频', icon: 'video', action: 'add-ai-video' },
+        { label: '文本', icon: 'text', action: 'add-ai-text' },
+        { label: '素材引用', icon: 'assets', action: 'add-asset-ref' },
+        { label: '后处理', icon: 'effects', action: 'add-post-process' },
       ]
       contextMenu.data = {
         clientX: event.clientX,
@@ -604,8 +656,16 @@ const handleKeyDown = (event: KeyboardEvent) => {
   }
   if (event.key === 'Control') ctrlPressed.value = true
   if (isTextEditingTarget(event.target)) return
+  if (event.key === 'Escape' && contextMenu.visible) {
+    contextMenu.visible = false
+    return
+  }
 
   const modifier = event.ctrlKey || event.metaKey
+  if (modifier && event.key.toLowerCase() === 'd') {
+    if (copySelectedNodes()) { event.preventDefault(); pasteCopiedNodes() }
+    return
+  }
   if (modifier && event.key.toLowerCase() === 'c') {
     if (copySelectedNodes()) event.preventDefault()
     return
@@ -733,7 +793,7 @@ interface ContextMenuState {
   visible: boolean
   x: number
   y: number
-  items: Array<{ label: string; icon: string; action: string }>
+  items: CanvasMenuItem[]
   data?: any
 }
 
@@ -753,12 +813,14 @@ const onPaneContextMenu = (event: MouseEvent) => {
   contextMenu.x = event.clientX
   contextMenu.y = event.clientY
   contextMenu.items = [
-    { label: '添加AI绘图节点', icon: '🎨', action: 'add-ai-image' },
-    { label: '添加AI视频节点', icon: '🎬', action: 'add-ai-video' },
-        { label: '添加AI文本节点', icon: '💬', action: 'add-ai-text' },
-    { label: '添加资产引用节点', icon: '📦', action: 'add-asset-ref' },
-    { label: '添加后处理节点', icon: '⚡', action: 'add-post-process' },
-    { label: '上传素材', icon: '📤', action: 'upload-asset' },
+    { label: '新建节点', action: 'create-menu', children: [
+      { label: '图片', icon: 'image', action: 'add-ai-image' },
+      { label: '视频', icon: 'video', action: 'add-ai-video' },
+      { label: '素材引用', icon: 'assets', action: 'add-asset-ref' },
+      { label: '素材库', icon: 'assets', action: 'assets', separatorBefore: true },
+      { label: '本地上传', icon: 'upload', action: 'upload-asset' },
+    ] },
+    { label: '粘贴', action: 'paste', shortcut: 'Ctrl+V', separatorBefore: true, disabled: !nodeClipboard?.nodes.length },
   ]
   contextMenu.data = { clientX: event.clientX, clientY: event.clientY }
 }
@@ -766,6 +828,7 @@ const onPaneContextMenu = (event: MouseEvent) => {
 // 处理原生右键事件（备用）
 const handleContextMenu = (event: MouseEvent) => {
   const target = event.target as HTMLElement
+  if (target.closest('.vue-flow__node')) return
   // 只处理画布背景的右键，不处理节点
   if (target.classList.contains('vue-flow__pane') ||
       target.classList.contains('vue-flow__background') ||
@@ -778,15 +841,23 @@ const handleContextMenu = (event: MouseEvent) => {
 // 节点右键菜单
 const onNodeContextMenu = (event: { event: MouseEvent; node: Node }) => {
   event.event.preventDefault()
+  event.event.stopPropagation()
+  if (!nodes.value.find(node => node.id === event.node.id)?.selected) {
+    removeSelectedNodes(getSelectedNodes.value)
+    addSelectedNodes([event.node.id])
+  }
+  nodeStore.selectNode(event.node.id)
 
   contextMenu.visible = true
   contextMenu.x = event.event.clientX
   contextMenu.y = event.event.clientY
   contextMenu.items = [
-    { label: '执行生成', icon: '▶️', action: 'execute' },
-    { label: '编辑参数', icon: '📝', action: 'edit' },
-    { label: '复制', icon: '📋', action: 'copy' },
-    { label: '删除', icon: '🗑️', action: 'delete' },
+    { label: '复制', action: 'copy', shortcut: 'Ctrl+C', disabled: !isCopyableNode(event.node) },
+    { label: '复制副本', action: 'duplicate', shortcut: 'Ctrl+D', disabled: !isCopyableNode(event.node) },
+    { label: '粘贴', action: 'paste', shortcut: 'Ctrl+V', disabled: !nodeClipboard?.nodes.length },
+    { label: '编辑参数', action: 'edit', separatorBefore: true, disabled: event.node.type === 'asset-ref' },
+    { label: '执行生成', action: 'execute', disabled: event.node.type === 'asset-ref' || event.node.data?.status === 'running' },
+    { label: '删除', action: 'delete', shortcut: 'Delete', separatorBefore: true },
   ]
   contextMenu.data = event.node
 }
@@ -795,6 +866,12 @@ const onNodeContextMenu = (event: { event: MouseEvent; node: Node }) => {
 const onContextMenuSelect = (action: string) => {
   if (action === 'upload-asset') {
     handleUploadAsset()
+  } else if (action === 'upload-audio') {
+    handleUploadAsset('audio')
+  } else if (action === 'timeline' || action === 'assets') {
+    router.push(action === 'timeline' ? '/editor' : '/assets')
+  } else if (action === 'paste') {
+    pasteCopiedNodes({ clientX: contextMenu.x, clientY: contextMenu.y })
   } else if (action.startsWith('add-')) {
     addNodeByType(action.replace('add-', ''))
   } else {
@@ -825,11 +902,56 @@ const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) 
   reader.readAsDataURL(file)
 })
 
+/** Read dimensions from the original file before it is persisted under local-upload://. */
+const readMediaDimensions = (url: string, type: CanvasAssetType) => new Promise<{ width: number; height: number } | undefined>((resolve) => {
+  if (type === 'audio') return resolve(undefined)
+
+  let settled = false
+  let timer: number | undefined
+  let cleanup = () => {}
+  const finish = (dimensions?: { width: number; height: number }) => {
+    if (settled) return
+    settled = true
+    if (timer !== undefined) window.clearTimeout(timer)
+    cleanup()
+    resolve(dimensions)
+  }
+  timer = window.setTimeout(() => finish(), 8000)
+
+  if (type === 'image') {
+    const image = new Image()
+    cleanup = () => {
+      image.onload = null
+      image.onerror = null
+      image.removeAttribute('src')
+    }
+    image.onload = () => finish(image.naturalWidth && image.naturalHeight
+      ? { width: image.naturalWidth, height: image.naturalHeight } : undefined)
+    image.onerror = () => finish()
+    image.src = url
+    return
+  }
+
+  const video = document.createElement('video')
+  cleanup = () => {
+    video.onloadedmetadata = null
+    video.onerror = null
+    video.removeAttribute('src')
+    video.load()
+  }
+  video.preload = 'metadata'
+  video.onloadedmetadata = () => finish(video.videoWidth && video.videoHeight
+    ? { width: video.videoWidth, height: video.videoHeight } : undefined)
+  video.onerror = () => finish()
+  video.src = url
+  video.load()
+})
+
 const addFilesToCanvas = async (files: File[], clientX: number, clientY: number) => {
   const supportedFiles = files.filter((file) => inferCanvasAssetType(file))
   if (supportedFiles.length === 0) return
 
-  const basePosition = project({
+  const basePosition = screenToFlowCoordinate({
     x: clientX || window.innerWidth / 2,
     y: clientY || window.innerHeight / 2,
   })
@@ -840,16 +962,31 @@ const addFilesToCanvas = async (files: File[], clientX: number, clientY: number)
 
     try {
       const dataUrl = await readFileAsDataUrl(file)
+      const dimensions = await readMediaDimensions(dataUrl, type)
       let assetUrl = dataUrl
+      let localPath: string | undefined
       const base64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl
 
       // 本地文件落盘后用自定义协议引用，重启软件后素材仍然可用。
       if (window.electronAPI?.upload?.save) {
         try {
           const savedPath = await window.electronAPI.upload.save(base64, file.name)
-          if (savedPath) assetUrl = 'local-upload:///' + savedPath.replace(/\\/g, '/')
+          if (savedPath) {
+            localPath = savedPath
+            assetUrl = 'local-upload:///' + savedPath.replace(/\\/g, '/')
+          }
         } catch { /* 落盘失败时保留 data URL，保证本次拖入仍可用 */ }
       }
+
+      // 用户导入的素材进入独立素材库；生成结果仍由 assetStore 负责。
+      materialStore.addMaterial({
+        type,
+        name: file.name,
+        url: assetUrl,
+        localPath,
+        width: dimensions?.width,
+        height: dimensions?.height,
+      })
 
       const column = index % 4
       const row = Math.floor(index / 4)
@@ -865,6 +1002,8 @@ const addFilesToCanvas = async (files: File[], clientX: number, clientY: number)
           assetType: type,
           assetUrl,
           assetName: file.name,
+          assetWidth: dimensions?.width,
+          assetHeight: dimensions?.height,
         },
       })
     } catch (error) {
@@ -887,10 +1026,10 @@ const onCanvasDrop = (event: DragEvent) => {
 }
 
 // 处理上传素材（通过右键菜单）
-const handleUploadAsset = () => {
+const handleUploadAsset = (type?: 'audio', position = contextMenu.data) => {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'image/*,video/*,audio/*'
+  input.accept = type === 'audio' ? 'audio/*' : 'image/*,video/*,audio/*'
   input.multiple = true
 
   input.onchange = async (e: Event) => {
@@ -898,8 +1037,8 @@ const handleUploadAsset = () => {
     if (!files || files.length === 0) return
     await addFilesToCanvas(
       Array.from(files),
-      contextMenu.data?.clientX || window.innerWidth / 2,
-      contextMenu.data?.clientY || window.innerHeight / 2,
+      position?.clientX ?? window.innerWidth / 2,
+      position?.clientY ?? window.innerHeight / 2,
     )
   }
 
@@ -907,11 +1046,11 @@ const handleUploadAsset = () => {
 }
 
 // 添加节点
-const addNodeByType = (type: string) => {
-  const { clientX, clientY, connectFrom } = contextMenu.data
-  const position = project({ x: clientX, y: clientY })
+const addNodeByType = (type: string, placement = contextMenu.data) => {
+  const { clientX, clientY, connectFrom } = placement
+  const position = screenToFlowCoordinate({ x: clientX, y: clientY })
 
-  const nodeId = `node_${Date.now()}`
+  const nodeId = `node_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   const newNode: Node = {
     id: nodeId,
     type: type,
@@ -941,6 +1080,37 @@ const addNodeByType = (type: string) => {
     }
     addCanvasEdge(edge.source, edge.target)
   }
+  return nodeId
+}
+
+// 工具栏的新节点放在当前可视区域，独立于上一次右键菜单的坐标。
+const toolbarPlacement = () => {
+  const rect = canvasRef.value!.getBoundingClientRect()
+  const clientX = rect.left + rect.width / 2 - 175 * viewport.value.zoom
+  const clientY = rect.top + rect.height / 2 - 100 * viewport.value.zoom
+  const candidate = screenToFlowCoordinate({ x: clientX, y: clientY })
+  let offset = 0
+  while (nodes.value.some(node => Math.abs(node.position.x - candidate.x - offset) < 30 && Math.abs(node.position.y - candidate.y - offset) < 30) && offset < 225) offset += 45
+  return { clientX: clientX + offset * viewport.value.zoom, clientY: clientY + offset * viewport.value.zoom }
+}
+const addFromToolbar = async (type: string) => {
+  const id = addNodeByType(type, toolbarPlacement())
+  await nextTick()
+  removeSelectedNodes(getSelectedNodes.value)
+  addSelectedNodes([id])
+  nodeStore.selectNode(id)
+}
+const uploadFromToolbar = (type?: 'audio') => handleUploadAsset(type, toolbarPlacement())
+const fitCanvas = () => {
+  if (nodes.value.length) void fitView({ padding: { left: '90px', right: '40px', top: '80px', bottom: '80px' }, maxZoom: 1, duration: 220 })
+}
+const focusCanvasNode = (id: string) => {
+  const node = nodes.value.find(node => node.id === id)
+  if (!node) return
+  removeSelectedNodes(getSelectedNodes.value)
+  addSelectedNodes([id])
+  nodeStore.selectNode(id)
+  void setCenter(node.position.x + (node.dimensions?.width || 350) / 2, node.position.y + (node.dimensions?.height || 220) / 2, { zoom: Math.max(viewport.value.zoom, 0.75), duration: 220 })
 }
 
 // 节点点击
@@ -962,6 +1132,9 @@ const handleNodeAction = (action: string) => {
       break
     case 'copy':
       copySelectedNodes(node)
+      break
+    case 'duplicate':
+      if (copySelectedNodes(node)) pasteCopiedNodes()
       break
     case 'delete':
       nodeStore.removeNode(node.id)
@@ -1020,14 +1193,14 @@ const getNodeLabel = (type: string): string => {
   width: 200000px;
   height: 0;
   left: -100000px;
-  border-top: 1px dashed rgba(0, 217, 255, 0.8);
+  border-top: 1px dashed rgba(214, 220, 228, 0.46);
 }
 
 .alignment-line.vertical {
   width: 0;
   height: 200000px;
   top: -100000px;
-  border-left: 1px dashed rgba(0, 217, 255, 0.8);
+  border-left: 1px dashed rgba(214, 220, 228, 0.46);
 }
 
 :deep(.vue-flow__background) {
@@ -1036,10 +1209,18 @@ const getNodeLabel = (type: string): string => {
 }
 
 :deep(.vue-flow__minimap) {
+  left: 12px;
+  bottom: 60px;
+  margin: 0;
   background-color: rgba(25, 27, 31, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.edges-hidden :deep(.vue-flow__edges), .edges-hidden :deep(.vue-flow__edge-labels) {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 :deep(.vue-flow__controls) {
@@ -1067,15 +1248,12 @@ const getNodeLabel = (type: string): string => {
 }
 
 /* 框选矩形 */
-:deep(.vue-flow__selection) {
-  background: rgba(89, 183, 232, 0.12);
-  border: 1px solid rgba(126, 204, 242, 0.7);
-}
-
-/* 被选中的节点高亮 */
-:deep(.vue-flow__node.selected) > .custom-node .node-main {
-  border-color: rgba(127, 210, 245, 0.92) !important;
-  box-shadow: 0 0 0 3px rgba(126, 204, 242, 0.13), 0 12px 32px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(177, 229, 255, 0.82) !important;
+:deep(.vue-flow__selection),
+:deep(.vue-flow__nodesselection-rect) {
+  background: rgba(214, 220, 228, 0.08);
+  border: 1px solid rgba(214, 220, 228, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
 }
 
 /* 空画布引导 */
@@ -1094,10 +1272,10 @@ const getNodeLabel = (type: string): string => {
   display: inline-block;
   padding: 1px 6px;
   font-size: 11px;
-  border: 1px solid rgba(0,217,255,0.3);
+  border: 1px solid rgba(255,255,255,0.16);
   border-radius: 3px;
-  color: #00D9FF;
-  background: rgba(0,217,255,0.08);
+  color: rgba(255,255,255,0.72);
+  background: rgba(255,255,255,0.06);
   font-family: inherit;
 }
 </style>

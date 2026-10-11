@@ -119,7 +119,7 @@ export class ChuhaiyingImageProvider implements ImageProvider {
     // 让 node.ts 那边的"假进度兜底定时器"接管动画，否则进度条会卡死在 30%。
     // 异步 callAsyncResponses 才上报真实进度。
 
-    const want2K = params.imageSize === '2K'
+    const requestedSize = params.imageSize === '4K' ? '4K' : params.imageSize === '2K' ? '2K' : '1K'
     const ratio = params.aspectRatio || '16:9'
 
     const body: Record<string, any> = {
@@ -137,7 +137,7 @@ export class ChuhaiyingImageProvider implements ImageProvider {
       body.model_name = tpl.modelName
       body.aspect_ratio = ratio
     } else {
-      body.size = ratioToSize(ratio, want2K)
+      body.size = ratioToSize(ratio, requestedSize)
     }
 
     // 参考图：按模板指定字段名（默认 image）；模型不支持参考图就跳过

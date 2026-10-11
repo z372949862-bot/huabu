@@ -200,8 +200,8 @@ export class GeekNowImageProvider implements ImageProvider {
     params: GenerateImageParams,
     tpl: ImageModelTemplate | undefined
   ): Promise<ImageGenerationResult> {
-    const want2K = params.imageSize === '2K'
-    const size = ratioToSize(params.aspectRatio || '16:9', want2K)
+    const requestedSize = params.imageSize === '4K' ? '4K' : params.imageSize === '2K' ? '2K' : '1K'
+    const size = ratioToSize(params.aspectRatio || '16:9', requestedSize)
     const isGptImage = params.model.startsWith('gpt-image-')
 
     const body: Record<string, any> = {

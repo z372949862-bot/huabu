@@ -1,4 +1,4 @@
-# AI Video Canvas
+# 芜湖AI
 
 AI视频创作画布软件 - 桌面应用
 

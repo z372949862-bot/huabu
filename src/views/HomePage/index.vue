@@ -38,18 +38,16 @@
       </div>
     </Teleport>
 
-    <!-- 自定义背景层 -->
-    <div class="background-layer" :style="backgroundStyle">
-      <video
-        v-if="customBackground && customBackgroundType === 'video'"
-        :src="customBackground"
-        class="background-video"
-        autoplay
-        loop
-        muted
-        playsinline
-      />
+    <!-- 动态画布背景 -->
+    <div class="background-layer" aria-hidden="true">
       <div class="background-overlay"></div>
+      <div class="ambient-orb ambient-blue"></div>
+      <div class="ambient-orb ambient-violet"></div>
+      <div class="ambient-grid"></div>
+      <div class="ambient-flow"></div>
+      <div class="ambient-specks"></div>
+      <div class="ambient-ribbon ambient-ribbon-one"></div>
+      <div class="ambient-ribbon ambient-ribbon-two"></div>
     </div>
 
     <!-- 内容容器 -->
@@ -58,17 +56,9 @@
       <section class="hero-section">
         <div class="hero-content">
           <h1 class="hero-title">
-            <span class="title-gradient">AI Video Canvas</span>
+            <span class="title-gradient">芜湖AI</span>
           </h1>
           <p class="hero-subtitle">用节点构建你的创意视频，AI驱动的可视化创作平台</p>
-          <div class="hero-actions">
-            <button class="hero-btn primary" @click="openNewProjectDialog">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0a1 1 0 011 1v6h6a1 1 0 110 2H9v6a1 1 0 11-2 0V9H1a1 1 0 010-2h6V1a1 1 0 011-1z"/>
-              </svg>
-              新建项目
-            </button>
-          </div>
         </div>
       </section>
 
@@ -83,7 +73,7 @@
             @click="createNode(card.type)"
           >
             <div class="card-icon" :style="{ background: card.color }">
-              <span>{{ card.icon }}</span>
+              <CanvasIcon :name="card.icon" />
             </div>
             <div class="card-content">
               <div class="card-title">{{ card.title }}</div>
@@ -111,7 +101,6 @@
         <div v-if="recentProjects.length === 0" class="empty-state">
           <div class="empty-icon">📂</div>
           <p class="empty-text">还没有项目</p>
-          <button class="empty-action" @click="openNewProjectDialog">创建第一个项目</button>
         </div>
 
         <div v-else class="projects-grid">
@@ -128,7 +117,21 @@
               </svg>
             </button>
             <div class="project-thumbnail">
-              <img v-if="project.thumbnail" :src="project.thumbnail" :alt="project.name" />
+              <template v-if="projectPreview(project)">
+                <img
+                  v-if="projectPreview(project)?.type === 'image'"
+                  :src="projectPreview(project)?.url"
+                  :alt="project.name"
+                />
+                <video
+                  v-else
+                  :src="projectPreview(project)?.url"
+                  muted
+                  playsinline
+                  preload="metadata"
+                  :aria-label="`${project.name} 首帧预览`"
+                />
+              </template>
               <div v-else class="project-placeholder">
                 <span>{{ project.name.charAt(0).toUpperCase() }}</span>
               </div>
@@ -161,43 +164,15 @@
       v{{ appVersion }}
     </div>
 
-    <!-- 左下角背景设置齿轮 -->
-    <div class="bg-settings">      <button class="bg-gear-btn" @click="toggleBgMenu" title="主页设置">
+    <!-- 左下角设置入口 -->
+    <div class="bg-settings">
+      <button class="bg-gear-btn" @click="router.push('/settings')" title="设置">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"></path>
         </svg>
       </button>
 
-      <transition name="bg-menu">
-        <div v-if="showBgMenu" class="bg-menu" @click.stop>
-          <div class="bg-menu-title">主页背景</div>
-          <button class="bg-menu-item" @click="triggerBackgroundUpload">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="8.5" r="1.5"></circle>
-              <polyline points="21 15 16 10 5 21"></polyline>
-            </svg>
-            <span>更换背景</span>
-          </button>
-          <button v-if="customBackground" class="bg-menu-item" @click="resetBackground">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
-              <path d="M21 3v5h-5"></path>
-              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
-              <path d="M3 21v-5h5"></path>
-            </svg>
-            <span>重置默认</span>
-          </button>
-          <input
-            ref="bgInputRef"
-            type="file"
-            accept="image/*,video/*"
-            @change="handleBackgroundUpload"
-            style="display: none"
-          />
-        </div>
-      </transition>
     </div>
 
     <!-- 项目列表弹窗 -->
@@ -271,16 +246,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNodeStore } from '@/stores/node'
+import { useAssetStore } from '@/stores/asset'
+import CanvasIcon from '@/components/CanvasIcon.vue'
 
 const router = useRouter()
 const nodeStore = useNodeStore()
-const bgInputRef = ref<HTMLInputElement>()
-const customBackground = ref<string>('')
-const customBackgroundType = ref<'image' | 'video'>('image')
-const showBgMenu = ref(false)
+const assetStore = useAssetStore()
+
+
+
 const showChangelog = ref(false)
 const okReady = ref(false)
 const countdown = ref(3)
@@ -290,6 +267,15 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
+  {
+    version: '0.3.12',
+    date: '2026-10-11',
+    items: [
+      '🌌 首页改为动态画布风格背景，增强蓝紫光晕、流动光带和微粒动效',
+      '✨ 软件名称统一更新为芜湖AI，首页标题使用渐变彩色字体',
+      '🧩 同步整理首页、素材库和画布界面视觉体验',
+    ],
+  },
   {
     version: '0.3.10',
     date: '2026-10-10',
@@ -400,10 +386,6 @@ function dismissChangelog() {
   localStorage.setItem('lastSeenVersion', appVersion)
 }
 
-const toggleBgMenu = () => {
-  showBgMenu.value = !showBgMenu.value
-}
-
 // 初始化
 onMounted(() => {
   // 版本更新公告：首次打开该版本时弹窗
@@ -416,81 +398,7 @@ onMounted(() => {
   // 加载项目列表
   loadProjects()
 
-  // 从磁盘恢复背景设置
-  try {
-    const savedPath = localStorage.getItem('homepage_background_path')
-    const savedType = localStorage.getItem('homepage_background_type') as 'image' | 'video'
-    if (savedPath) {
-      const normalized = savedPath.replace(/\\/g, '/')
-      customBackground.value = /^[A-Za-z]:\//.test(normalized) ? 'local-upload:///' + normalized : savedPath
-      customBackgroundType.value = savedType || 'image'
-    }
-  } catch { /* ignore */ }
-
-  // 点击外部关闭菜单
-  document.addEventListener('click', (e: MouseEvent) => {
-    const target = e.target as HTMLElement
-    if (!target.closest('.bg-settings')) {
-      showBgMenu.value = false
-    }
-  })
 })
-
-// 背景样式
-const backgroundStyle = computed(() => {
-  if (!customBackground.value) {
-    return {}
-  }
-  if (customBackgroundType.value === 'image') {
-    return {
-      backgroundImage: `url(${customBackground.value})`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-    }
-  }
-  return {}
-})
-
-// 触发背景上传
-const triggerBackgroundUpload = () => {
-  bgInputRef.value?.click()
-}
-
-// 处理背景上传
-const handleBackgroundUpload = (event: Event) => {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    const dataUrl = e.target?.result as string
-    customBackground.value = dataUrl
-    customBackgroundType.value = file.type.startsWith('video/') ? 'video' : 'image'
-
-    // 落盘到磁盘（local-upload:/// + IPC）
-    const base64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl
-    if (window.electronAPI?.upload?.save) {
-      try {
-        const savedPath = await window.electronAPI.upload.save(base64, file.name)
-        if (savedPath) {
-          localStorage.setItem('homepage_background_path', savedPath)
-          localStorage.setItem('homepage_background_type', customBackgroundType.value)
-          const normalized = savedPath.replace(/\\/g, '/')
-          customBackground.value = 'local-upload:///' + normalized
-        }
-      } catch { /* 落盘失败回退 data URL */ }
-    }
-  }
-  reader.readAsDataURL(file)
-}
-
-// 重置背景
-const resetBackground = () => {
-  customBackground.value = ''
-  localStorage.removeItem('homepage_background_path')
-  localStorage.removeItem('homepage_background_type')
-}
 
 // 快速创建卡片
 const quickCards = [
@@ -498,29 +406,22 @@ const quickCards = [
     type: 'ai-short-drama',
     title: 'AI短剧生成',
     description: '一键生成短剧视频',
-    icon: '🎬',
-    color: 'linear-gradient(135deg, #00D9FF 0%, #B432FF 100%)',
+    icon: 'video',
+    color: '#2b2b2b',
   },
   {
     type: 'asset-library',
     title: '素材库',
     description: '管理项目素材',
-    icon: '📦',
-    color: 'linear-gradient(135deg, #FFC371 0%, #00D9FF 100%)',
+    icon: 'assets',
+    color: '#2b2b2b',
   },
   {
     type: 'ai-chat',
     title: 'AI 对话助手',
     description: 'AI 智能问答与创作',
-    icon: '💬',
-    color: 'linear-gradient(135deg, #00ff88 0%, #00D9FF 100%)',
-  },
-  {
-    type: 'video-editor',
-    title: '视频剪辑',
-    description: '剪辑拼接导出视频',
-    icon: '🎞️',
-    color: 'linear-gradient(135deg, #B432FF 0%, #00D9FF 100%)',
+    icon: 'chat',
+    color: '#2b2b2b',
   },
 ]
 
@@ -534,6 +435,52 @@ interface Project {
 }
 
 const recentProjects = ref<Project[]>([])
+const projectPreviewCache = ref<Record<string, { type: 'image' | 'video'; url: string }>>({})
+
+// 项目卡片使用该项目最早生成的结果作为封面；视频元素会停在首帧。
+const projectPreview = (project: Project) => {
+  const cached = projectPreviewCache.value[project.id]
+  if (cached) return cached
+  const generated = assetStore.sortedAssets
+    .filter((asset) => asset.projectId === project.id && !!asset.url)
+    .sort((a, b) => a.createdAt - b.createdAt)[0]
+  if (generated) return { type: generated.type, url: generated.url }
+  if (project.thumbnail) return { type: 'image' as const, url: project.thumbnail }
+  return null
+}
+
+const refreshProjectPreviews = async () => {
+  const next: Record<string, { type: 'image' | 'video'; url: string }> = {}
+  for (const project of recentProjects.value) {
+    const generated = assetStore.sortedAssets
+      .filter((asset) => asset.projectId === project.id && !!asset.url)
+      .sort((a, b) => a.createdAt - b.createdAt)[0]
+    if (!generated) {
+      if (project.thumbnail) next[project.id] = { type: 'image', url: project.thumbnail }
+      continue
+    }
+    if (generated.type === 'image') {
+      next[project.id] = { type: 'image', url: generated.url }
+      continue
+    }
+    let firstFrame = ''
+    try {
+      const thumbnails = window.electronAPI?.video?.thumbnails
+      if (thumbnails) {
+        const frames = await thumbnails(generated.url, generated.duration || 5, 1)
+        firstFrame = frames?.[0] || ''
+      }
+    } catch { /* 远程视频无法抽帧时保留视频预览 */ }
+    next[project.id] = firstFrame
+      ? { type: 'image', url: firstFrame }
+      : { type: 'video', url: generated.url }
+  }
+  projectPreviewCache.value = next
+}
+
+watch([recentProjects, () => assetStore.assets], () => {
+  void refreshProjectPreviews()
+}, { deep: true, immediate: true })
 
 // 从localStorage加载项目列表
 const loadProjects = () => {
@@ -582,8 +529,6 @@ const createNode = (type: string) => {
     router.push({ path: '/assets', query: { from: 'home' } })
   } else if (type === 'ai-chat') {
     router.push('/chat')
-  } else if (type === 'video-editor') {
-    router.push('/editor')
   } else {
     router.push({ path: '/nodes', query: { create: type } })
   }
@@ -651,25 +596,36 @@ const formatDate = (timestamp: number) => {
   left: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(ellipse at center, #0a1628 0%, #020308 100%);
+  background: radial-gradient(ellipse at 50% -10%, #202638 0%, #12151e 42%, #0c0e14 100%);
+  pointer-events: none;
   z-index: 0;
   transition: background 0.5s;
   overflow: hidden;
 }
 
-.background-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.ambient-orb { position: absolute; width: min(86vw, 1100px); aspect-ratio: 1; border-radius: 50%; will-change: transform, opacity; filter: blur(2px); }
+.ambient-blue { left: -20%; top: -48%; background: radial-gradient(circle, #6c9dff80 0%, #4b73d644 34%, #4062a61c 55%, transparent 73%); animation: drift-blue 16s ease-in-out infinite alternate; }
+.ambient-violet { right: -18%; top: -30%; background: radial-gradient(circle, #bf8dff72 0%, #925fca3d 35%, #82599718 56%, transparent 74%); animation: drift-violet 21s ease-in-out infinite alternate; }
+.ambient-grid { position: absolute; inset: -48px; opacity: .36; background-image: linear-gradient(#b4bdda2b 1px, transparent 1px), linear-gradient(90deg, #b4bdda2b 1px, transparent 1px); background-size: 48px 48px; mask-image: radial-gradient(ellipse at 50% 20%, black, transparent 76%); animation: grid-drift 20s linear infinite; }
+.ambient-flow { position: absolute; inset: -35%; background: conic-gradient(from 210deg at 50% 42%, transparent 0deg, #6f8dff26 55deg, transparent 105deg, #d18bff22 190deg, transparent 250deg, #70c8ff20 310deg, transparent 360deg); filter: blur(30px); animation: flow-spin 26s linear infinite; }
+.ambient-specks { position: absolute; inset: 0; opacity: .34; background-image: radial-gradient(circle at 12% 28%, #bcd4ff88 0 1px, transparent 1.5px), radial-gradient(circle at 74% 18%, #e5c8ff70 0 1px, transparent 1.5px), radial-gradient(circle at 42% 64%, #8ecbff66 0 1px, transparent 1.5px), radial-gradient(circle at 88% 76%, #d7b7ff66 0 1px, transparent 1.5px), radial-gradient(circle at 24% 88%, #a9c8ff55 0 1px, transparent 1.5px); background-size: 260px 220px, 340px 280px, 420px 320px, 300px 260px, 380px 300px; animation: specks-drift 24s linear infinite alternate; }
+.ambient-ribbon { position: absolute; width: 145%; height: 18%; left: -24%; border-radius: 50%; filter: blur(34px); opacity: .3; mix-blend-mode: screen; will-change: transform; }
+.ambient-ribbon-one { top: 12%; background: linear-gradient(90deg, transparent 0%, #6aa4ff00 12%, #6aa4ff52 40%, #b78cff62 53%, #6aa4ff00 86%); transform: rotate(-9deg); animation: ribbon-drift-one 18s ease-in-out infinite alternate; }
+.ambient-ribbon-two { top: 48%; left: -32%; background: linear-gradient(90deg, transparent 0%, #d494ff00 14%, #d494ff3d 42%, #75c5ff4d 61%, #d494ff00 88%); transform: rotate(8deg); animation: ribbon-drift-two 23s ease-in-out infinite alternate-reverse; }
+@keyframes drift-blue { 0% { transform: translate3d(-4vw,-2vh,0) scale(.92); opacity: .72; } 100% { transform: translate3d(28vw,16vh,0) scale(1.18); opacity: 1; } }
+@keyframes drift-violet { 0% { transform: translate3d(2vw,-4vh,0) scale(.86); opacity: .66; } 100% { transform: translate3d(-24vw,22vh,0) scale(1.08); opacity: 1; } }
+@keyframes grid-drift { to { transform: translate3d(48px,48px,0); } }
+@keyframes flow-spin { to { transform: rotate(360deg); } }
+@keyframes specks-drift { from { transform: translate3d(-16px,-10px,0); } to { transform: translate3d(20px,14px,0); } }
+@keyframes ribbon-drift-one { 0% { transform: translate3d(-15vw,-8vh,0) rotate(-9deg) scale(.92); opacity: .18; } 100% { transform: translate3d(22vw,12vh,0) rotate(-5deg) scale(1.08); opacity: .48; } }
+@keyframes ribbon-drift-two { 0% { transform: translate3d(20vw,8vh,0) rotate(8deg) scale(1.05); opacity: .14; } 100% { transform: translate3d(-18vw,-12vh,0) rotate(3deg) scale(.9); opacity: .42; } }
+@media (prefers-reduced-motion: reduce) { .ambient-orb, .ambient-grid, .ambient-flow, .ambient-specks, .ambient-ribbon { animation: none; will-change: auto; } }
 
 .background-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(2, 3, 8, 0.4) 0%, rgba(2, 3, 8, 0.85) 100%);
-  backdrop-filter: blur(2px);
+  z-index: 1;
+  background: linear-gradient(180deg, transparent, #101115b8);
 }
 
 .content-container {
@@ -698,11 +654,11 @@ const formatDate = (timestamp: number) => {
 }
 
 .title-gradient {
-  background: linear-gradient(135deg, #00D9FF 0%, #B432FF 50%, #FF6B9D 100%);
+  background: linear-gradient(115deg, #a7c8ff 0%, #c1b1ed 50%, #e4b4ca 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  filter: drop-shadow(0 0 30px rgba(0, 217, 255, 0.5));
+  filter: drop-shadow(0 4px 28px rgba(145, 129, 209, 0.20));
 }
 
 .hero-subtitle {
@@ -726,8 +682,8 @@ const formatDate = (timestamp: number) => {
   padding: 14px 28px;
   font-size: 15px;
   font-weight: 500;
-  border: 1px solid rgba(0, 217, 255, 0.3);
-  background: rgba(0, 217, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
   color: #ffffff;
   border-radius: 10px;
   cursor: pointer;
@@ -736,20 +692,20 @@ const formatDate = (timestamp: number) => {
 }
 
 .hero-btn:hover {
-  background: rgba(0, 217, 255, 0.15);
-  border-color: #00D9FF;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.42);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 217, 255, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
 }
 
 .hero-btn.primary {
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.3) 0%, rgba(180, 50, 255, 0.3) 100%);
-  border-color: #00D9FF;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255,255,255,.88);
 }
 
 .hero-btn.primary:hover {
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.5) 0%, rgba(180, 50, 255, 0.5) 100%);
-  box-shadow: 0 8px 32px rgba(0, 217, 255, 0.4);
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.12);
 }
 
 .hero-btn.ghost {
@@ -788,7 +744,7 @@ const formatDate = (timestamp: number) => {
   gap: 4px;
   background: transparent;
   border: none;
-  color: #00D9FF;
+  color: rgba(255, 255, 255, 0.72);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -797,7 +753,7 @@ const formatDate = (timestamp: number) => {
 }
 
 .section-link:hover {
-  background: rgba(0, 217, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   gap: 8px;
 }
 
@@ -822,14 +778,14 @@ const formatDate = (timestamp: number) => {
 }
 
 .quick-card:hover {
-  background: rgba(0, 217, 255, 0.08);
-  border-color: rgba(0, 217, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.26);
   transform: translateY(-3px);
 }
 
 .quick-card:hover .card-arrow {
   transform: translateX(4px);
-  color: #00D9FF;
+  color: #fff;
 }
 
 .card-icon {
@@ -885,9 +841,9 @@ const formatDate = (timestamp: number) => {
 }
 
 .project-card:hover {
-  border-color: rgba(0, 217, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.26);
   transform: translateY(-4px);
-  box-shadow: 0 8px 32px rgba(0, 217, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
 }
 
 .project-card:hover .project-overlay {
@@ -930,7 +886,7 @@ const formatDate = (timestamp: number) => {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.1) 0%, rgba(180, 50, 255, 0.1) 100%);
+  background: linear-gradient(135deg, #2a2b2d 0%, #171819 100%);
   overflow: hidden;
 }
 
@@ -938,6 +894,12 @@ const formatDate = (timestamp: number) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.project-thumbnail video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .project-placeholder {
@@ -948,7 +910,7 @@ const formatDate = (timestamp: number) => {
   justify-content: center;
   font-size: 60px;
   font-weight: 700;
-  color: rgba(0, 217, 255, 0.3);
+  color: rgba(255, 255, 255, 0.28);
 }
 
 .project-overlay {
@@ -1005,9 +967,9 @@ const formatDate = (timestamp: number) => {
 
 .empty-action {
   padding: 10px 24px;
-  background: rgba(0, 217, 255, 0.15);
-  border: 1px solid #00D9FF;
-  color: #00D9FF;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255,255,255,.28);
+  color: rgba(255,255,255,.88);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
@@ -1096,7 +1058,7 @@ const formatDate = (timestamp: number) => {
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
 .changelog-modal h3 {
-  color: #00D9FF; font-size: 20px; font-weight: 500;
+  color: rgba(255,255,255,.88); font-size: 20px; font-weight: 500;
   margin: 0 0 20px;
 }
 .changelog-body {
@@ -1125,9 +1087,9 @@ const formatDate = (timestamp: number) => {
 .changelog-ok {
   display: block; margin: 24px auto 0;
   padding: 10px 40px;
-  border-radius: 8px; border: 1px solid #00D9FF;
+  border-radius: 8px; border: 1px solid rgba(255,255,255,.28);
   background: rgba(0,217,255,0.1);
-  color: #00D9FF; font-size: 14px; cursor: pointer;
+  color: rgba(255,255,255,.88); font-size: 14px; cursor: pointer;
   transition: all 0.3s;
 }
 .changelog-ok:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1188,7 +1150,7 @@ const formatDate = (timestamp: number) => {
 
 .bg-menu-item:hover {
   background: rgba(0, 217, 255, 0.15);
-  color: #00D9FF;
+  color: rgba(255,255,255,.88);
 }
 
 .bg-menu-enter-active,
@@ -1238,12 +1200,12 @@ const formatDate = (timestamp: number) => {
 .project-list-delete:hover { opacity: 1 !important; }
 
 .modal-content {
-  background: rgba(2, 3, 8, 0.98);
-  border: 1px solid rgba(0, 217, 255, 0.4);
-  border-radius: 16px;
+  background: #222324;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
   width: 90%;
   max-width: 480px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 217, 255, 0.15);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
 
@@ -1301,7 +1263,7 @@ const formatDate = (timestamp: number) => {
   width: 100%;
   padding: 12px 16px;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(0, 217, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   color: #ffffff;
   font-size: 15px;
@@ -1312,9 +1274,9 @@ const formatDate = (timestamp: number) => {
 }
 
 .modal-input:focus {
-  background: rgba(0, 217, 255, 0.08);
-  border-color: #00D9FF;
-  box-shadow: 0 0 16px rgba(0, 217, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255,255,255,.48);
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
 }
 
 .modal-input::placeholder {
@@ -1359,15 +1321,15 @@ const formatDate = (timestamp: number) => {
 }
 
 .modal-btn.primary {
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.3) 0%, rgba(180, 50, 255, 0.3) 100%);
-  border-color: #00D9FF;
-  color: #00D9FF;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255,255,255,.32);
+  color: rgba(255,255,255,.92);
 }
 
 .modal-btn.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.5) 0%, rgba(180, 50, 255, 0.5) 100%);
+  background: rgba(255, 255, 255, 0.22);
   color: #ffffff;
-  box-shadow: 0 4px 16px rgba(0, 217, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.10);
 }
 
 .modal-btn.primary:disabled {

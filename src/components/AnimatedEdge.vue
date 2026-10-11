@@ -10,12 +10,17 @@
       :marker-end="markerEnd"
     />
 
-    <!-- 独立流光层：底线保持低亮，短亮段沿同一路径移动 -->
-    <path
-      :d="path"
-      pathLength="100"
-      class="edge-flow-path"
-    />
+    <!-- 颜色沿弧长分布，竖向和弯曲连线也保持青蓝→暖黄→青蓝的渐变。 -->
+    <g v-if="endpointSelected" class="edge-flow-band" aria-hidden="true">
+      <path
+        v-for="(segment, index) in flowSegments"
+        :key="index"
+        :d="path"
+        pathLength="100"
+        class="edge-flow-segment"
+        :style="{ stroke: segment.color, opacity: segment.opacity, '--flow-offset': segment.offset }"
+      />
+    </g>
 
     <!-- 连线删除按钮：仅在鼠标悬停连线时显示 -->
     <g
@@ -40,7 +45,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Position, getBezierPath, getSmoothStepPath } from '@vue-flow/core'
+import { Position, getBezierPath } from '@vue-flow/core'
 import type { GraphNode } from '@vue-flow/core'
 import { useNodeStore } from '@/stores/node'
 
@@ -71,36 +76,36 @@ const edgeGeometry = computed(() => {
     targetPosition: props.targetPosition,
   }
 
-  // 右侧 source 连到左侧 target 时，如果目标位于源节点左边或两节点横向
-  // 重叠，普通贝塞尔曲线会从两个节点背后穿过，画面上只剩两端短弯钩。
-  // 此时根据真实节点边界选择较近的上方/下方通道，让整条线绕开节点。
-  if (props.targetX <= props.sourceX + 80) {
-    const sourceTop = props.sourceNode?.computedPosition?.y ?? props.sourceY - 175
-    const targetTop = props.targetNode?.computedPosition?.y ?? props.targetY - 175
-    const sourceBottom = sourceTop + (props.sourceNode?.dimensions?.height || 350)
-    const targetBottom = targetTop + (props.targetNode?.dimensions?.height || 350)
-    const clearance = 48
-    const topRoute = Math.min(sourceTop, targetTop) - clearance
-    const bottomRoute = Math.max(sourceBottom, targetBottom) + clearance
-    const topCost = Math.abs(props.sourceY - topRoute) + Math.abs(props.targetY - topRoute)
-    const bottomCost = Math.abs(props.sourceY - bottomRoute) + Math.abs(props.targetY - bottomRoute)
-    const routeY = topCost <= bottomCost ? topRoute : bottomRoute
-    const [pathString, labelX, labelY] = getSmoothStepPath({
-      ...shared,
-      centerY: routeY,
-      offset: 42,
-      borderRadius: 14,
-    })
-    return { path: pathString, labelX, labelY }
-  }
-
-  const [pathString, labelX, labelY] = getBezierPath(shared)
+  // 连线始终使用贝塞尔曲线。之前在节点上下排列、或横向位置接近时切换
+  // smooth-step，会生成带直角的“框”路线；即梦的连线在所有方向都保持连续曲线。
+  const [pathString, labelX, labelY] = getBezierPath({
+    ...shared,
+    curvature: 0.28,
+  })
   return { path: pathString, labelX, labelY }
 })
 
 const path = computed(() => edgeGeometry.value.path)
 const labelX = computed(() => edgeGeometry.value.labelX)
 const labelY = computed(() => edgeGeometry.value.labelY)
+
+// 根据参考截图近似配色，光带占路径的 36%，两端渐隐，中段局部暖黄。
+const flowStops = [
+  { at: 0, color: [0, 165, 239], alpha: 0 },
+  { at: 0.16, color: [0, 179, 255], alpha: 0.9 },
+  { at: 0.49, color: [0, 184, 255], alpha: 1 },
+  { at: 0.64, color: [239, 203, 105], alpha: 1 },
+  { at: 0.75, color: [24, 190, 246], alpha: 0.95 },
+  { at: 1, color: [0, 169, 239], alpha: 0 },
+]
+const flowSegments = Array.from({ length: 24 }, (_, index) => {
+  const progress = (index + 0.5) / 24
+  const end = flowStops.findIndex(stop => stop.at >= progress)
+  const from = flowStops[end - 1], to = flowStops[end]
+  const mix = (progress - from.at) / (to.at - from.at)
+  const rgb = from.color.map((value, channel) => Math.round(value + (to.color[channel] - value) * mix))
+  return { color: `rgb(${rgb.join(',')})`, opacity: from.alpha + (to.alpha - from.alpha) * mix, offset: `${index * 1.5}px` }
+})
 
 // Material-style scissors icon in the 16 x 16 button coordinate space.
 const scissorsPath = 'M5.2 4.1a2.1 2.1 0 1 0-1.4 1.9l3.1 2-3.1 2a2.1 2.1 0 1 0 1.4 1.9L8.3 9.7 12.8 13l1.2-1.6-4.4-3.2L14 5 12.8 3.4 8.3 6.7l-3.1-2.6Zm-.5 8a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8Zm0-6.2a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8Z'
@@ -109,8 +114,9 @@ const removeConnection = () => {
   nodeStore.removeEdge(props.id)
 }
 
-const active = computed(() => props.selected || props.sourceNode?.selected || props.targetNode?.selected
+const endpointSelected = computed(() => props.sourceNode?.selected || props.targetNode?.selected
   || (Boolean(nodeStore.selectedNodeId) && (nodeStore.selectedNodeId === props.sourceNode?.id || nodeStore.selectedNodeId === props.targetNode?.id)))
+const active = computed(() => props.selected || endpointSelected.value)
 
 const edgeStyle = computed(() => ({
   stroke: active.value ? '#008EE5' : '#ffffff',
@@ -168,17 +174,18 @@ const edgeStyle = computed(() => ({
   transition: stroke 0.2s ease, opacity 0.2s ease;
 }
 
-.edge-flow-path {
-  fill: none;
-  stroke: #58c8ff;
-  stroke-width: 2.5px;
-  stroke-linecap: round;
-  stroke-dasharray: 10 90;
-  stroke-dashoffset: 100;
-  opacity: 0.42;
+.edge-flow-band {
   pointer-events: none;
-  filter: drop-shadow(0 0 3px rgba(88, 200, 255, 0.72));
-  animation: edge-flow 2.4s linear infinite;
+  filter: drop-shadow(0 0 2px rgba(0, 179, 255, 0.55));
+}
+
+.edge-flow-segment {
+  fill: none;
+  stroke-width: 2px;
+  stroke-linecap: butt;
+  stroke-dasharray: 1.54 98.46;
+  pointer-events: none;
+  animation: edge-flow 2.8s linear infinite;
 }
 
 .edge-interaction:hover .animated-edge {
@@ -187,17 +194,13 @@ const edgeStyle = computed(() => ({
   stroke-width: 1px !important;
 }
 
-.edge-interaction:hover .edge-flow-path {
-  opacity: 0.95;
-  stroke-width: 3px;
-}
-
 @keyframes edge-flow {
-  to { stroke-dashoffset: 0; }
+  from { stroke-dashoffset: calc(100px - var(--flow-offset)); }
+  to { stroke-dashoffset: calc(0px - var(--flow-offset)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .animated-edge { transition: none; }
-  .edge-flow-path { animation: none; opacity: 0.2; }
+  .edge-flow-band { display: none; }
 }
 </style>

@@ -1,8 +1,9 @@
 <template>
   <div id="app" class="app-container">
-    <div class="top-bar">
+    <div :class="['top-bar', { 'canvas-header': isCanvas }]">
       <div class="top-bar-left">
-        <span class="logo" v-if="currentRoute !== '/nodes'"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><polygon points="22 7 18 7 18 17 22 17"/><circle cx="8" cy="10" r="2"/></svg> AI Video Canvas</span>
+        <button v-if="isCanvas" class="canvas-home-button" aria-label="返回主页" title="返回主页" @click="navigateTo('/home')"><CanvasIcon name="back" /></button>
+        <span class="logo" v-if="currentRoute !== '/nodes'"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><polygon points="22 7 18 7 18 17 22 17"/><circle cx="8" cy="10" r="2"/></svg> 芜湖AI</span>
         <!-- 项目名改名只在画布节点显示 -->
         <template v-if="currentRoute === '/nodes'">
           <input
@@ -16,7 +17,7 @@
             @keyup.escape="cancelEditing"
             maxlength="50"
           />
-          <span
+          <button
             v-else
             class="project-name"
             @click="startEditing"
@@ -27,14 +28,28 @@
               <path d="M12 20h9"></path>
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
             </svg>
-          </span>
+          </button>
+          <span class="canvas-node-count">节点 {{ nodeStore.nodes.length }}</span>
         </template>
       </div>
       <div class="top-bar-right">
+        <div v-if="isCanvas" class="canvas-quick-actions">
+          <button data-canvas-search aria-label="搜索画布节点" title="搜索节点" @click="openCanvasSearch"><CanvasIcon name="search" /></button>
+          <button aria-label="生成历史" title="生成历史" @click="navigateTo('/history')"><CanvasIcon name="history" /></button>
+        </div>
         <div class="ai-status" :title="aiStatusTitle" @click="navigateTo('/settings')">
           <span :class="['status-dot', aiAggregateClass]"></span>
           <span class="status-summary">中转站 · {{ aiStatusText }}</span>
         </div>
+        <el-dropdown v-if="isCanvas" trigger="click" effect="dark" popper-class="canvas-more-menu" @command="navigateTo">
+          <button class="canvas-more-button" aria-label="更多画布操作" title="更多"><CanvasIcon name="more" /></button>
+          <template #dropdown><el-dropdown-menu>
+            <el-dropdown-item command="/home">返回主页</el-dropdown-item>
+            <el-dropdown-item command="/assets">素材库</el-dropdown-item>
+            <el-dropdown-item command="/history">生成历史</el-dropdown-item>
+            <el-dropdown-item command="/settings" divided>设置 / 中转站</el-dropdown-item>
+          </el-dropdown-menu></template>
+        </el-dropdown>
       </div>
     </div>
 
@@ -91,7 +106,7 @@
       </router-view>
     </div>
 
-    <div class="bottom-nav">
+    <div v-if="!isCanvas" class="bottom-nav">
       <button
         v-for="nav in navItems"
         :key="nav.path"
@@ -106,19 +121,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAIStore } from '@/stores/ai'
+import { useNodeStore } from '@/stores/node'
+import CanvasIcon from '@/components/CanvasIcon.vue'
 
 const router = useRouter()
 const route = useRoute()
 const aiStore = useAIStore()
+const nodeStore = useNodeStore()
 
 const projectName = ref('未命名项目')
 const isEditingName = ref(false)
 const nameInputRef = ref<HTMLInputElement>()
 const previousName = ref('')
+watch(() => nodeStore.currentProjectId, (id) => {
+  if (!id) return
+  try {
+    const projects = JSON.parse(localStorage.getItem('recent_projects') || '[]')
+    projectName.value = projects.find((project: { id: string; name: string }) => project.id === id)?.name || '未命名项目'
+  } catch { projectName.value = '未命名项目' }
+}, { immediate: true })
+const openCanvasSearch = () => window.dispatchEvent(new CustomEvent('canvas-search'))
 
 // ---- 应用更新 ----
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
@@ -247,10 +273,22 @@ const startEditing = async () => {
 }
 
 const finishEditing = () => {
+  if (!isEditingName.value) return
   if (!projectName.value.trim()) {
     projectName.value = previousName.value || '未命名项目'
   }
   isEditingName.value = false
+  projectName.value = projectName.value.trim()
+  ;(window as any).__projectName = projectName.value
+  try {
+    const projects = JSON.parse(localStorage.getItem('recent_projects') || '[]')
+    const project = projects.find((item: { id: string }) => item.id === nodeStore.currentProjectId)
+    if (project) {
+      project.name = projectName.value
+      project.updatedAt = Date.now()
+      localStorage.setItem('recent_projects', JSON.stringify(projects))
+    }
+  } catch { /* 项目列表暂不可用时保留本次名称 */ }
 }
 
 const cancelEditing = () => {
@@ -259,6 +297,7 @@ const cancelEditing = () => {
 }
 
 const currentRoute = computed(() => route.path)
+const isCanvas = computed(() => currentRoute.value === '/nodes')
 
 // 顶栏 AI 状态汇总：聚合所有中转站为一个徽章，避免一排发光圆点+名字显得突兀
 const providerTotal = computed(() => aiStore.providers.length)
@@ -285,7 +324,7 @@ const aiStatusTitle = computed(() => {
 // 底部导航：非项目上下文（主页 / 从主页进入的素材库）不显示"节点"入口
 const hideNodesTab = computed(() => {
   if (route.path === '/home') return true
-  if (route.path === '/assets' && route.query.from === 'home') return true
+  if ((route.path === '/assets' || route.path === '/history') && route.query.from === 'home') return true
   if (route.path === '/chat') return true
   return false
 })
@@ -294,20 +333,16 @@ const navItems = computed(() => {
   const items = [
     { path: '/home', label: '主页' },
   ]
-  if (!hideNodesTab.value && route.path !== '/editor') {
+  if (!hideNodesTab.value) {
     items.push({ path: '/nodes', label: '画布' })
   }
   // 对话入口：仅主页和对话页面显示
   if (route.path === '/home' || route.path === '/chat') {
     items.push({ path: '/chat', label: '对话' })
   }
-  // 资产入口：对话页和剪辑页不显示
-  if (route.path !== '/chat' && route.path !== '/editor') {
-    items.push({ path: '/assets', label: '资产' })
-  }
-  // 剪辑入口：主页和剪辑页显示，画布页不显示
-  if (route.path !== '/chat' && route.path !== '/assets' && route.path !== '/nodes') {
-    items.push({ path: '/editor', label: '剪辑' })
+  // 素材入口：对话页不显示
+  if (route.path !== '/chat') {
+    items.push({ path: '/assets', label: '素材' })
   }
   items.push(
     { path: '/settings', label: '设置' },
@@ -320,7 +355,6 @@ const navIcons: Record<string, string> = {
   '/nodes': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="8" height="8" rx="1.5"/><rect x="14" y="2" width="8" height="8" rx="1.5"/><rect x="2" y="14" width="8" height="8" rx="1.5"/><rect x="14" y="14" width="8" height="8" rx="1.5"/></svg>`,
   '/assets': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`,
   '/chat': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`,
-  '/editor': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="14" height="14" rx="2"/><polygon points="22 7 18 7 18 17 22 17"/><line x1="6" y1="10" x2="10" y2="10"/><line x1="6" y1="14" x2="10" y2="14"/></svg>`,
   '/settings': `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>`,
 }
 
@@ -328,8 +362,8 @@ const navigateTo = (path: string) => {
   // 已在当前页面，不重复导航
   if (route.path === path) return
   // 从主页进入素材库 → 保持独立上下文（隐藏"节点"入口）
-  if (path === '/assets' && hideNodesTab.value) {
-    router.push({ path: '/assets', query: { from: 'home' } })
+  if ((path === '/assets' || path === '/history') && hideNodesTab.value) {
+    router.push({ path, query: { from: 'home' } })
     return
   }
   router.push(path)
@@ -349,6 +383,7 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 
 <style scoped>
 .app-container {
+  position: relative;
   width: 100vw;
   height: 100vh;
   display: flex;
@@ -361,12 +396,12 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 .top-bar {
   height: 50px;
   background: rgba(2, 3, 8, 0.95);
-  border-bottom: 1px solid #00D9FF;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  box-shadow: 0 2px 10px rgba(0, 217, 255, 0.2);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.24);
 }
 
 .top-bar-left {
@@ -378,7 +413,7 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 .logo {
   font-size: 18px;
   font-weight: 600;
-  color: #00D9FF;
+  color: #f1f1f1;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -386,11 +421,14 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 .logo svg { flex-shrink: 0; }
 
 .project-name {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  color: #e6f7ff;
-  text-shadow: 0 0 10px rgba(0, 217, 255, 0.25);
+  color: #e8e8e8;
+  text-shadow: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -405,15 +443,15 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
   width: 3px;
   height: 16px;
   border-radius: 2px;
-  background: linear-gradient(180deg, #00D9FF, #B432FF);
-  box-shadow: 0 0 6px rgba(0, 217, 255, 0.6);
+  background: linear-gradient(180deg, #f4f4f4, #777);
+  box-shadow: none;
   flex-shrink: 0;
 }
 
 .project-name:hover {
-  color: #00D9FF;
-  background: rgba(0, 217, 255, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(0, 217, 255, 0.25);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
 .project-name:hover .edit-icon {
@@ -430,8 +468,8 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
   font-weight: 600;
   letter-spacing: 0.5px;
   color: #ffffff;
-  background: rgba(0, 217, 255, 0.1);
-  border: 1px solid #00D9FF;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.26);
   border-radius: 7px;
   padding: 5px 12px;
   outline: none;
@@ -440,8 +478,8 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 }
 
 .project-name-input:focus {
-  background: rgba(0, 217, 255, 0.15);
-  box-shadow: 0 0 8px rgba(0, 217, 255, 0.4);
+  background: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
 }
 
 .top-bar-right {
@@ -468,7 +506,7 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
   border-radius: 6px;
   transition: background 0.3s;
 }
-.ai-status:hover { background: rgba(0, 217, 255, 0.1); }
+.ai-status:hover { background: rgba(255, 255, 255, 0.08); }
 
 .status-dot {
   width: 8px; height: 8px;
@@ -488,6 +526,7 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 
 .main-content {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
@@ -495,13 +534,13 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 .bottom-nav {
   height: 60px;
   background: rgba(2, 3, 8, 0.95);
-  border-top: 1px solid #00D9FF;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   padding: 0 20px;
-  box-shadow: 0 -2px 10px rgba(0, 217, 255, 0.2);
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.24);
 }
 
 .nav-item {
@@ -520,16 +559,16 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 }
 
 .nav-item:hover {
-  border-color: #00D9FF;
-  color: #00D9FF;
-  box-shadow: 0 0 15px rgba(0, 217, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #f5f5f5;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.08);
 }
 
 .nav-item.active {
-  background: rgba(0, 217, 255, 0.1);
-  border-color: #00D9FF;
-  color: #00D9FF;
-  box-shadow: 0 0 20px rgba(0, 217, 255, 0.4);
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.10);
 }
 
 .nav-icon {
@@ -557,4 +596,26 @@ void getStatusClass // 仅保留映射备用；顶栏已改用聚合徽章
 .page-leave-to {
   opacity: 0;
 }
+
+/* 画布页的操作组悬浮在画布上，不占用上下空间。 */
+.canvas-header { position: absolute; top: 12px; left: 12px; right: 12px; height: 36px; padding: 0; background: transparent; border: 0; box-shadow: none; z-index: 50; pointer-events: none; gap: 12px; }
+.canvas-header .top-bar-left, .canvas-header .top-bar-right { gap: 6px; min-width: 0; pointer-events: auto; }
+.canvas-header .top-bar-left { height: 36px; padding-right: 12px; border-radius: 8px; background: #202020; box-shadow: inset 0 0 0 1px #ffffff0a; }
+.canvas-home-button, .canvas-more-button, .canvas-quick-actions button { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: #202020; color: #dedede; cursor: pointer; }
+.canvas-header button:hover { background: #333; color: #fff; }
+.canvas-header button:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.72); outline-offset: 2px; }
+.canvas-header .project-name { font-size: 13px; font-weight: 500; color: #eee; letter-spacing: 0; text-shadow: none; padding: 0 4px; height: 28px; max-width: min(240px, 25vw); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-radius: 5px; gap: 6px; box-shadow: none; }
+.canvas-header .project-name::before { display: none; }
+.canvas-header .edit-icon { opacity: .6; flex-shrink: 0; }
+.canvas-node-count { font-size: 11px; color: #999; white-space: nowrap; padding-left: 8px; border-left: 1px solid #ffffff12; }
+.canvas-header .project-name-input { min-width: 0; width: min(210px, 25vw); font-size: 13px; height: 28px; padding: 0 6px; box-sizing: border-box; background: #2b2b2b; border-color: #666; letter-spacing: 0; box-shadow: none; }
+.canvas-quick-actions { display: flex; align-items: center; border-radius: 8px; background: #202020; }
+.canvas-quick-actions button { background: transparent; }
+.canvas-header .ai-status { height: 36px; padding: 0 12px; box-sizing: border-box; border-radius: 8px; background: #202020; }
+.canvas-header .ai-status:hover { background: #333; }
+.canvas-header .status-dot { width: 6px; height: 6px; box-shadow: none; }
+.canvas-header .status-summary { color: #b5b5b5; }
+:global(.canvas-more-menu) { background: #242424; border-color: #ffffff18; border-radius: 10px; }
+@media (max-width: 720px) { .canvas-header .status-summary { display: none; } .canvas-header .ai-status { width: 36px; justify-content: center; padding: 0; } .canvas-header .project-name { max-width: 25vw; } }
+@media (max-width: 480px) { .canvas-header { left: 8px; right: 8px; gap: 6px; } .canvas-node-count { display: none; } .canvas-header .top-bar-left { padding-right: 6px; } }
 </style>

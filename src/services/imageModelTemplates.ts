@@ -287,7 +287,20 @@ const RATIO_TO_SIZE_2K: Record<string, string> = {
   '21:9': '2560x1097',
 }
 
-export function ratioToSize(ratio: string, want2K = false): string {
-  const map = want2K ? RATIO_TO_SIZE_2K : RATIO_TO_SIZE
+const RATIO_TO_SIZE_4K: Record<string, string> = {
+  '1:1': '4096x4096',
+  '16:9': '4096x2304',
+  '9:16': '2304x4096',
+  '4:3': '4096x3072',
+  '3:4': '3072x4096',
+  '3:2': '4096x2731',
+  '2:3': '2731x4096',
+  '21:9': '4096x1755',
+}
+
+/** Convert the selected resolution tier into the provider's OpenAI-compatible size. */
+export function ratioToSize(ratio: string, resolution: '1K' | '2K' | '4K' | boolean = '1K'): string {
+  const tier = typeof resolution === 'boolean' ? (resolution ? '2K' : '1K') : resolution
+  const map = tier === '4K' ? RATIO_TO_SIZE_4K : tier === '2K' ? RATIO_TO_SIZE_2K : RATIO_TO_SIZE
   return map[ratio] || map['16:9']
 }

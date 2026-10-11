@@ -10,6 +10,7 @@ import router from './router'
 import App from './App.vue'
 import { useAIStore } from './stores/ai'
 import { useAssetStore } from './stores/asset'
+import { useMaterialStore } from './stores/material'
 import { useNodeStore } from './stores/node'
 import { useEditorStore } from './stores/editor'
 import './style.css'
@@ -26,6 +27,9 @@ useAIStore().init().catch((err) => {
 })
 useAssetStore().init().catch((err) => {
   console.warn('failed to init asset store at startup:', err)
+})
+useMaterialStore().init().catch((err) => {
+  console.warn('failed to init material store at startup:', err)
 })
 useNodeStore().init().catch((err) => {
   console.warn('failed to init node store at startup:', err)
