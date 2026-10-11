@@ -847,6 +847,11 @@ export const useNodeStore = defineStore('node', () => {
       })
       return
     }
+    const imageModelId = data.model || providerConfig.models[0]?.id
+    if (!imageModelId || !providerConfig.models.some((m) => m.id === imageModelId)) {
+      failNode(nodeId, '原图片模型已移除，请在参数卡选择 GPT 图片模型后生成')
+      return
+    }
     const provider = aiStore.getImageProvider(providerId)
     if (!provider || !providerConfig.apiKey) {
       updateNodeData(nodeId, {
@@ -894,13 +899,13 @@ export const useNodeStore = defineStore('node', () => {
     imageTimers.set(nodeId, fallbackTimer)
 
     try {
-      const modelMeta = providerConfig.models.find((m) => m.id === data.model)
-      const tpl = findImageTemplate(data.model || '', (providerConfig.kind || undefined) as ImageProviderKind | undefined)
+      const modelMeta = providerConfig.models.find((m) => m.id === imageModelId)
+      const tpl = findImageTemplate(imageModelId, (providerConfig.kind || undefined) as ImageProviderKind | undefined)
       // 默认 true：缺字段视为「老模板没标，按支持算」
       const allowSeed = (tpl?.supportsSeed ?? modelMeta?.supportsSeed) !== false
       const allowNegative = (tpl?.supportsNegativePrompt ?? modelMeta?.supportsNegativePrompt) !== false
       const result = await provider.generateImage({
-        model: data.model || providerConfig.models[0]?.id || 'gemini-2.5-flash-image-preview',
+        model: imageModelId,
         prompt: promptText,
         imageUrls: refImages,
         aspectRatio: data.ratio || '1:1',

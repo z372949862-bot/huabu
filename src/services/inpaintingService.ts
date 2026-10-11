@@ -123,10 +123,9 @@ export async function runInpaint(
   if (!providerId) throw new Error('请先在「设置」配置图片中转站')
   const cfg = aiStore.getProviderConfig(providerId)
   if (!cfg) throw new Error('找不到默认图片中转站')
-  // 优先 nano-banana 系列（出海营，明确支持图编辑）；否则任意支持参考图的模型
+  // 使用目录内支持参考图的 GPT 模型。
   const model =
-    cfg.models.find((m) => m.id.startsWith('nano-banana'))?.id
-    || cfg.models.find((m) => (m as any).supportsReferenceImage !== false)?.id
+    cfg.models.find((m) => (m as any).supportsReferenceImage !== false)?.id
     || cfg.models[0]?.id
   if (!model) throw new Error('当前中转站没有支持图编辑的模型')
   const provider = aiStore.getImageProvider(providerId)

@@ -268,6 +268,16 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
   {
+    version: '0.3.13',
+    date: '2026-10-12',
+    items: [
+      '新增 GeekNow GPT Image 2.5 Sunburst 和 GPT Image 2 VIP，支持参考图及 1K / 2K / 4K',
+      '图片模型目录仅保留 GPT 系列，已有图片中转站配置自动同步调整',
+      '按模型匹配实际图片尺寸，适配 VIP 返回格式要求',
+      '保留原有中转站地址、密钥及生成历史，文本和视频模型不受影响',
+    ],
+  },
+  {
     version: '0.3.12',
     date: '2026-10-11',
     items: [

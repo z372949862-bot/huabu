@@ -1,9 +1,9 @@
 /**
  * GeekNow 图片中转 API 客户端。
  *
- * 8 个模型按前缀分流到两条 endpoint：
- *  - openai 风格（doubao / grok / gpt-image）：POST {baseUrl}/v1/images/generations
- *  - gemini 风格（gemini-*）：POST {baseUrl}/v1beta/models/{model}:generateContent
+ * 按模型协议分流：
+ *  - OpenAI Images 风格（GPT Image）：POST {baseUrl}/v1/images/generations
+ *  - Gemini 风格仍保留协议兼容性，但不再出现在默认图片模型目录
  *
  * 参考图统一传 base64（不传 https URL，因为 Grok 不支持，统一行为更可控）。
  * 调用方拿到本地 blob: URL 应该先转 base64 再传进来。
@@ -58,7 +58,7 @@ export interface ImageProvider {
   testAuth(apiKey: string): Promise<{ success: boolean; error?: string }>
 }
 
-const DEFAULT_BASE_URL = 'https://api.geeknow.ai'
+const DEFAULT_BASE_URL = 'https://www.geeknow.top'
 
 export class GeekNowImageProvider implements ImageProvider {
   name = 'GeekNow'
@@ -201,7 +201,7 @@ export class GeekNowImageProvider implements ImageProvider {
     tpl: ImageModelTemplate | undefined
   ): Promise<ImageGenerationResult> {
     const requestedSize = params.imageSize === '4K' ? '4K' : params.imageSize === '2K' ? '2K' : '1K'
-    const size = ratioToSize(params.aspectRatio || '16:9', requestedSize)
+    const size = ratioToSize(params.aspectRatio || '16:9', requestedSize, tpl?.sizeMaps)
     const isGptImage = params.model.startsWith('gpt-image-')
 
     const body: Record<string, any> = {
@@ -229,7 +229,8 @@ export class GeekNowImageProvider implements ImageProvider {
 
     if (isGptImage) {
       body.quality = 'high'
-      body.response_format = 'url'
+      // VIP 通道建议省略 response_format，由网关自行选择 URL 或 Base64。
+      if (!tpl?.omitResponseFormat) body.response_format = 'url'
     }
 
     const url = `${this.baseUrl}/v1/images/generations`

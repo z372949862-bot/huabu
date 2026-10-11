@@ -75,7 +75,7 @@ const STORE_KEY = 'aiProviders'
 const LEGACY_KEY = 'apiKey.seedance'
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const IMAGE_DEFAULT_BASE_URL: Record<ImageProviderKind, string> = {
-  geeknow: 'https://api.geeknow.ai',
+  geeknow: 'https://www.geeknow.top',
   chuhaiying: 'https://api.aiid.edu.kg',
 }
 const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
@@ -88,7 +88,7 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   dmxapi: 'https://www.dmxapi.cn',
   fmgo: FMGO_BASE,
 }
-const CURRENT_MIGRATION = 11
+const CURRENT_MIGRATION = 12
 
 declare global {
   interface Window {
@@ -579,6 +579,19 @@ export const useAIStore = defineStore('ai', () => {
     }
     if (migrationVersion.value < 9 && !providers.value.some((p) => p.type === 'video' && p.kind === 'xinshuju')) {
       addProvider({ name: '心数据 · Seedance 2.5', type: 'video', kind: 'xinshuju' })
+    }
+
+    // 一次性更新图片目录，保留中转站地址、密钥和用户自定义的 GPT 模型。
+    if (migrationVersion.value < 12) {
+      for (const provider of providers.value) {
+        if (provider.type !== 'image') continue
+        const defaults = defaultImageModelSet(imageKindOf(provider))
+        provider.models = [
+          ...defaults,
+          ...(provider.models || []).filter((model) =>
+            /^gpt-/i.test(model.id) && !defaults.some((item) => item.id === model.id)),
+        ]
+      }
     }
 
     // Keep built-in provider catalogs in sync for existing installations while
