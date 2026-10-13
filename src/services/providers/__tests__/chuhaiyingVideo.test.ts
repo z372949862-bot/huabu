@@ -51,6 +51,7 @@ describe('Qiling Seedance 2.5 models', () => {
   it('exposes only the current Qiling Seedance 2.5 catalog', () => {
     const ids = QILING_VIDEO_MODEL_TEMPLATES.map((model) => model.id)
     expect(ids).toContain('SD2.5-满血-CB-720P')
+    expect(ids).toContain('SD2.5-满血-CB-480P')
     expect(ids).toContain('SD2.5-满血-HN-720P')
     expect(ids).toContain('SD2.5-满血-CB-720P-备用')
     expect(ids.some((id) => /^(?:sd2-|SD2\.0-)/i.test(id))).toBe(false)
@@ -85,6 +86,39 @@ describe('Qiling Seedance 2.5 models', () => {
   it('forces the CB route to 30 seconds', async () => {
     const body = await captureCreate('SD2.5-满血-CB-720P', { duration: 8, generate_audio: true, image_urls: ['https://example.com/person.png'] })
     expect(body).toEqual({ model: 'SD2.5-满血-CB-720P', prompt: '镜头向前推进', duration: 30, aspect_ratio: '16:9', images: ['https://example.com/person.png'] })
+  })
+
+  it('uses the CB 480P multimedia route with its documented limits', async () => {
+    const body = await captureCreate('SD2.5-满血-CB-480P', {
+      ratio: '9:16',
+      duration: 18,
+      content: [
+        { type: 'image_url', image_url: { url: 'https://example.com/ref.png' } },
+        { type: 'video_url', video_url: { url: 'https://example.com/source.mp4' } },
+        { type: 'audio_url', audio_url: { url: 'https://example.com/music.mp3' } },
+      ],
+    })
+
+    expect(body).toMatchObject({
+      model: 'SD2.5-满血-CB-480P',
+      aspect_ratio: '9:16',
+      duration: 18,
+      images: ['https://example.com/ref.png'],
+      videos: ['https://example.com/source.mp4'],
+      audios: ['https://example.com/music.mp3'],
+    })
+    expect(body.generate_audio).toBeUndefined()
+  })
+
+  it('rejects unsupported CB 480P ratios and oversized media references', async () => {
+    await expect(captureCreate('SD2.5-满血-CB-480P', { ratio: '1:1' })).rejects.toThrow('只支持 16:9、9:16')
+    await expect(captureCreate('SD2.5-满血-CB-480P', {
+      image_urls: Array.from({ length: 30 }, (_, i) => `https://example.com/${i}.png`),
+      content: [
+        ...Array.from({ length: 10 }, (_, i) => ({ type: 'video_url', video_url: `https://example.com/${i}.mp4` })),
+        ...Array.from({ length: 11 }, (_, i) => ({ type: 'audio_url', audio_url: `https://example.com/${i}.mp3` })),
+      ],
+    })).rejects.toThrow('最多支持 10 个参考音频')
   })
 
   it.each([5, 10, 15, 30])('submits CB backup at %s seconds with the bound prompt and clean image payload', async duration => {

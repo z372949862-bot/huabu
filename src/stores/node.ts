@@ -8,7 +8,7 @@ import { ensureRemoteAssetUrl, urlToFile } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
 import { prepareQilingReferences } from '@/services/qilingReferences'
 import { ensureQilingImageUrl } from '@/services/qilingImageHost'
-import { isQilingCbModel } from '@/services/providers/chuhaiyingVideo'
+import { isQilingCb480Model, isQilingCbModel } from '@/services/providers/chuhaiyingVideo'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
 import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
@@ -540,7 +540,12 @@ export const useNodeStore = defineStore('node', () => {
     const refVideos = isQilingSeedance25 ? [...qilingMedia.videos] : []
     const refAudios = isQilingSeedance25 ? [...qilingMedia.audios] : []
 
-    if (isQilingSeedance25 && (isQilingCbModel(modelId) || /HN-720P$/i.test(modelId))) {
+    if (isQilingSeedance25 && isQilingCb480Model(modelId)) {
+      if (refImages.length > 30 || refVideos.length > 10 || refAudios.length > 10 || refImages.length + refVideos.length + refAudios.length > 50) {
+        failNode(nodeId, `${modelId} 最多支持 30 张图、10 个视频、10 个音频，参考素材合计最多 50 项`)
+        return
+      }
+    } else if (isQilingSeedance25 && (isQilingCbModel(modelId) || /HN-720P$/i.test(modelId))) {
       const maxImages = isQilingCbModel(modelId) ? 9 : 30
       if (refImages.length > maxImages || refVideos.length || refAudios.length) {
         failNode(nodeId, `${modelId} 按器灵插件协议最多支持 ${maxImages} 张参考图片，请移除超量图片及参考视频、音频；多媒体参考可使用 XG 线路`)

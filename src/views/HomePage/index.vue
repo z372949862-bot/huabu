@@ -268,6 +268,15 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
   {
+    version: '0.3.14',
+    date: '2026-10-13',
+    items: [
+      '新增器灵 SD2.5-满血-CB-480P 模型，固定 480P，支持 4–30 秒生成',
+      'CB 480P 支持最多 30 张图、10 个视频、10 个音频，参考素材合计最多 50 项',
+      'CB 480P 限定 16:9 和 9:16 画幅，并接入多媒体参考提交路径',
+    ],
+  },
+  {
     version: '0.3.13',
     date: '2026-10-12',
     items: [
