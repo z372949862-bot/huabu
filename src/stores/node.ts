@@ -8,7 +8,7 @@ import { ensureRemoteAssetUrl, urlToFile } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
 import { prepareQilingReferences } from '@/services/qilingReferences'
 import { ensureQilingImageUrl } from '@/services/qilingImageHost'
-import { isQilingCb480Model, isQilingCbModel } from '@/services/providers/chuhaiyingVideo'
+import { isQilingCb480Model, isQilingCbFullModel, isQilingCbModel } from '@/services/providers/chuhaiyingVideo'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
 import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
@@ -540,8 +540,12 @@ export const useNodeStore = defineStore('node', () => {
     const refVideos = isQilingSeedance25 ? [...qilingMedia.videos] : []
     const refAudios = isQilingSeedance25 ? [...qilingMedia.audios] : []
 
-    if (isQilingSeedance25 && isQilingCb480Model(modelId)) {
-      if (refImages.length > 30 || refVideos.length > 10 || refAudios.length > 10 || refImages.length + refVideos.length + refAudios.length > 50) {
+    if (isQilingSeedance25 && (isQilingCb480Model(modelId) || isQilingCbFullModel(modelId))) {
+      const imageLimit = 30
+      const videoLimit = 10
+      const audioLimit = 10
+      const totalLimit = 50
+      if (refImages.length > imageLimit || refVideos.length > videoLimit || refAudios.length > audioLimit || refImages.length + refVideos.length + refAudios.length > totalLimit) {
         failNode(nodeId, `${modelId} 最多支持 30 张图、10 个视频、10 个音频，参考素材合计最多 50 项`)
         return
       }

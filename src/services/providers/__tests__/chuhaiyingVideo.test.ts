@@ -52,6 +52,7 @@ describe('Qiling Seedance 2.5 models', () => {
     const ids = QILING_VIDEO_MODEL_TEMPLATES.map((model) => model.id)
     expect(ids).toContain('SD2.5-满血-CB-720P')
     expect(ids).toContain('SD2.5-满血-CB-480P')
+    expect(ids).toContain('SD2.5-满血-CB-720P-满参')
     expect(ids).toContain('SD2.5-满血-HN-720P')
     expect(ids).toContain('SD2.5-满血-CB-720P-备用')
     expect(ids.some((id) => /^(?:sd2-|SD2\.0-)/i.test(id))).toBe(false)
@@ -108,6 +109,27 @@ describe('Qiling Seedance 2.5 models', () => {
       audios: ['https://example.com/music.mp3'],
     })
     expect(body.generate_audio).toBeUndefined()
+  })
+
+  it('uses the CB full-reference route for 5–30 seconds and three media types', async () => {
+    const body = await captureCreate('SD2.5-满血-CB-720P-满参', {
+      ratio: '1:1',
+      duration: 27,
+      content: [
+        { type: 'image_url', image_url: { url: 'https://example.com/ref.png' } },
+        { type: 'video_url', video_url: { url: 'https://example.com/source.mp4' } },
+        { type: 'audio_url', audio_url: { url: 'https://example.com/music.mp3' } },
+      ],
+    })
+
+    expect(body).toMatchObject({
+      model: 'SD2.5-满血-CB-720P-满参',
+      aspect_ratio: '1:1',
+      duration: 27,
+      images: ['https://example.com/ref.png'],
+      videos: ['https://example.com/source.mp4'],
+      audios: ['https://example.com/music.mp3'],
+    })
   })
 
   it('rejects unsupported CB 480P ratios and oversized media references', async () => {

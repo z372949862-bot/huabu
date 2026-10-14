@@ -50,6 +50,11 @@ export function isQilingCb480Model(model: string): boolean {
   return /CB-480P$/i.test(model)
 }
 
+/** CB 满参线路支持三类参考素材，参数与普通 CB-720P 不同。 */
+export function isQilingCbFullModel(model: string): boolean {
+  return /CB-720P-满参$/i.test(model)
+}
+
 function isQilingCbBackupModel(model: string): boolean {
   return /CB-720P-备用$/i.test(model)
 }
@@ -260,8 +265,12 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       const isCbBackup = isQilingCbBackupModel(model)
       const isImageOnly = isQilingCbModel(model) || isQilingHnModel(model)
       const isCb480 = isQilingCb480Model(model)
+      const isCbFull = isQilingCbFullModel(model)
       if (isCb480 && !['16:9', '9:16'].includes(aspectRatio)) {
         throw new Error('器灵 CB 480P 线路只支持 16:9、9:16 画幅')
+      }
+      if (isCbFull && !['16:9', '9:16', '1:1'].includes(aspectRatio)) {
+        throw new Error('器灵 CB 满参线路只支持 16:9、9:16、1:1 画幅')
       }
       if (isCbBackup && !['16:9', '9:16', '1:1'].includes(aspectRatio)) {
         throw new Error('器灵 CB 备用线路只支持 16:9、9:16、1:1 画幅')
@@ -271,6 +280,9 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       if (isCbBackup) {
         const requested = Number(params.duration)
         body.duration = [5, 10, 15, 30].includes(requested) ? requested : 30
+      } else if (isCbFull) {
+        const requested = Number(params.duration)
+        body.duration = Number.isInteger(requested) && requested >= 5 && requested <= 30 ? requested : 30
       } else if (isQilingHnModel(model)) {
         const allowedDurations = [5, 10, 20, 30]
         const requested = Number(params.duration)
@@ -286,6 +298,13 @@ export class ChuhaiyingVideoProvider implements AIProvider {
 
       if (refs.length) body.images = refs
       if (isCb480) {
+        if (refs.length > 30) throw new Error(`${model} 最多支持 30 张参考图片`)
+        if (videoRefs.length > 10) throw new Error(`${model} 最多支持 10 个参考视频`)
+        if (audioRefs.length > 10) throw new Error(`${model} 最多支持 10 个参考音频`)
+        const totalReferences = refs.length + videoRefs.length + audioRefs.length
+        if (totalReferences > 50) throw new Error(`${model} 的参考素材合计最多 50 项`)
+      }
+      if (isCbFull) {
         if (refs.length > 30) throw new Error(`${model} 最多支持 30 张参考图片`)
         if (videoRefs.length > 10) throw new Error(`${model} 最多支持 10 个参考视频`)
         if (audioRefs.length > 10) throw new Error(`${model} 最多支持 10 个参考音频`)

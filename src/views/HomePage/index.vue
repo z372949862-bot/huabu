@@ -268,6 +268,15 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
   {
+    version: '0.3.15',
+    date: '2026-10-14',
+    items: [
+      '新增器灵 SD2.5-满血-CB-720P-满参模型，支持 5–30 秒和 16:9 / 9:16 / 1:1',
+      '满参线路支持最多 30 张图、10 个视频、10 个音频，参考素材合计最多 50 项',
+      '本地参考素材沿用 R2 上传与公网地址处理，普通 CB-720P 线路规则保持不变',
+    ],
+  },
+  {
     version: '0.3.14',
     date: '2026-10-13',
     items: [
