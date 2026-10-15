@@ -268,6 +268,15 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
   {
+    version: '0.3.16',
+    date: '2026-10-15',
+    items: [
+      '新增器灵 SD2.5 满血 GF · 480P 和 GF · 720P 模型',
+      'GF 线路接入 v1 协议，支持 4–30 秒、文生、首帧、首尾帧和参考生视频',
+      'GF 线路支持最多 10 张图、5 个视频、5 个音频参考，固定分辨率随模型自动提交',
+    ],
+  },
+  {
     version: '0.3.15',
     date: '2026-10-14',
     items: [

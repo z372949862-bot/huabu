@@ -55,6 +55,11 @@ export function isQilingCbFullModel(model: string): boolean {
   return /CB-720P-满参$/i.test(model)
 }
 
+/** GF 线路使用带版本头的 v1 协议，字段与 CB/XG 线路不同。 */
+export function isQilingGfModel(model: string): boolean {
+  return /^SD2\.5-满血-GF-(?:480P|720P)$/i.test(model)
+}
+
 function isQilingCbBackupModel(model: string): boolean {
   return /CB-720P-备用$/i.test(model)
 }
@@ -259,6 +264,34 @@ export class ChuhaiyingVideoProvider implements AIProvider {
     }
 
     if (isQilingSeedance25) {
+      const isGf = isQilingGfModel(model)
+      if (isGf) {
+        const requestedRatio = params.ratio && params.ratio !== 'auto' ? params.ratio : '16:9'
+        if (!['16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'].includes(requestedRatio)) {
+          throw new Error('器灵 GF 线路只支持 16:9、4:3、1:1、3:4、9:16、adaptive 画幅')
+        }
+        const requested = Number(params.duration)
+        body.seconds = Number.isInteger(requested) && requested >= 4 && requested <= 30 ? requested : 5
+        body.resolution = model.endsWith('480P') ? '480p' : '720p'
+        body.aspect_ratio = requestedRatio
+        if (videoRefs.length || audioRefs.length || params.mode === 'reference_material' || params.mode === 'r2v') {
+          body.mode = '参考生视频'
+        } else if (params.mode === 'i2v') {
+          body.mode = refs.length === 2 ? '首尾帧' : '首帧生视频'
+        } else if (refs.length === 1) {
+          body.mode = '首帧生视频'
+        } else if (refs.length === 2) {
+          body.mode = '首尾帧'
+        } else {
+          body.mode = '文生视频'
+        }
+        if (refs.length > 10) throw new Error(`${model} 最多支持 10 张参考图片`)
+        if (videoRefs.length > 5) throw new Error(`${model} 最多支持 5 个参考视频`)
+        if (audioRefs.length > 5) throw new Error(`${model} 最多支持 5 个参考音频`)
+        if (refs.length) body.images = refs
+        if (videoRefs.length) body.videos = videoRefs
+        if (audioRefs.length) body.audios = audioRefs
+      } else {
       // 器灵 SD2.5 满血线路使用标准数组字段，不发送旧版 metadata；分辨率由模型线路决定。
       const requestedRatio = normalizeRatio(params.ratio)
       const aspectRatio = requestedRatio && requestedRatio !== 'adaptive' ? requestedRatio : '16:9'
@@ -322,6 +355,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       if (audioRefs.length) body.audios = audioRefs
       if (!isImageOnly && params.generate_audio !== undefined) {
         body.generate_audio = !!params.generate_audio
+      }
       }
     } else if (isSd2) {
       // Qiling sd2 专用格式：metadata 嵌套 + base64 参考图
@@ -477,6 +511,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
+          ...(this.baseUrl.toLowerCase().includes('qilingze.com') ? { 'X-Qiling-API-Version': '1' } : {}),
           ...(init.headers || {}),
         },
       })

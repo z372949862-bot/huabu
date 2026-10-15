@@ -84,6 +84,36 @@ export const FMGO_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = FMGO_MODELS
 /** 器灵中转站默认模型（仅 Seedance 系列） */
 export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
   {
+    id: 'SD2.5-满血-GF-480P',
+    name: 'SD2.5 满血 GF · 480P',
+    description: '器灵 GF 线路，4–30 秒，最多 10 图 / 5 视频 / 5 音频参考，支持本地素材上传',
+    capabilities: {
+      ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'],
+      resolutions: ['480p'],
+      durationRange: { min: 4, max: 30 },
+      durationOptions: Array.from({ length: 27 }, (_, index) => index + 4),
+      audioGeneration: false,
+      maxImages: 10,
+      maxVideos: 5,
+      maxAudios: 5,
+    },
+  },
+  {
+    id: 'SD2.5-满血-GF-720P',
+    name: 'SD2.5 满血 GF · 720P',
+    description: '器灵 GF 线路，4–30 秒，最多 10 图 / 5 视频 / 5 音频参考，支持本地素材上传',
+    capabilities: {
+      ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'],
+      resolutions: ['720p'],
+      durationRange: { min: 4, max: 30 },
+      durationOptions: Array.from({ length: 27 }, (_, index) => index + 4),
+      audioGeneration: false,
+      maxImages: 10,
+      maxVideos: 5,
+      maxAudios: 5,
+    },
+  },
+  {
     id: 'SD2.5-满血-XG-720P',
     name: 'SD2.5 满血 XG · 720P',
     description: '器灵 XG 线路，4–30 秒，最多 30 图 / 10 视频 / 10 音频参考',
