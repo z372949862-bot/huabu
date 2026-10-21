@@ -7,6 +7,7 @@ import { Yu25Provider } from '@/services/providers/yu25'
 import { XinshujuProvider } from '@/services/providers/xinshuju'
 import { DmxApiProvider } from '@/services/providers/dmxapi'
 import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
+import { AiideSeedanceProvider, AIIDE_BASE } from '@/services/providers/aiide'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
@@ -27,7 +28,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -87,8 +88,9 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   xinshuju: 'https://www.xinshuju.net',
   dmxapi: 'https://www.dmxapi.cn',
   fmgo: FMGO_BASE,
+  aiide: AIIDE_BASE,
 }
-const CURRENT_MIGRATION = 12
+const CURRENT_MIGRATION = 13
 
 declare global {
   interface Window {
@@ -153,6 +155,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'xinshuju') return 'xinshuju'
   if (conf.kind === 'dmxapi') return 'dmxapi'
   if (conf.kind === 'fmgo') return 'fmgo'
+  if (conf.kind === 'aiide') return 'aiide'
   return 'seedance'
 }
 
@@ -201,6 +204,8 @@ export const useAIStore = defineStore('ai', () => {
       const kind = videoKindOf(conf)
       inst = kind === 'xinshuju'
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'aiide'
+          ? new AiideSeedanceProvider(conf.apiKey, conf.baseUrl)
         : kind === 'fmgo'
           ? new FmgoProvider(conf.apiKey, conf.baseUrl)
         : kind === 'dmxapi'
@@ -302,7 +307,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -310,6 +315,8 @@ export const useAIStore = defineStore('ai', () => {
       defaultModels = defaultVideoModelSet(vidKind)
       defaultName = vidKind === 'unmau'
         ? 'New API · Seedance 2.5'
+        : vidKind === 'aiide'
+          ? 'AIIDE · Seedance 2.5 HC'
         : vidKind === 'fmgo'
           ? 'FMGO API · Feimiao 2.5'
         : vidKind === 'xinshuju'
@@ -594,11 +601,19 @@ export const useAIStore = defineStore('ai', () => {
       }
     }
 
+    if (migrationVersion.value < 13) {
+      for (const provider of providers.value) {
+        if (provider.type !== 'video' || provider.kind !== 'aiide') continue
+        const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '').replace(/\/v1$/i, '')
+        if (baseUrl === 'https://api.aiide.com') provider.baseUrl = AIIDE_BASE
+      }
+    }
+
     // Keep built-in provider catalogs in sync for existing installations while
     // preserving user-added model IDs.
     let catalogChanged = false
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const storedModels = provider.models || []
       const current = storedModels.filter((model) => {

@@ -513,9 +513,10 @@ export const useNodeStore = defineStore('node', () => {
     const modelId = data.model || 'doubao-seedance-2-0-260128'
     const isOmni = modelId === 'gemini-omni'
     const isQilingSeedance25 = providerConfig.kind === 'qiling' && /^SD2\.5-/i.test(modelId)
+    const isAiideSeedance25 = providerConfig.kind === 'aiide' && modelId === 'dreamina-seedance-2-5-hc'
     let qilingMedia: { images: string[]; videos: string[]; audios: string[]; prompt?: string }
     try {
-      qilingMedia = isQilingSeedance25
+      qilingMedia = isQilingSeedance25 || isAiideSeedance25
         ? prepareQilingReferences(nodeId, nodes.value, edges.value)
         : { images: [], videos: [], audios: [] }
     } catch (error) {
@@ -525,7 +526,7 @@ export const useNodeStore = defineStore('node', () => {
 
     // 合并所有参考图：上游 ai-image 节点输出 + 节点 inputImages 多图列表，去重后保留顺序
     const refImages: string[] = []
-    if (isQilingSeedance25) {
+    if (isQilingSeedance25 || isAiideSeedance25) {
       refImages.push(...qilingMedia.images)
       if (qilingMedia.videos.length) videoUrl = qilingMedia.videos[0]
     } else {
@@ -537,8 +538,16 @@ export const useNodeStore = defineStore('node', () => {
         }
       }
     }
-    const refVideos = isQilingSeedance25 ? [...qilingMedia.videos] : []
-    const refAudios = isQilingSeedance25 ? [...qilingMedia.audios] : []
+    const refVideos = isQilingSeedance25 || isAiideSeedance25 ? [...qilingMedia.videos] : []
+    const refAudios = isQilingSeedance25 || isAiideSeedance25 ? [...qilingMedia.audios] : []
+
+    if (isAiideSeedance25) {
+      const total = refImages.length + refVideos.length + refAudios.length
+      if (total > 50) {
+        failNode(nodeId, `AIIDE Seedance 2.5 HC 最多支持 50 项参考素材，当前 ${total} 项`)
+        return
+      }
+    }
 
     if (isQilingSeedance25 && isQilingGfModel(modelId)) {
       if (refImages.length > 10 || refVideos.length > 5 || refAudios.length > 5) {
@@ -567,7 +576,7 @@ export const useNodeStore = defineStore('node', () => {
     }
 
     // 视频素材由 Gemini Omni 和器灵 SD2.5 满血线路支持，其他旧模型继续明确提示。
-    if (videoUrl && !isOmni && !isQilingSeedance25) {
+    if (videoUrl && !isOmni && !isQilingSeedance25 && !isAiideSeedance25) {
       updateNodeData(nodeId, {
         status: 'error',
         error: '当前模型不支持视频编辑，请切换到 Gemini Omni',
@@ -579,15 +588,23 @@ export const useNodeStore = defineStore('node', () => {
     //   gemini-omni：t2v / r2v（参考图/素材） / edit（视频编辑）
     //   seedance 系：t2v / reference_material（火山方舟兼容入参）
     //   都没参考素材 → t2v
-    const mode: 't2v' | 'reference_material' | 'r2v' | 'edit' = videoUrl
-      ? 'edit'
-      : refImages.length > 0
-      ? isOmni
-        ? 'r2v'
-        : 'reference_material'
-      : 't2v'
+    const mode: 't2v' | 'reference_material' | 'r2v' | 'edit' | 'extend' = isAiideSeedance25
+      ? videoUrl && data.videoMode === 'extend'
+        ? 'extend'
+        : videoUrl && data.videoMode === 'edit'
+          ? 'edit'
+          : refImages.length || refVideos.length || refAudios.length
+            ? 'reference_material'
+            : 't2v'
+      : videoUrl
+        ? 'edit'
+        : refImages.length > 0
+          ? isOmni
+            ? 'r2v'
+            : 'reference_material'
+          : 't2v'
     // 器灵保留与实际素材数组一致的编号和名称，不能删除角色绑定。
-    const promptText = isQilingSeedance25
+    const promptText = isQilingSeedance25 || isAiideSeedance25
       ? qilingMedia.prompt || ''
       : (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
 
@@ -595,7 +612,7 @@ export const useNodeStore = defineStore('node', () => {
       failNode(nodeId, '请输入提示词')
       return
     }
-    if (mode === 'edit' && !promptText) {
+    if ((mode === 'edit') && !promptText) {
       failNode(nodeId, '视频编辑需要写明修改意见')
       return
     }
@@ -661,14 +678,14 @@ export const useNodeStore = defineStore('node', () => {
         return
       }
     }
-    if (isQilingSeedance25 && refVideos.length) videoUrl = refVideos[0]
+    if ((isQilingSeedance25 || isAiideSeedance25) && refVideos.length) videoUrl = refVideos[0]
 
     // 构造 content 数组。器灵 SD2.5 需要把三类参考素材全部放入请求，
     // 旧协议仍保持原来的单源视频 / 多图结构。
     const content: import('@/services/ai-provider').ContentItem[] = []
-    if (mode !== 't2v' || (isQilingSeedance25 && (refImages.length || refVideos.length || refAudios.length))) {
+    if (mode !== 't2v' || ((isQilingSeedance25 || isAiideSeedance25) && (refImages.length || refVideos.length || refAudios.length))) {
       if (promptText) content.push({ type: 'text', text: promptText })
-      if (isQilingSeedance25) {
+      if (isQilingSeedance25 || isAiideSeedance25) {
         refVideos.forEach((u, idx) => {
           content.push({ type: 'video_url', video_url: u, role: idx === 0 ? 'source_video' : 'reference_video', name: String(idx + 1) })
         })

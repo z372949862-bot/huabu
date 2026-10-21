@@ -1923,6 +1923,10 @@ const isDmxApi25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'dmxapi' && selectedModel.value === 'doubao-seedance-2-5-260628'
 })
+const isAiideSeedance25 = computed(() => {
+  const config = aiStore.getProviderConfig(selectedProviderId.value)
+  return props.type === 'ai-video' && config?.kind === 'aiide' && selectedModel.value === 'dreamina-seedance-2-5-hc'
+})
 const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
   currentTab.value === 'video-edit' ? 'edit' : currentTab.value === 'video-extend' ? 'extend' : 'reference'
 )
@@ -2074,6 +2078,8 @@ const hasVideoInput = computed(() => allAssets.value.some(asset => asset.type ==
 const referenceCapacityHint = computed(() => {
   if (props.type !== 'ai-video' || !currentModelCapabilities.value) return ''
   const caps = currentModelCapabilities.value
+  const total = allAssets.value.filter(asset => ['image', 'video', 'audio'].includes(asset.type)).length
+  if (caps.maxTotalReferences) return `参考素材 ${total}/${caps.maxTotalReferences}`
   const parts = [
     caps.maxImages ? `图片 ${allAssets.value.filter(asset => asset.type === 'image').length}/${caps.maxImages}` : '',
     caps.maxVideos ? `视频 ${allAssets.value.filter(asset => asset.type === 'video').length}/${caps.maxVideos}` : '',
@@ -2110,7 +2116,7 @@ const shouldShowUploadPrompt = computed(() => {
 const videoTabs = computed(() => [
   { label: '文生视频', value: 'text-to-video', disabled: hasAnyInput.value },
   { label: '全能参考', value: 'universal-ref', disabled: !hasAnyInput.value },
-  ...(isDmxApi25.value ? [
+  ...(isDmxApi25.value || isAiideSeedance25.value ? [
     { label: '图生视频', value: 'image-to-video', disabled: !hasImageInput.value },
     { label: '首尾帧', value: 'first-last-frame', disabled: !hasImageInput.value },
     { label: '视频编辑', value: 'video-edit', disabled: !hasVideoInput.value },
@@ -2146,8 +2152,8 @@ watch([hasAnyInput, hasImageInput], ([anyInput, imageInput]) => {
   }
 })
 
-watch(isDmxApi25, (enabled) => {
-  if (!enabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
+watch([isDmxApi25, isAiideSeedance25], ([dmxEnabled, aiideEnabled]) => {
+  if (!dmxEnabled && !aiideEnabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
     currentTab.value = 'text-to-video'
   }
 })

@@ -18,6 +18,7 @@ export interface VideoModelCapabilities {
   maxImages?: number
   maxVideos?: number
   maxAudios?: number
+  maxTotalReferences?: number
 }
 
 export interface VideoModel {

@@ -57,6 +57,7 @@
           <option value="dmxapi">DMXAPI · Seedance 2.5 (dmxapi.cn)</option>
           <option value="qiling">器灵 (api.qilingze.com)</option>
           <option value="fmgo">FMGO API · Feimiao 2.5 (api.fmgo.top)</option>
+          <option value="aiide">AIIDE · Seedance 2.5 HC</option>
         </select>
         <select
           v-else-if="activeTab === 'text'"
@@ -345,7 +346,9 @@ const addProviderClick = () => {
     })
   } else {
     const kind = newVideoKind.value
-    const baseName = kind === 'unmau'
+    const baseName = kind === 'aiide'
+      ? 'AIIDE · Seedance 2.5 HC'
+      : kind === 'unmau'
       ? 'New API · Seedance 2.5'
       : kind === 'fmgo'
         ? 'FMGO API · Feimiao 2.5'

@@ -115,7 +115,7 @@ const availableRatios = computed(() => {
 
 const availableResolutions = computed(() => {
   const supported = props.capabilities?.resolutions
-  return supported?.length ? supported : fallbackResolutions
+  return supported !== undefined ? supported : fallbackResolutions
 })
 
 function canonical(value: string | undefined, values: string[], fallback: string) {
