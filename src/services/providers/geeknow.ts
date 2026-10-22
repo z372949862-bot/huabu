@@ -26,7 +26,7 @@ export interface GenerateImageParams {
   /** 期望比例，例如 '16:9'。模型不支持时调用方自行兜底。 */
   aspectRatio?: string
   /** 期望分辨率档位，'1K' / '2K'。Gemini 3 Pro 才支持 2K。 */
-  imageSize?: '1K' | '2K' | '4K'
+  imageSize?: '1K' | '1.5K' | '2K' | '4K'
   /** 出图数量（OpenAI 兼容路径用），默认 1。 */
   n?: number
   /** Negative prompt — what to avoid. OpenAI/doubao/grok/seedream 走 body.negative_prompt；Gemini 拼到 prompt 末尾 "(avoid: ...)"。 */

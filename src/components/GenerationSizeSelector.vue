@@ -66,6 +66,7 @@ interface Props {
   modelValue?: string
   resolution?: string
   capabilities?: VideoModelCapabilities
+  defaultResolution?: string
   label?: string
   placement?: 'up' | 'down'
   allowAuto?: boolean
@@ -75,6 +76,7 @@ const props = withDefaults(defineProps<Props>(), {
   modelValue: '16:9',
   resolution: '',
   capabilities: undefined,
+  defaultResolution: '',
   label: '视频尺寸',
   placement: 'up',
   allowAuto: true,
@@ -124,6 +126,7 @@ function canonical(value: string | undefined, values: string[], fallback: string
 }
 
 function preferredResolution(values: string[]) {
+  if (props.defaultResolution && values.includes(props.defaultResolution)) return props.defaultResolution
   return values.find(value => value.toLowerCase() === '720p')
     || values.find(value => value.toLowerCase() === '2k')
     || values[Math.floor((values.length - 1) / 2)]

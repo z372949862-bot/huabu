@@ -3,6 +3,7 @@
  *
  * - geeknow：GeekNow OpenAI Images 兼容模型
  * - chuhaiying：出海营中转站（api.aiid.edu.kg）的 GPT Image 模型
+ * - luoci：洛辞 Seedream 5 Pro Uncensored API
  *
  * 每个模型带 endpointStyle 决定走哪条 URL：
  * - 'openai'  → POST {base}/v1/images/generations
@@ -11,7 +12,7 @@
 
 import type { VideoModelCapabilities } from './videoModelService'
 
-export type ImageProviderKind = 'geeknow' | 'chuhaiying'
+export type ImageProviderKind = 'geeknow' | 'chuhaiying' | 'luoci'
 
 export interface ImageModelTemplate {
   id: string
@@ -22,7 +23,7 @@ export interface ImageModelTemplate {
   supportsReferenceImage: boolean
   supportsImageSize2K?: boolean
   /** 模型自己的实际 WxH 尺寸表；未声明时使用通用映射。 */
-  sizeMaps?: Partial<Record<'1K' | '2K' | '4K', Record<string, string>>>
+  sizeMaps?: Partial<Record<'1K' | '1.5K' | '2K' | '4K', Record<string, string>>>
   /** GPT Image VIP 建议省略 response_format，让网关自行返回 URL 或 Base64。 */
   omitResponseFormat?: boolean
   /** 对外只对 kling 系列等需要 model_name 的模型才填 */
@@ -131,15 +132,34 @@ export const CHUHAIYING_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
   },
 ]
 
+/** 洛辞 API 默认图片模型。洛辞直接接收 aspectRatio/imageSize。 */
+export const LUOCI_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
+  {
+    id: 'seedream-5-pro',
+    name: 'Seedream 5 Pro Uncensored',
+    description: '洛辞 Seedream 5 Pro（1K / 1.5K / 2K）',
+    capabilities: {
+      ratios: ['1:1', '9:16', '16:9', '3:4', '4:3', '2:3', '3:2', '21:9'],
+      resolutions: ['1K', '1.5K', '2K'],
+    },
+    endpointStyle: 'openai',
+    supportsReferenceImage: true,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
+  },
+]
+
 const TEMPLATES_BY_KIND: Record<ImageProviderKind, ImageModelTemplate[]> = {
   geeknow: GEEKNOW_IMAGE_MODEL_TEMPLATES,
   chuhaiying: CHUHAIYING_IMAGE_MODEL_TEMPLATES,
+  luoci: LUOCI_IMAGE_MODEL_TEMPLATES,
 }
 
 /** 兼容旧代码：未带 kind 时返回全部，主要用于 store 的 addModel 兜底查询。 */
 export const IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
   ...GEEKNOW_IMAGE_MODEL_TEMPLATES,
   ...CHUHAIYING_IMAGE_MODEL_TEMPLATES,
+  ...LUOCI_IMAGE_MODEL_TEMPLATES,
 ]
 
 export function getImageTemplatesByKind(kind: ImageProviderKind): ImageModelTemplate[] {
@@ -197,7 +217,7 @@ const RATIO_TO_SIZE_4K: Record<string, string> = {
 /** Convert the selected resolution tier into the provider's OpenAI-compatible size. */
 export function ratioToSize(
   ratio: string,
-  resolution: '1K' | '2K' | '4K' | boolean = '1K',
+  resolution: '1K' | '1.5K' | '2K' | '4K' | boolean = '1K',
   sizeMaps?: ImageModelTemplate['sizeMaps'],
 ): string {
   const tier = typeof resolution === 'boolean' ? (resolution ? '2K' : '1K') : resolution
