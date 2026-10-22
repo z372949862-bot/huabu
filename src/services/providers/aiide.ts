@@ -156,7 +156,9 @@ export function buildAiideSeedanceBody(params: CreateTaskParams): Record<string,
     prompt,
     metadata: {
       content,
-      generate_audio: params.generate_audio === true,
+      // AIIDE's documented Seedance 2.5 HC request enables native audio by
+      // default. Callers can still opt out explicitly with false.
+      generate_audio: params.generate_audio !== false,
       ratio,
       resolution,
       duration: safeDuration,

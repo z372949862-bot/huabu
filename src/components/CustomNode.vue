@@ -366,7 +366,7 @@
               <div v-if="videoAdvancedOpen" class="advanced-panel video-advanced-panel" @click.stop @mousedown.stop>
                 <label v-if="audioGenerationSupported" class="advanced-switch-field">
                   <span><strong>生成音频</strong><small>成片同时生成音轨</small></span>
-                  <button type="button" class="switch-control" :class="{ active: data.generateAudio === true }" :aria-pressed="data.generateAudio === true" @click.stop="onAudioChange(data.generateAudio !== true)"><span></span></button>
+                  <button type="button" class="switch-control" :class="{ active: audioEnabled }" :aria-pressed="audioEnabled" @click.stop="onAudioChange(!audioEnabled)"><span></span></button>
                 </label>
                 <div v-if="frameRateSupported" class="advanced-select-field">
                   <span><strong>帧率</strong><small>按中转站支持的帧率提交</small></span>
@@ -414,7 +414,7 @@
               <template v-else-if="type === 'ai-image'">
                 <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
                 <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
-                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
+                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :default-resolution="selectedModel === 'seedream-5-pro' ? '1K' : undefined" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
@@ -1946,6 +1946,9 @@ const currentModelCapabilities = computed(() => {
 
 const audioGenerationSupported = computed(() =>
   props.type === 'ai-video' && currentModelCapabilities.value?.audioGeneration === true
+)
+const audioEnabled = computed(() =>
+  isAiideSeedance25.value ? props.data.generateAudio !== false : props.data.generateAudio === true
 )
 const frameRateSupported = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)

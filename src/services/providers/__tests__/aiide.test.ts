@@ -74,6 +74,19 @@ describe('Aiide Seedance 2.5 HC', () => {
     })).toThrow('仅支持 480p 或 720p')
   })
 
+  it('enables native audio by default while allowing an explicit opt-out', () => {
+    expect(buildAiideSeedanceBody({
+      model: AIIDE_SEEDANCE_25_MODEL,
+      prompt: '默认带音频',
+    }).metadata).toMatchObject({ generate_audio: true })
+
+    expect(buildAiideSeedanceBody({
+      model: AIIDE_SEEDANCE_25_MODEL,
+      prompt: '关闭音频',
+      generate_audio: false,
+    }).metadata).toMatchObject({ generate_audio: false })
+  })
+
   it.each([4, 30])('accepts the confirmed %s-second duration boundary', duration => {
     const body = buildAiideSeedanceBody({
       model: AIIDE_SEEDANCE_25_MODEL,
