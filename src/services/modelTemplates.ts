@@ -88,7 +88,7 @@ export const AIIDE_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
     capabilities: {
       ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
       // The documented Aiide multimodal endpoint does not accept a resolution field.
-      resolutions: [],
+      resolutions: ['480p', '720p'],
       durationRange: { min: 4, max: 30 },
       audioGeneration: true,
       maxTotalReferences: 50,
