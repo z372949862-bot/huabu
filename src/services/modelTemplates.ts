@@ -87,8 +87,7 @@ export const AIIDE_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
     description: 'Aiide 接口，支持 4–30 秒、多模态参考、视频编辑与延长，最多 50 项参考素材',
     capabilities: {
       ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
-      // The documented Aiide multimodal endpoint does not accept a resolution field.
-      resolutions: [],
+      resolutions: ['480p', '720p'],
       durationRange: { min: 4, max: 30 },
       audioGeneration: true,
       maxTotalReferences: 50,

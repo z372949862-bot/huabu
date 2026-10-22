@@ -6,19 +6,24 @@ import {
   buildAiideSeedanceBody,
   mapAiideTaskResponse,
 } from '../aiide'
+import { AIIDE_VIDEO_MODEL_TEMPLATES } from '../../modelTemplates'
 
 const apiKey = 'aiide-test-token'
 
 describe('Aiide Seedance 2.5 HC', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('builds the documented multimodal request and omits unsupported resolution', () => {
+  it('advertises only the supported 480p and 720p options', () => {
+    expect(AIIDE_VIDEO_MODEL_TEMPLATES[0].capabilities.resolutions).toEqual(['480p', '720p'])
+  })
+
+  it('builds the documented multimodal request with the selected resolution', () => {
     const body = buildAiideSeedanceBody({
       model: AIIDE_SEEDANCE_25_MODEL,
       prompt: '按参考视频的节奏生成，保留图片中的人物。',
       ratio: '9:16',
       duration: 10,
-      resolution: '1080p',
+      resolution: '480p',
       generate_audio: true,
       content: [
         { type: 'text', text: '请求内单独的 prompt 字段承载文本' },
@@ -39,10 +44,34 @@ describe('Aiide Seedance 2.5 HC', () => {
         ],
         generate_audio: true,
         ratio: '9:16',
+        resolution: '480p',
         duration: 10,
         watermark: false,
       },
     })
+  })
+
+  it.each(['480p', '720p'])('includes the supported %s resolution', resolution => {
+    const body = buildAiideSeedanceBody({
+      model: AIIDE_SEEDANCE_25_MODEL,
+      prompt: '测试分辨率',
+      resolution,
+    })
+
+    expect(body.metadata).toMatchObject({ resolution })
+  })
+
+  it('defaults to 720p and rejects unsupported resolutions', () => {
+    expect(buildAiideSeedanceBody({
+      model: AIIDE_SEEDANCE_25_MODEL,
+      prompt: '默认清晰度',
+    }).metadata).toMatchObject({ resolution: '720p' })
+
+    expect(() => buildAiideSeedanceBody({
+      model: AIIDE_SEEDANCE_25_MODEL,
+      prompt: '不支持的清晰度',
+      resolution: '1080p',
+    })).toThrow('仅支持 480p 或 720p')
   })
 
   it.each([4, 30])('accepts the confirmed %s-second duration boundary', duration => {
@@ -94,6 +123,7 @@ describe('Aiide Seedance 2.5 HC', () => {
       model: AIIDE_SEEDANCE_25_MODEL,
       prompt: '轻轻转身',
       duration: 8,
+      resolution: '720p',
     })).resolves.toEqual({ taskId: 'task-aiide-123' })
 
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -101,7 +131,11 @@ describe('Aiide Seedance 2.5 HC', () => {
     expect(url).toBe(`${AIIDE_BASE}/v1/video/generations`)
     expect(init.method).toBe('POST')
     expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${apiKey}`)
-    expect(JSON.parse(init.body)).toMatchObject({ model: AIIDE_SEEDANCE_25_MODEL, prompt: '轻轻转身' })
+    expect(JSON.parse(init.body)).toMatchObject({
+      model: AIIDE_SEEDANCE_25_MODEL,
+      prompt: '轻轻转身',
+      metadata: { resolution: '720p' },
+    })
   })
 
   it('reads the documented nested task status and output video URL', () => {

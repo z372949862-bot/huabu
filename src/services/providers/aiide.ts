@@ -147,6 +147,10 @@ export function buildAiideSeedanceBody(params: CreateTaskParams): Record<string,
   }
   const requestedRatio = String(params.ratio || '16:9').toLowerCase()
   const ratio = ['auto', 'adaptive'].includes(requestedRatio) ? '16:9' : requestedRatio
+  const resolution = String(params.resolution || '720p').trim().toLowerCase()
+  if (!['480p', '720p'].includes(resolution)) {
+    throw new Error('Dreamina Seedance 2.5 HC 仅支持 480p 或 720p')
+  }
   return {
     model: params.model || AIIDE_SEEDANCE_25_MODEL,
     prompt,
@@ -154,6 +158,7 @@ export function buildAiideSeedanceBody(params: CreateTaskParams): Record<string,
       content,
       generate_audio: params.generate_audio === true,
       ratio,
+      resolution,
       duration: safeDuration,
       watermark: false,
     },
