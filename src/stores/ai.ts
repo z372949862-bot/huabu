@@ -10,6 +10,7 @@ import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
 import { AiideSeedanceProvider, AIIDE_BASE } from '@/services/providers/aiide'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
+import { LuociImageProvider } from '@/services/providers/luoci'
 import { OpenAIChatProvider, type LLMProvider } from '@/services/providers/chatProvider'
 import {
   getModelTemplatesByKind,
@@ -55,7 +56,7 @@ export interface Provider {
   id: string
   name: string
   type: ProviderType
-  /** image: 'geeknow' | 'chuhaiying'；video: 'seedance' | 'chuhaiying'。老数据可能没有，按 type 兜底。 */
+  /** image: 'geeknow' | 'chuhaiying' | 'luoci'；video kinds are provider-specific. */
   kind?: ProviderKind
   baseUrl: string
   apiKey: string
@@ -78,6 +79,7 @@ const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const IMAGE_DEFAULT_BASE_URL: Record<ImageProviderKind, string> = {
   geeknow: 'https://www.geeknow.top',
   chuhaiying: 'https://api.aiid.edu.kg',
+  luoci: 'https://luocisheng.cn',
 }
 const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   seedance: 'https://api.aiid.edu.kg',
@@ -90,7 +92,7 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   fmgo: FMGO_BASE,
   aiide: AIIDE_BASE,
 }
-const CURRENT_MIGRATION = 13
+const CURRENT_MIGRATION = 14
 
 declare global {
   interface Window {
@@ -143,6 +145,7 @@ function defaultImageModelSet(kind: ImageProviderKind): ProviderModel[] {
 
 /** 把存档里宽松的 kind 收窄成 image kind（未知 / undefined → 'geeknow'）。 */
 function imageKindOf(conf: Provider): ImageProviderKind {
+  if (conf.kind === 'luoci') return 'luoci'
   return conf.kind === 'chuhaiying' ? 'chuhaiying' : 'geeknow'
 }
 
@@ -231,9 +234,11 @@ export const useAIStore = defineStore('ai', () => {
     let inst = imageCache.get(id)
     if (!inst) {
       const kind = imageKindOf(conf)
-      inst = kind === 'chuhaiying'
-        ? new ChuhaiyingImageProvider(conf.apiKey, conf.baseUrl)
-        : new GeekNowImageProvider(conf.apiKey, conf.baseUrl)
+      inst = kind === 'luoci'
+        ? new LuociImageProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'chuhaiying'
+          ? new ChuhaiyingImageProvider(conf.apiKey, conf.baseUrl)
+          : new GeekNowImageProvider(conf.apiKey, conf.baseUrl)
       imageCache.set(id, inst)
     } else {
       inst.setApiKey(conf.apiKey)
@@ -283,13 +288,13 @@ export const useAIStore = defineStore('ai', () => {
 
     if (type === 'image') {
       const imgKind: ImageProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'geeknow')
+        (input.kind === 'chuhaiying' || input.kind === 'geeknow' || input.kind === 'luoci')
           ? input.kind
           : 'geeknow'
       kind = imgKind
       defaultBase = IMAGE_DEFAULT_BASE_URL[imgKind]
       defaultModels = defaultImageModelSet(imgKind)
-      defaultName = imgKind === 'chuhaiying' ? '出海营' : 'GeekNow'
+      defaultName = imgKind === 'chuhaiying' ? '出海营' : imgKind === 'luoci' ? '洛辞 API' : 'GeekNow'
     } else if (type === 'text') {
       const textKind: TextProviderKind =
         (input.kind === 'deepseek' || input.kind === 'openaichat')

@@ -414,7 +414,7 @@
               <template v-else-if="type === 'ai-image'">
                 <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
                 <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
-                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
+                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :default-resolution="selectedModel === 'seedream-5-pro' ? '1K' : undefined" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->

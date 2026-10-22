@@ -42,6 +42,7 @@
         >
           <option value="chuhaiying">出海营 (aiid.edu.kg)</option>
           <option value="geeknow">GeekNow (geeknow.ai)</option>
+          <option value="luoci">洛辞 · Seedream 5 Pro Uncensored</option>
         </select>
         <select
           v-else-if="activeTab === 'video'"
@@ -252,7 +253,7 @@ const returnToCanvas = () => {
 
 const activeTab = ref<'video' | 'image' | 'text'>('video')
 // 添加图片中转站时选哪种 kind；默认 chuhaiying（最新接入）
-const newImageKind = ref<'geeknow' | 'chuhaiying'>('chuhaiying')
+const newImageKind = ref<'geeknow' | 'chuhaiying' | 'luoci'>('chuhaiying')
 // 添加文本中转站时选哪种 kind
 const newTextKind = ref<'deepseek' | 'openaichat'>('deepseek')
 // 添加视频中转站时选哪种 kind；默认 seedance（最常用）
@@ -328,7 +329,7 @@ const addProviderClick = () => {
   // 用户可以在卡片的"名称"输入框里改
   if (activeTab.value === 'image') {
     const kind = newImageKind.value
-    const baseName = kind === 'chuhaiying' ? '出海营' : 'GeekNow'
+    const baseName = kind === 'chuhaiying' ? '出海营' : kind === 'luoci' ? '洛辞 API' : 'GeekNow'
     const existingCount = aiStore.imageProviders.filter((p) => (p.kind || 'geeknow') === kind).length
     aiStore.addProvider({
       name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,

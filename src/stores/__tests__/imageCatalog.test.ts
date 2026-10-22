@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useAIStore } from '../ai'
+import { LuociImageProvider } from '../../services/providers/luoci'
 
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
@@ -24,6 +25,10 @@ it('migrates existing image catalogs without changing credentials, custom GPTs o
   expect(store.getProviderConfig('video')!.models).toEqual(video.models)
   const ch = store.addProvider({ name: 'CH', type: 'image', kind: 'chuhaiying' })
   expect(store.getProviderConfig(ch)!.models.map(m => m.id)).toEqual(['gpt-image-2-2k', 'gpt-image-2-4k'])
+  const luoci = store.addProvider({ name: '洛辞', type: 'image', kind: 'luoci' })
+  expect(store.getProviderConfig(luoci)!.baseUrl).toBe('https://luocisheng.cn')
+  expect(store.getProviderConfig(luoci)!.models.map(m => m.id)).toEqual(['seedream-5-pro'])
+  expect(store.getImageProvider(luoci)).toBeInstanceOf(LuociImageProvider)
   await vi.advanceTimersByTimeAsync(250)
   setActivePinia(createPinia())
   const reopened = useAIStore()

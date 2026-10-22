@@ -161,9 +161,11 @@ const ratioOptions: RatioOption[] = [
   { label: '1:1', value: '1:1', aspect: '1/1', icon: '□' },
   { label: '4:3', value: '4:3', aspect: '4/3', icon: '▭' },
   { label: '3:4', value: '3:4', aspect: '3/4', icon: '▯' },
+  { label: '3:2', value: '3:2', aspect: '3/2', icon: '▭' },
+  { label: '2:3', value: '2:3', aspect: '2/3', icon: '▯' },
 ]
 
-const resolutions = ['1K', '2K', '4K', '480p', '720p', '1080p']
+const resolutions = ['1K', '1.5K', '2K', '4K', '480p', '720p', '1080p']
 
 // 根据模型能力过滤可用的比例
 const availableRatios = computed(() => {

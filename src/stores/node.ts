@@ -941,7 +941,7 @@ export const useNodeStore = defineStore('node', () => {
         imageUrls: refImages,
         aspectRatio: data.ratio || '1:1',
         imageSize: modelMeta?.capabilities?.resolutions?.includes(String(data.resolution || '').toUpperCase())
-          ? String(data.resolution).toUpperCase() as '1K' | '2K' | '4K'
+          ? String(data.resolution).toUpperCase() as '1K' | '1.5K' | '2K' | '4K'
           : modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: allowSeed && typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: allowNegative && data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
