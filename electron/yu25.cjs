@@ -3,6 +3,14 @@ const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const {Readable}=require('stream');
 const {pipeline}=require('stream/promises');
 const BASE='https://api.yu25.xyz';
+function assertAsciiApiKey(apiKey){
+  assertAsciiApiKey(apiKey);
+  if(/[^\x00-\x7F]/.test(apiKey))throw new Error('YU25 API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容');
+}
+function safeMultipartFilename(fileName){
+  const ext=path.extname(String(fileName||'')).toLowerCase().replace(/[^a-z0-9.]/g,'');
+  return 'reference'+(/^\.[a-z0-9]{1,8}$/.test(ext)?ext:'.jpg');
+}
 function retryError(message){return Object.assign(new Error(message),{retryable:true});}
 function validateVideo(file,expectedBytes){
   const size=fs.statSync(file).size;
@@ -76,10 +84,11 @@ module.exports=function registerYu25({ipcMain,net,app}){
     }finally{if(journal!==undefined)fs.closeSync(journal);}
   }));
   ipcMain.handle('yu25:upload',wrap(async({apiKey,kind,data,fileName,mimeType})=>{
+    assertAsciiApiKey(apiKey);
     if(kind!=='image')throw new Error('YU25 sd2.5 系列仅支持图片参考');
     if(typeof data!=='string'||data.length>3*1024*1024)throw new Error('参考图片须压缩到 2 MB 以内');
     const bytes=Buffer.from(data,'base64');if(!bytes.length||bytes.length>2*1024*1024)throw new Error('参考图片为空或超过 2 MB');
-    const form=new FormData();form.append('image',new Blob([bytes],{type:mimeType||'image/jpeg'}),path.basename(fileName||'reference.jpg'));
+    const form=new FormData();form.append('image',new Blob([bytes],{type:mimeType||'image/jpeg'}),safeMultipartFilename(fileName));
     return request(apiKey,BASE+'/v1/temp-images',{method:'POST',body:form},60000,undefined,'upload');
   }));
   const downloads=new Map();

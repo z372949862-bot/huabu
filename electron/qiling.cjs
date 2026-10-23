@@ -5,6 +5,10 @@ const { Readable } = require('stream')
 const { pipeline } = require('stream/promises')
 
 const BASE = 'https://api.qilingze.com'
+function assertAsciiApiKey(apiKey) {
+  assertAsciiApiKey(apiKey)
+  if (/[^\x00-\x7F]/.test(apiKey)) throw new Error('器灵 API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容')
+}
 
 module.exports = function registerQiling({ ipcMain, net, app, uploadRetryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const downloads = new Map()

@@ -11,13 +11,21 @@ const ALLOWED_VIDEO_MODELS = new Set([
   'jd-seedance-2.5-480p', 'td-seedance-2.5-720p', 'xd-seedance-2.5-720p-301010',
   'xd-seedance-2.5-720p-101010', 'md2-seedance-2.5-480p', 'xd-seedance-2.5-720p',
 ]);
+function assertAsciiApiKey(apiKey) {
+  if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的 API Key');
+  if (/[^\x00-\x7F]/.test(apiKey)) throw new Error('API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容');
+}
+function safeMultipartFilename(fileName, fallback) {
+  const ext = path.extname(String(fileName || '')).toLowerCase().replace(/[^a-z0-9.]/g, '');
+  return 'reference' + (/^\.[a-z0-9]{1,8}$/.test(ext) ? ext : path.extname(fallback));
+}
 module.exports = function registerUnmau({ipcMain,net,app}) {
   const result = fn => async (_event,args) => {
     try {return {ok:true,data:await fn(args || {})};}
     catch(error) {return {ok:false,error:error.message || 'New API 请求失败',retryable:!!error.retryable};}
   };
   async function request(apiKey, route, options = {}, timeout = 120000, consume = response => response.json()) {
-    if (!apiKey || typeof apiKey !== 'string' || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的 API Key');
+    assertAsciiApiKey(apiKey);
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(),timeout);
     try {
       const response = await net.fetch(BASE + route,{...options,signal:controller.signal,headers:{...options.headers,Authorization:`Bearer ${apiKey.trim()}`}});
@@ -42,11 +50,12 @@ module.exports = function registerUnmau({ipcMain,net,app}) {
     return request(apiKey,route,creating ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {method:'GET'});
   }));
   ipcMain.handle('unmau:upload',result(async ({apiKey,data,fileName,mimeType}) => {
+    assertAsciiApiKey(apiKey);
     if(typeof data !== 'string' || data.length > 28 * 1024 * 1024)throw new Error('单个参考素材不能超过 20 MB');
     const bytes=Buffer.from(data,'base64');
     if(!bytes.length || bytes.length>20*1024*1024)throw new Error('参考素材为空或超过 20 MB');
     const form=new FormData();
-    form.append('file',new Blob([bytes],{type:mimeType || 'application/octet-stream'}),path.basename(fileName || 'reference.bin'));
+    form.append('file',new Blob([bytes],{type:mimeType || 'application/octet-stream'}),safeMultipartFilename(fileName, 'reference.bin'));
     return request(apiKey,'/v1/materials',{method:'POST',body:form});
   }));
   const downloads = new Map();

@@ -6,6 +6,10 @@ const { pipeline } = require('stream/promises')
 
 const BASE = 'https://api.fmgo.top'
 const MODELS = new Set(['feimiao-v2.5-720p-30s'])
+function assertAsciiApiKey(apiKey) {
+  if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的 FMGO API Key')
+  if (/[^\x00-\x7F]/.test(apiKey)) throw new Error('FMGO API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容')
+}
 
 module.exports = function registerFmgo({ ipcMain, net, app }) {
   const downloads = new Map()
@@ -92,7 +96,7 @@ module.exports = function registerFmgo({ ipcMain, net, app }) {
   }
 
   ipcMain.handle('fmgo:download', wrap(async ({ apiKey, taskId, videoUrl }) => {
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的 FMGO API Key')
+    assertAsciiApiKey(apiKey)
     if (typeof videoUrl !== 'string' || !videoUrl || videoUrl.length > 8192) throw Object.assign(new Error('FMGO 尚未返回可下载的视频地址'), { retryable: true })
     const parsed = new URL(videoUrl)
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('FMGO 返回的视频地址无效')
