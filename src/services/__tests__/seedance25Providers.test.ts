@@ -9,7 +9,39 @@ import {
 import { YU25_MODELS, adaptYu25CreateBody, buildYu25Body, mapYu25Task } from '../providers/yu25'
 import { XINSHUJU_MODELS, adaptXinshujuCreateBody, buildXinshujuBody, mapXinshujuTask } from '../providers/xinshuju'
 import { FMGO_MODELS, buildFmgoBody, mapFmgoTask } from '../providers/fmgo'
+import { AIMI_MODELS, adaptAimiCreateBody, buildAimiBody, mapAimiTask } from '../providers/aimi'
 import { getModelTemplatesByKind } from '../modelTemplates'
+
+describe('AIMI Seedance 2.5 adapter', () => {
+  it('registers the four supported models and translates references and JL audio', () => {
+    expect(AIMI_MODELS.map(model => model.id)).toEqual(['JL-seedance-2.5-480p', 'JL-seedance-2.5-720p', 'sd2.5-n-480p', 'sd2.5-n-720p'])
+    expect(getModelTemplatesByKind('aimi')).toEqual(AIMI_MODELS)
+    const body = buildAimiBody({ model: 'JL-seedance-2.5-480p', prompt: 'scene', duration: 5, resolution: '480p' }, {
+      images: ['https://example.com/a.png'], videos: ['https://example.com/b.mp4'], audios: ['https://example.com/c.mp3'],
+    })
+    expect(adaptAimiCreateBody(body)).toEqual({
+      model: 'JL-seedance-2.5-480p', prompt: 'scene', seconds: 5, resolution: '480p', aspect_ratio: '16:9',
+      reference_image_urls: ['https://example.com/a.png'], reference_video_urls: ['https://example.com/b.mp4'],
+      reference_audio_urls: ['https://example.com/c.mp3'], enable_audio: true,
+    })
+  })
+
+  it('validates each model contract and exposes sd2.5-n audio generation', () => {
+    expect(() => buildAimiBody({ model: 'JL-seedance-2.5-480p', prompt: 'scene', duration: 4 }, { images: [], videos: [], audios: [] })).toThrow('5–30')
+    expect(() => buildAimiBody({ model: 'sd2.5-n-480p', prompt: 'scene', duration: 5, resolution: '720p' }, { images: [], videos: [], audios: [] })).toThrow('仅支持 480p')
+    expect(() => buildAimiBody({ model: 'sd2.5-n-480p', prompt: 'scene', duration: 5 }, { images: [], videos: [], audios: ['https://example.com/a.mp3'] })).toThrow('必须搭配')
+    const sd = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4 }, { images: [], videos: [], audios: [] })
+    expect(adaptAimiCreateBody(sd).enable_audio).toBe(true)
+    const mutedSd = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4, generateAudio: false }, { images: [], videos: [], audios: [] })
+    expect(adaptAimiCreateBody(mutedSd).enable_audio).toBe(false)
+  })
+
+  it('normalizes async task states and result URLs', () => {
+    expect(mapAimiTask({ data: { status: 'queued', progress: 0.25 } })).toMatchObject({ status: 'pending', progress: 25 })
+    expect(mapAimiTask({ status: 'completed', metadata: { url: 'https://example.com/video.mp4' } })).toMatchObject({ status: 'completed', videoUrl: 'https://example.com/video.mp4' })
+    expect(mapAimiTask({ status: 'failed', error: { message: 'rejected' } })).toMatchObject({ status: 'failed', error: 'rejected' })
+  })
+})
 
 describe('FMGO Feimiao 2.5 adapter', () => {
   it('registers the fixed 720p 30-second model with a 30-image cap', () => {

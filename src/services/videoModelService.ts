@@ -15,6 +15,7 @@ export interface VideoModelCapabilities {
   }
   durationOptions?: number[]
   audioGeneration?: boolean
+  audioGenerationDefault?: boolean
   maxImages?: number
   maxVideos?: number
   maxAudios?: number

@@ -19,6 +19,7 @@ const jianying = require('./jianyingDraft.cjs')
 require('./unmau.cjs')({ ipcMain, net, app })
 require('./yu25.cjs')({ ipcMain, net, app })
 require('./fmgo.cjs')({ ipcMain, net, app })
+require('./aimi.cjs')({ ipcMain, net, app })
 require('./xinshuju.cjs')({ ipcMain, net, app })
 require('./qiling.cjs')({ ipcMain, net, app })
 const saveGeneratedVideo = require('./videoStorage.cjs').createVideoSaver({

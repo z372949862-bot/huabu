@@ -13,8 +13,9 @@ import { UNMAU_MODELS } from './providers/unmau'
 import { YU25_MODELS } from './providers/yu25'
 import { XINSHUJU_MODELS } from './providers/xinshuju'
 import { FMGO_MODELS } from './providers/fmgo'
+import { AIMI_MODELS } from './providers/aimi'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'aimi'
 
 export interface ModelTemplate {
   id: string
@@ -98,6 +99,9 @@ export const AIIDE_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
 
 /** FMGO API 视频模型 */
 export const FMGO_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = FMGO_MODELS
+
+/** AIMI Seedance 2.5 models. */
+export const AIMI_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = AIMI_MODELS
 
 /** 器灵中转站默认模型（仅 Seedance 系列） */
 export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
@@ -270,13 +274,14 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   dmxapi: DMXAPI_VIDEO_MODEL_TEMPLATES,
   fmgo: FMGO_VIDEO_MODEL_TEMPLATES,
   aiide: AIIDE_VIDEO_MODEL_TEMPLATES,
+  aimi: AIMI_VIDEO_MODEL_TEMPLATES,
 }
 
 /** 兼容旧代码：返回全部去重模板（按 id）。新代码用 getModelTemplatesByKind。 */
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

@@ -1948,7 +1948,9 @@ const audioGenerationSupported = computed(() =>
   props.type === 'ai-video' && currentModelCapabilities.value?.audioGeneration === true
 )
 const audioEnabled = computed(() =>
-  isAiideSeedance25.value ? props.data.generateAudio !== false : props.data.generateAudio === true
+  isAiideSeedance25.value || currentModelCapabilities.value?.audioGenerationDefault === true
+    ? props.data.generateAudio !== false
+    : props.data.generateAudio === true
 )
 const frameRateSupported = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
