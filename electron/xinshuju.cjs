@@ -7,7 +7,7 @@ const { pipeline } = require('stream/promises')
 const BASE = 'https://www.xinshuju.net'
 const MODELS = new Set(['2-seedance-2.5', '3-seedance-2.5-720p', '4-seedance-2.5-720p'])
 function assertAsciiApiKey(apiKey) {
-  assertAsciiApiKey(apiKey)
+  if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的心数据 API Key')
   if (/[^\x00-\x7F]/.test(apiKey)) throw new Error('心数据 API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容')
 }
 
@@ -21,7 +21,7 @@ module.exports = function registerXinshuju({ ipcMain, net, app }) {
     }
   }
   async function request(apiKey, route, options = {}, timeout = 120000, consume = response => response.json(), phase = 'poll') {
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的心数据 API Key')
+    assertAsciiApiKey(apiKey)
     const abort = new AbortController(), timer = setTimeout(() => abort.abort(), timeout)
     try {
       const response = await net.fetch(BASE + route, { ...options, signal: abort.signal, headers: { Accept: 'application/json', ...options.headers, Authorization: `Bearer ${apiKey.trim()}` } })

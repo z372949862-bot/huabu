@@ -8,6 +8,7 @@ import { XinshujuProvider } from '@/services/providers/xinshuju'
 import { DmxApiProvider } from '@/services/providers/dmxapi'
 import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
 import { AiideSeedanceProvider, AIIDE_BASE } from '@/services/providers/aiide'
+import { AimiProvider, AIMI_BASE } from '@/services/providers/aimi'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { LuociImageProvider } from '@/services/providers/luoci'
@@ -29,7 +30,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | AimiProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -91,8 +92,9 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   dmxapi: 'https://www.dmxapi.cn',
   fmgo: FMGO_BASE,
   aiide: AIIDE_BASE,
+  aimi: AIMI_BASE,
 }
-const CURRENT_MIGRATION = 14
+const CURRENT_MIGRATION = 15
 
 declare global {
   interface Window {
@@ -159,6 +161,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'dmxapi') return 'dmxapi'
   if (conf.kind === 'fmgo') return 'fmgo'
   if (conf.kind === 'aiide') return 'aiide'
+  if (conf.kind === 'aimi') return 'aimi'
   return 'seedance'
 }
 
@@ -209,6 +212,8 @@ export const useAIStore = defineStore('ai', () => {
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
         : kind === 'aiide'
           ? new AiideSeedanceProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'aimi'
+          ? new AimiProvider(conf.apiKey, conf.baseUrl)
         : kind === 'fmgo'
           ? new FmgoProvider(conf.apiKey, conf.baseUrl)
         : kind === 'dmxapi'
@@ -312,7 +317,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'aimi')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -322,6 +327,8 @@ export const useAIStore = defineStore('ai', () => {
         ? 'New API · Seedance 2.5'
         : vidKind === 'aiide'
           ? 'AIIDE · Seedance 2.5 HC'
+        : vidKind === 'aimi'
+          ? 'AIMI · Seedance 2.5'
         : vidKind === 'fmgo'
           ? 'FMGO API · Feimiao 2.5'
         : vidKind === 'xinshuju'
@@ -592,6 +599,9 @@ export const useAIStore = defineStore('ai', () => {
     if (migrationVersion.value < 9 && !providers.value.some((p) => p.type === 'video' && p.kind === 'xinshuju')) {
       addProvider({ name: '心数据 · Seedance 2.5', type: 'video', kind: 'xinshuju' })
     }
+    if (migrationVersion.value < 15 && !providers.value.some((p) => p.type === 'video' && p.kind === 'aimi')) {
+      addProvider({ name: 'AIMI · Seedance 2.5', type: 'video', kind: 'aimi' })
+    }
 
     // 一次性更新图片目录，保留中转站地址、密钥和用户自定义的 GPT 模型。
     if (migrationVersion.value < 12) {
@@ -618,7 +628,7 @@ export const useAIStore = defineStore('ai', () => {
     // preserving user-added model IDs.
     let catalogChanged = false
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'aimi')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const storedModels = provider.models || []
       const current = storedModels.filter((model) => {

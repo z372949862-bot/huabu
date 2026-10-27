@@ -514,9 +514,10 @@ export const useNodeStore = defineStore('node', () => {
     const isOmni = modelId === 'gemini-omni'
     const isQilingSeedance25 = providerConfig.kind === 'qiling' && /^SD2\.5-/i.test(modelId)
     const isAiideSeedance25 = providerConfig.kind === 'aiide' && modelId === 'dreamina-seedance-2-5-hc'
+    const isAimiSeedance25 = providerConfig.kind === 'aimi' && /^JL-seedance-2\.5-|^sd2\.5-n-/i.test(modelId)
     let qilingMedia: { images: string[]; videos: string[]; audios: string[]; prompt?: string }
     try {
-      qilingMedia = isQilingSeedance25 || isAiideSeedance25
+      qilingMedia = isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25
         ? prepareQilingReferences(nodeId, nodes.value, edges.value)
         : { images: [], videos: [], audios: [] }
     } catch (error) {
@@ -526,7 +527,7 @@ export const useNodeStore = defineStore('node', () => {
 
     // 合并所有参考图：上游 ai-image 节点输出 + 节点 inputImages 多图列表，去重后保留顺序
     const refImages: string[] = []
-    if (isQilingSeedance25 || isAiideSeedance25) {
+    if (isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25) {
       refImages.push(...qilingMedia.images)
       if (qilingMedia.videos.length) videoUrl = qilingMedia.videos[0]
     } else {
@@ -538,8 +539,8 @@ export const useNodeStore = defineStore('node', () => {
         }
       }
     }
-    const refVideos = isQilingSeedance25 || isAiideSeedance25 ? [...qilingMedia.videos] : []
-    const refAudios = isQilingSeedance25 || isAiideSeedance25 ? [...qilingMedia.audios] : []
+    const refVideos = isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25 ? [...qilingMedia.videos] : []
+    const refAudios = isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25 ? [...qilingMedia.audios] : []
 
     if (isAiideSeedance25) {
       const total = refImages.length + refVideos.length + refAudios.length
@@ -547,6 +548,10 @@ export const useNodeStore = defineStore('node', () => {
         failNode(nodeId, `AIIDE Seedance 2.5 HC 最多支持 50 项参考素材，当前 ${total} 项`)
         return
       }
+    }
+    if (isAimiSeedance25 && modelId.startsWith('sd2.5-n') && refAudios.length && !refImages.length) {
+      failNode(nodeId, 'sd2.5-n 参考音频必须搭配至少一张参考图')
+      return
     }
 
     if (isQilingSeedance25 && isQilingGfModel(modelId)) {
@@ -576,7 +581,7 @@ export const useNodeStore = defineStore('node', () => {
     }
 
     // 视频素材由 Gemini Omni 和器灵 SD2.5 满血线路支持，其他旧模型继续明确提示。
-    if (videoUrl && !isOmni && !isQilingSeedance25 && !isAiideSeedance25) {
+    if (videoUrl && !isOmni && !isQilingSeedance25 && !isAiideSeedance25 && !isAimiSeedance25) {
       updateNodeData(nodeId, {
         status: 'error',
         error: '当前模型不支持视频编辑，请切换到 Gemini Omni',
@@ -588,7 +593,7 @@ export const useNodeStore = defineStore('node', () => {
     //   gemini-omni：t2v / r2v（参考图/素材） / edit（视频编辑）
     //   seedance 系：t2v / reference_material（火山方舟兼容入参）
     //   都没参考素材 → t2v
-    const mode: 't2v' | 'reference_material' | 'r2v' | 'edit' | 'extend' = isAiideSeedance25
+    const mode: 't2v' | 'reference_material' | 'r2v' | 'edit' | 'extend' = isAiideSeedance25 || isAimiSeedance25
       ? videoUrl && data.videoMode === 'extend'
         ? 'extend'
         : videoUrl && data.videoMode === 'edit'
@@ -604,7 +609,7 @@ export const useNodeStore = defineStore('node', () => {
             : 'reference_material'
           : 't2v'
     // 器灵保留与实际素材数组一致的编号和名称，不能删除角色绑定。
-    const promptText = isQilingSeedance25 || isAiideSeedance25
+    const promptText = isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25
       ? qilingMedia.prompt || ''
       : (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
 
@@ -678,14 +683,14 @@ export const useNodeStore = defineStore('node', () => {
         return
       }
     }
-    if ((isQilingSeedance25 || isAiideSeedance25) && refVideos.length) videoUrl = refVideos[0]
+    if ((isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25) && refVideos.length) videoUrl = refVideos[0]
 
     // 构造 content 数组。器灵 SD2.5 需要把三类参考素材全部放入请求，
     // 旧协议仍保持原来的单源视频 / 多图结构。
     const content: import('@/services/ai-provider').ContentItem[] = []
     if (mode !== 't2v' || ((isQilingSeedance25 || isAiideSeedance25) && (refImages.length || refVideos.length || refAudios.length))) {
       if (promptText) content.push({ type: 'text', text: promptText })
-      if (isQilingSeedance25 || isAiideSeedance25) {
+      if (isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25) {
         refVideos.forEach((u, idx) => {
           content.push({ type: 'video_url', video_url: u, role: idx === 0 ? 'source_video' : 'reference_video', name: String(idx + 1) })
         })
@@ -790,6 +795,20 @@ export const useNodeStore = defineStore('node', () => {
                 taskId,
                 error: error instanceof Error ? `视频已生成，但下载到本地失败：${error.message}` : '视频已生成，但下载到本地失败',
                 })
+                return
+              }
+            }
+          }
+          if (providerConfig.kind === 'aimi') {
+            updateNodeData(nodeId, { progress: 99, taskId })
+            try {
+              outputVideo = await (provider as typeof provider & { download: (id: string, url?: string) => Promise<string> }).download(taskId, status.videoUrl)
+              if (!active()) return
+            } catch (error) {
+              if (!active()) return
+              if (!outputVideo) {
+                stop()
+                updateNodeData(nodeId, { status: 'error', progress: 99, taskId, error: error instanceof Error ? `视频已生成，但下载到本地失败：${error.message}` : '视频已生成，但下载到本地失败' })
                 return
               }
             }

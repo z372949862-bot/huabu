@@ -23,7 +23,7 @@ module.exports = function registerFmgo({ ipcMain, net, app }) {
   }
 
   async function request(apiKey, url, options = {}, timeout = 120000, consume = response => response.json(), phase = 'poll') {
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的 FMGO API Key')
+    assertAsciiApiKey(apiKey)
     const parsed = new URL(url, BASE)
     if (parsed.origin !== BASE || parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('FMGO 请求地址无效')
     const headers = { Accept: 'application/json', ...options.headers, Authorization: `Bearer ${apiKey.trim()}` }

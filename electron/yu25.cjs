@@ -4,7 +4,7 @@ const {Readable}=require('stream');
 const {pipeline}=require('stream/promises');
 const BASE='https://api.yu25.xyz';
 function assertAsciiApiKey(apiKey){
-  assertAsciiApiKey(apiKey);
+  if(typeof apiKey!=='string'||!apiKey.trim()||/[\r\n]/.test(apiKey))throw new Error('请填写有效的 YU25 API Key');
   if(/[^\x00-\x7F]/.test(apiKey))throw new Error('YU25 API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容');
 }
 function safeMultipartFilename(fileName){
@@ -34,7 +34,7 @@ function validateVideo(file,expectedBytes){
 module.exports=function registerYu25({ipcMain,net,app}){
   const wrap=fn=>async(_event,args)=>{try{return {ok:true,data:await fn(args||{})};}catch(error){let message=error.message||'YU25 请求失败';if(args?.apiKey)message=message.split(args.apiKey).join('[API Key]');return {ok:false,error:message,retryable:!!error.retryable};}};
   async function request(apiKey,url,options={},timeout=120000,consume=response=>response.json(),phase='poll'){
-    if(typeof apiKey!=='string'||!apiKey.trim()||/[\r\n]/.test(apiKey))throw new Error('请填写有效的 YU25 API Key');
+    assertAsciiApiKey(apiKey);
     const parsed=new URL(url);
     if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)throw new Error('YU25 返回的地址无效');
     const headers={Accept:'application/json',...options.headers};

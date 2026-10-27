@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     request: (payload) => ipcRenderer.invoke('fmgo:request', payload),
     download: (payload) => ipcRenderer.invoke('fmgo:download', payload),
   },
+  aimi: {
+    request: (payload) => ipcRenderer.invoke('aimi:request', payload),
+    upload: (payload) => ipcRenderer.invoke('aimi:upload', payload),
+    download: (payload) => ipcRenderer.invoke('aimi:download', payload),
+  },
   xinshuju: {
     request: (payload) => ipcRenderer.invoke('xinshuju:request', payload),
     download: (payload) => ipcRenderer.invoke('xinshuju:download', payload),
