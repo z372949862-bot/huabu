@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.3.22
+
+- 修复 AIMI sd2.5-n 提交时错误发送 `enable_audio` 导致 HTTP 400
+- sd2.5-n 保留参考音频输入；音频生成开关仅用于文档确认支持的 JL Seedance 2.5 型号
+
 ## 0.3.21
 
 - 接入 AIMI Seedance 2.5 JL 与 sd2.5-n 模型，提供 480p / 720p 选项

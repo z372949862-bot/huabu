@@ -9,8 +9,8 @@ const shared = { ratios, maxImages: 30, maxVideos: 10, maxAudios: 10 }
 export const AIMI_MODELS = [
   { id: 'JL-seedance-2.5-480p', name: 'JL Seedance 2.5 · 480P', description: '5–30 秒，参考素材 30 图 / 10 视频 / 10 音频，¥0.25/秒', capabilities: { ...shared, resolutions: ['480p'], durationRange: { min: 5, max: 30 }, audioGeneration: true, audioGenerationDefault: true } },
   { id: 'JL-seedance-2.5-720p', name: 'JL Seedance 2.5 · 720P', description: '4–30 秒，参考素材 30 图 / 10 视频 / 10 音频，¥0.40/秒', capabilities: { ...shared, resolutions: ['720p'], durationRange: { min: 4, max: 30 }, audioGeneration: true, audioGenerationDefault: true } },
-  { id: 'sd2.5-n-480p', name: 'Seedance 2.5 N · 480P', description: '4–30 秒，支持生成音频；参考音频须搭配参考图', capabilities: { ...shared, resolutions: ['480p'], durationRange: { min: 4, max: 30 }, audioGeneration: true, audioGenerationDefault: true } },
-  { id: 'sd2.5-n-720p', name: 'Seedance 2.5 N · 720P', description: '4–30 秒，支持生成音频；参考音频须搭配参考图', capabilities: { ...shared, resolutions: ['720p'], durationRange: { min: 4, max: 30 }, audioGeneration: true, audioGenerationDefault: true } },
+  { id: 'sd2.5-n-480p', name: 'Seedance 2.5 N · 480P', description: '4–30 秒；支持参考音频，须搭配参考图', capabilities: { ...shared, resolutions: ['480p'], durationRange: { min: 4, max: 30 } } },
+  { id: 'sd2.5-n-720p', name: 'Seedance 2.5 N · 720P', description: '4–30 秒；支持参考音频，须搭配参考图', capabilities: { ...shared, resolutions: ['720p'], durationRange: { min: 4, max: 30 } } },
 ]
 
 const modelById = new Map(AIMI_MODELS.map(model => [model.id, model]))
@@ -44,13 +44,14 @@ export function buildAimiBody(data, refs) {
 }
 
 export function adaptAimiCreateBody(body) {
+  const supportsAudioGeneration = /^JL-seedance-2\.5-/i.test(String(body.model || ''))
   return {
     model: body.model, prompt: body.prompt, seconds: body.seconds,
     resolution: body.resolution, aspect_ratio: body.aspect_ratio,
     ...(body.images ? { reference_image_urls: body.images } : {}),
     ...(body.videos ? { reference_video_urls: body.videos } : {}),
     ...(body.audios ? { reference_audio_urls: body.audios } : {}),
-    ...(body.generate_audio !== undefined ? { enable_audio: body.generate_audio } : {}),
+    ...(supportsAudioGeneration && body.generate_audio !== undefined ? { enable_audio: body.generate_audio } : {}),
   }
 }
 

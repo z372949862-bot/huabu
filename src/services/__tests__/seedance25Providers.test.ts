@@ -26,14 +26,21 @@ describe('AIMI Seedance 2.5 adapter', () => {
     })
   })
 
-  it('validates each model contract and exposes sd2.5-n audio generation', () => {
+  it('validates each model contract and keeps sd2.5-n audio as reference-only input', () => {
     expect(() => buildAimiBody({ model: 'JL-seedance-2.5-480p', prompt: 'scene', duration: 4 }, { images: [], videos: [], audios: [] })).toThrow('5–30')
     expect(() => buildAimiBody({ model: 'sd2.5-n-480p', prompt: 'scene', duration: 5, resolution: '720p' }, { images: [], videos: [], audios: [] })).toThrow('仅支持 480p')
     expect(() => buildAimiBody({ model: 'sd2.5-n-480p', prompt: 'scene', duration: 5 }, { images: [], videos: [], audios: ['https://example.com/a.mp3'] })).toThrow('必须搭配')
     const sd = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4 }, { images: [], videos: [], audios: [] })
-    expect(adaptAimiCreateBody(sd).enable_audio).toBe(true)
-    const mutedSd = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4, generateAudio: false }, { images: [], videos: [], audios: [] })
-    expect(adaptAimiCreateBody(mutedSd).enable_audio).toBe(false)
+    expect(adaptAimiCreateBody(sd)).not.toHaveProperty('enable_audio')
+    expect(adaptAimiCreateBody({ ...sd, generate_audio: true })).not.toHaveProperty('enable_audio')
+    const sdWithReferenceAudio = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4 }, {
+      images: ['https://example.com/a.png'], videos: [], audios: ['https://example.com/a.mp3'],
+    })
+    expect(adaptAimiCreateBody(sdWithReferenceAudio)).toMatchObject({
+      reference_image_urls: ['https://example.com/a.png'],
+      reference_audio_urls: ['https://example.com/a.mp3'],
+    })
+    expect(adaptAimiCreateBody(sdWithReferenceAudio)).not.toHaveProperty('enable_audio')
   })
 
   it('normalizes async task states and result URLs', () => {
