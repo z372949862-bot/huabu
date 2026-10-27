@@ -6,7 +6,7 @@ const { pipeline } = require('stream/promises')
 
 const BASE = 'https://api.qilingze.com'
 function assertAsciiApiKey(apiKey) {
-  assertAsciiApiKey(apiKey)
+  if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的器灵 API Key')
   if (/[^\x00-\x7F]/.test(apiKey)) throw new Error('器灵 API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容')
 }
 
@@ -24,7 +24,7 @@ module.exports = function registerQiling({ ipcMain, net, app, uploadRetryDelay =
   }
 
   ipcMain.handle('qiling:upload', wrap(async ({ apiKey, dataUrl }) => {
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的器灵 API Key')
+    assertAsciiApiKey(apiKey)
     const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i)
     if (!match) throw new Error('器灵图片上传仅支持 JPEG、PNG、WebP 图片')
     const bytes = Buffer.from(match[2], 'base64')
@@ -107,7 +107,7 @@ module.exports = function registerQiling({ ipcMain, net, app, uploadRetryDelay =
   }
 
   ipcMain.handle('qiling:download', wrap(async ({ apiKey, taskId, videoUrl }) => {
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的器灵 API Key')
+    assertAsciiApiKey(apiKey)
     if (taskId !== undefined && (typeof taskId !== 'string' || !taskId || taskId.length > 512)) throw new Error('器灵任务 ID 无效')
     const candidates = []
     if (taskId) candidates.push(`${BASE}/v1/videos/${encodeURIComponent(taskId)}/content`)
