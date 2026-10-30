@@ -41,6 +41,13 @@ function firstText(value: any, paths: string[]): string {
   return ''
 }
 
+function explainAiideError(message: string): string {
+  if (/video editing/i.test(message) && /ratio/i.test(message) && /adaptive/i.test(message) && /duration/i.test(message)) {
+    return 'AIIDE 将本次任务识别为视频编辑，请选择“视频编辑”模式后再提交。编辑时画幅和时长跟随源视频（ratio=adaptive，duration=-1），源视频须为 4–30 秒。平台原始信息：' + message
+  }
+  return message
+}
+
 /** Normalize Aiide's task envelope and the upstream status carried inside data.data. */
 export function mapAiideTaskResponse(raw: any): TaskStatus {
   // The documented envelope has a gateway state at data.status and the
@@ -98,10 +105,10 @@ export function mapAiideTaskResponse(raw: any): TaskStatus {
   ]) || undefined
 
   const error = status === 'failed'
-    ? firstText(raw, [
+    ? explainAiideError(firstText(raw, [
       'data.data.fail_reason', 'data.fail_reason', 'data.data.error.message',
       'data.error.message', 'error.message', 'data.data.output.fail_reason', 'data.data.message', 'message',
-    ]) || 'AIIDE Seedance 2.5 HC 任务失败'
+    ]) || 'AIIDE Seedance 2.5 HC 任务失败')
     : undefined
 
   return { status, progress, videoUrl: status === 'completed' ? videoUrl : undefined, error }
@@ -145,12 +152,18 @@ export function buildAiideSeedanceBody(params: CreateTaskParams): Record<string,
   const imageUrls = [params.image_url, ...(params.image_urls || [])].filter((url): url is string => !!url)
   for (const url of imageUrls) append('image_url', url, 'reference_image')
 
-  const safeDuration = params.duration == null ? 5 : Number(params.duration)
-  if (!Number.isInteger(safeDuration) || safeDuration < 4 || safeDuration > 30) {
+  const editing = params.mode === 'edit'
+  if ((editing || params.mode === 'extend') && !content.some(item => item.type === 'video_url')) {
+    throw new Error('视频编辑或延长需要连接视频素材')
+  }
+  // Editing keeps the source video's duration and frame; fixed output values
+  // are rejected by the upstream even when they match the source dimensions.
+  const safeDuration = editing ? -1 : params.duration == null ? 5 : Number(params.duration)
+  if (!editing && (!Number.isInteger(safeDuration) || safeDuration < 4 || safeDuration > 30)) {
     throw new Error('Dreamina Seedance 2.5 HC 视频时长须为 4–30 秒的整数')
   }
   const requestedRatio = String(params.ratio || '16:9').toLowerCase()
-  const ratio = ['auto', 'adaptive'].includes(requestedRatio) ? '16:9' : requestedRatio
+  const ratio = editing ? 'adaptive' : ['auto', 'adaptive'].includes(requestedRatio) ? '16:9' : requestedRatio
   const resolution = String(params.resolution || '720p').trim().toLowerCase()
   if (!['480p', '720p'].includes(resolution)) {
     throw new Error('Dreamina Seedance 2.5 HC 仅支持 480p 或 720p')
@@ -218,7 +231,10 @@ export class AiideSeedanceProvider implements AIProvider {
       throw error
     }
     const taskId = firstText(raw, ['task_id', 'data.task_id', 'data.data.task_id', 'id', 'data.id'])
-    if (!taskId) throw new Error('AIIDE 创建任务未返回任务 ID，请在平台确认任务状态后再重试')
+    if (!taskId) {
+      const reason = firstText(raw, ['error.message', 'data.error.message', 'message'])
+      throw new Error(reason ? explainAiideError(reason) : 'AIIDE 创建任务未返回任务 ID，请在平台确认任务状态后再重试')
+    }
     return { taskId }
   }
 
@@ -286,8 +302,8 @@ export class AiideSeedanceProvider implements AIProvider {
         detail = parsed?.error?.message || parsed?.message || detail
       } catch { /* Keep the response text as the diagnostic. */ }
       if (response.status === 401) throw new AiideRequestError('AIIDE API Key 无效或已过期')
-      if (response.status === 429) throw new AiideRequestError(`AIIDE 请求频率或额度受限：${detail}`, true)
-      throw new AiideRequestError(`AIIDE 请求失败 ${response.status}：${detail.slice(0, 1000)}`, response.status >= 500 || response.status === 408)
+      if (response.status === 429) throw new AiideRequestError(`AIIDE 请求频率或额度受限：${explainAiideError(detail)}`, true)
+      throw new AiideRequestError(`AIIDE 请求失败 ${response.status}：${explainAiideError(detail.slice(0, 1000))}`, response.status >= 500 || response.status === 408)
     }
     try { return await response.json() as T }
     catch { throw new AiideRequestError('AIIDE 返回了无效响应，暂时无法确认任务状态', true) }

@@ -371,6 +371,9 @@
             </button>
             <transition name="expand-advanced">
               <div v-if="videoAdvancedOpen" class="advanced-panel video-advanced-panel" @click.stop @mousedown.stop>
+                <div v-if="isAiideSeedance25 && activeDmxMode === 'edit'" class="advanced-select-field">
+                  <span><strong>视频编辑</strong><small style="white-space:normal;line-height:1.6">源视频须为 4–30 秒；成片画幅和时长跟随源视频，无需另选秒数。</small></span>
+                </div>
                 <div v-if="isPiapi25" class="advanced-select-field">
                   <span><strong>PiAPI 素材要求</strong><small style="white-space:normal;line-height:1.6">
                     最多 30 图 / 10 视频 / 10 音频；视频和音频各自总时长不超过 30 秒。支持纯音频参考。
@@ -1963,6 +1966,12 @@ const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
 const currentModelCapabilities = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   const model = config?.models.find(m => m.id === selectedModel.value)
+  if (isAiideSeedance25.value && activeDmxMode.value === 'edit') return {
+    ...model?.capabilities,
+    ratios: ['adaptive'],
+    durationRange: undefined,
+    durationOptions: [],
+  }
   if (isPiapi25.value) return {
     ...model?.capabilities,
     ratios: activeDmxMode.value === 'reference' ? model?.capabilities.ratios : ['adaptive'],
@@ -2202,6 +2211,23 @@ watch([isDmxApi25, isAiideSeedance25, isPiapi25], ([dmxEnabled, aiideEnabled, pi
     currentTab.value = 'text-to-video'
   }
 })
+let aiideRatioBeforeEdit: string | undefined
+watch([isAiideSeedance25, activeDmxMode], ([enabled, mode]) => {
+  if (!enabled) {
+    aiideRatioBeforeEdit = undefined
+    return
+  }
+  if (mode === 'edit') {
+    if (selectedRatio.value !== 'adaptive') aiideRatioBeforeEdit = selectedRatio.value
+    selectedRatio.value = 'adaptive'
+  } else if (selectedRatio.value === 'adaptive') {
+    selectedRatio.value = aiideRatioBeforeEdit || '16:9'
+    aiideRatioBeforeEdit = undefined
+  }
+  // Keep the user's normal duration in node data; the provider submits -1
+  // only for editing, so switching back restores the normal duration choice.
+  nodeStore.updateNodeData(props.id, { videoMode: mode })
+}, { immediate: true })
 watch([isPiapi25, activeDmxMode], ([enabled, mode]) => {
   if (!enabled) return
   if (['first-last-frame', 'image-to-video'].includes(currentTab.value)) currentTab.value = hasAnyInput.value ? 'universal-ref' : 'text-to-video'

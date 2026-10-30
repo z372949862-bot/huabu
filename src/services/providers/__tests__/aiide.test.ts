@@ -10,6 +10,7 @@ import {
 import { AIIDE_VIDEO_MODEL_TEMPLATES } from '../../modelTemplates'
 
 const apiKey = 'aiide-test-token'
+const editingError = 'The parameters `ratio` and `duration` specified in the request are not valid. identified your task as video editing based on your prompt. For this task type, the output ratio and duration follow the input video selected by the model for editing, and the video selected must satisfy the duration requirement of 4 to 30 seconds. Issues: [0] `ratio` must be `adaptive`. [1] `duration` must be -1'
 
 describe('Aiide Seedance 2.5 HC', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -121,9 +122,52 @@ describe('Aiide Seedance 2.5 HC', () => {
     })
 
     expect(edit.prompt).toBe('请按照以下要求编辑输入视频：\n把背景改成夜景')
+    expect(edit.metadata).toMatchObject({ ratio: 'adaptive', duration: -1 })
     expect(extend.prompt).toBe('从输入视频的最后一帧开始无缝延长。\n接着前面的动作继续')
+    expect(extend.metadata).toMatchObject({ ratio: '16:9', duration: 5 })
     expect(edit).not.toHaveProperty('mode')
     expect(extend).not.toHaveProperty('mode')
+  })
+
+  it.each([8, -1])('submits editing with source-following values instead of the stored %s-second choice', async duration => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ task_id: 'edit-task' })))
+    vi.stubGlobal('fetch', fetchMock)
+    await new AiideSeedanceProvider(apiKey).createTask({
+      model: AIIDE_SEEDANCE_25_MODEL, prompt: '把背景改成夜景', mode: 'edit',
+      ratio: '9:16', duration,
+      content: [{ type: 'video_url', video_url: 'https://example.com/source.mp4' }],
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).metadata).toMatchObject({ ratio: 'adaptive', duration: -1 })
+  })
+
+  it.each(['edit', 'extend'] as const)('rejects %s without a usable source video', mode => {
+    expect(() => buildAiideSeedanceBody({ model: AIIDE_SEEDANCE_25_MODEL, mode, prompt: '修改背景',
+      content: [{ type: 'video_url', video_url: { url: '' } }],
+    })).toThrow('需要连接视频素材')
+  })
+
+  it('preserves fixed output choices for extension and rejects -1 for ordinary generation', () => {
+    expect(buildAiideSeedanceBody({ model: AIIDE_SEEDANCE_25_MODEL, mode: 'extend', prompt: '继续走',
+      ratio: '9:16', duration: 20, content: [{ type: 'video_url', video_url: 'https://example.com/source.mp4' }],
+    }).metadata).toMatchObject({ ratio: '9:16', duration: 20 })
+    expect(() => buildAiideSeedanceBody({ model: AIIDE_SEEDANCE_25_MODEL, prompt: '向前走', duration: -1 }))
+      .toThrow('视频时长须为 4–30 秒的整数')
+  })
+
+  it.each([400, 200])('explains automatic edit classification from HTTP %s without resubmitting', async status => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: editingError } }), { status }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(new AiideSeedanceProvider(apiKey).createTask({ model: AIIDE_SEEDANCE_25_MODEL, prompt: '修改视频', duration: 8 }))
+      .rejects.toThrow('请选择“视频编辑”模式')
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('explains editing constraints in a failed task while preserving the original diagnostic', () => {
+    const result = mapAiideTaskResponse({ data: { status: 'FAILURE', fail_reason: editingError } })
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('源视频须为 4–30 秒')
+    expect(result.error).toContain(editingError)
   })
 
   it('submits to the configured endpoint with bearer auth and returns the documented task id', async () => {
