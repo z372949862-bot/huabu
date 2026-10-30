@@ -10,6 +10,7 @@ const { createMediaFetch } = require('../electron/mediaFetch.cjs')
 const { createVideoSaver } = require('../electron/videoStorage.cjs')
 const fetch = createMediaFetch(net)
 const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(128 * 1024)])
+const largeVideo = Buffer.concat([mp4, Buffer.alloc(16 * 1024 * 1024, 0x5a)])
 const disposition = 'attachment; filename="自动生成的视频.mp4"'
 const sockets = new Set()
 let uploads = 0, redirects = 0, profile, server
@@ -39,6 +40,16 @@ async function test() {
         const body = Buffer.from(JSON.stringify({ url: 'https://example.test/reference.png' }))
         raw(res, body, 'application/json'); return
       }
+      if (req.url === '/upload-large') {
+        assert.equal(req.headers.authorization, undefined)
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': req.headers['content-type'] } }).formData()
+        assert.equal(form.get('file').name, 'reference.mp4')
+        assert.deepEqual(Buffer.from(await form.get('file').arrayBuffer()), largeVideo)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ url: 'https://example.test/reference.mp4' })); return
+      }
       if (req.url === '/error') { res.writeHead(502); res.end('temporary error'); return }
       if (req.url === '/empty') { res.writeHead(204); res.end(); return }
       if (req.url === '/waiting') return
@@ -67,6 +78,12 @@ async function test() {
   assert.equal((await result.json()).url, 'https://example.test/reference.png')
   assert.equal(uploads, 1)
   console.log('PASS multipart bytes, boundary, 307 redirect, no provider key')
+
+  const videoForm = new FormData()
+  videoForm.append('file', new Blob([largeVideo], { type: 'video/mp4' }), 'reference.mp4')
+  result = await fetch(base + '/upload-large', { method: 'POST', body: videoForm })
+  assert.equal((await result.json()).url, 'https://example.test/reference.mp4')
+  console.log('PASS large multipart video upload / exact 16 MiB+ payload')
 
   const save = createVideoSaver({ root: path.join(profile, 'videos'), fetch, timeoutMs: 2000 })
   const saved = await save({ url: base + '/redirect' })

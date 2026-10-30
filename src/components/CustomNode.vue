@@ -84,7 +84,7 @@
               ></span>
             </div>
             <span class="sr-only">正在生成，请稍候</span>
-            <div v-if="isPiapi25 && data.referenceWarning" class="piapi-preparation-status" role="status">{{ data.referenceWarning }}</div>
+            <div v-if="(isPiapi25 || isAiideSeedance25) && data.referenceWarning" class="piapi-preparation-status" role="status">{{ data.referenceWarning }}</div>
           </div>
           <!-- 已完成 - 显示视频首帧，单击展开生成卡片，双击播放大图 -->
           <div

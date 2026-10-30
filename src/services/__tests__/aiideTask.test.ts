@@ -69,6 +69,21 @@ describe('AIIDE task recovery', () => {
     expect(ctx.data.status).toBe('error')
     expect(ctx.data.error).toContain('图床不可用')
     expect(ctx.provider.createTask).not.toHaveBeenCalled()
+    expect(ctx.data.referenceWarning).toBeUndefined()
+  })
+
+  it('shows video preparation before a slow upload and submits only after it succeeds', async () => {
+    const ctx = context({ inputVideos: ['local-upload:///C:/a.mp4'] })
+    let finish!: (url: string) => void
+    ctx.upload.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const result = runAiideNode(ctx)
+    await vi.advanceTimersByTimeAsync(90_000)
+    expect(ctx.data.referenceWarning).toContain('正在准备参考视频 1/1')
+    expect(ctx.provider.createTask).not.toHaveBeenCalled()
+    finish('https://example.com/a.mp4')
+    await result
+    expect(ctx.provider.createTask).toHaveBeenCalledTimes(1)
+    expect(ctx.data.referenceWarning).toBeUndefined()
   })
 
   it('does not POST again after an uncertain submission error', async () => {

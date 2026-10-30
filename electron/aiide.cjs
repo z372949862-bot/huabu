@@ -13,6 +13,12 @@ module.exports = function registerAiide({ ipcMain, fetch, retryDelay = ms => new
       if (!ext) throw new Error('AIIDE 不支持该参考素材格式，请使用图片、MP4/MOV 视频或 MP3/WAV 音频')
       const bytes = Buffer.from(match[2], 'base64')
       if (!bytes.length || bytes.length > 100 * 1024 * 1024) throw new Error('参考素材为空或超过本地上传上限 100 MB，请压缩后重试')
+      // Video references can take several minutes on an ordinary uplink. Budget
+      // for both the file transfer (256 KiB/s) and the staging host's response.
+      const timeoutMs = Math.min(600_000, Math.max(
+        match[1].toLowerCase().startsWith('video/') ? 300_000 : 120_000,
+        120_000 + Math.ceil(bytes.length / (256 * 1024)) * 1000,
+      ))
       const hash = crypto.createHash('sha256').update(match[1]).update(bytes).digest('hex')
       const saved = cache.get(hash)
       if (saved && Date.now() - saved.time < 30 * 60 * 1000) return { ok: true, data: { url: saved.url } }
@@ -20,7 +26,7 @@ module.exports = function registerAiide({ ipcMain, fetch, retryDelay = ms => new
         const job = (async () => {
           for (let attempt = 0; attempt < 3; attempt++) {
             const controller = new AbortController()
-            const timer = setTimeout(() => controller.abort(), 60_000)
+            const timer = setTimeout(() => controller.abort(), timeoutMs)
             try {
               const form = new FormData()
               form.append('file', new Blob([bytes], { type: match[1] }), `reference.${ext}`)
@@ -41,8 +47,14 @@ module.exports = function registerAiide({ ipcMain, fetch, retryDelay = ms => new
               while (cache.size > 128) cache.delete(cache.keys().next().value)
               return { url: url.href }
             } catch (error) {
-              const transient = error.retryable || error.name === 'AbortError' || error instanceof TypeError
-              if (!transient || attempt === 2) throw new Error('AIIDE 参考素材上传失败：' + error.message + '。视频任务尚未提交，请稍后重试或使用可公开访问的素材链接')
+              clearTimeout(timer)
+              const timedOut = controller.signal.aborted
+              const transient = timedOut || error.retryable || error.name === 'AbortError' || error instanceof TypeError
+              const reason = timedOut
+                ? `素材上传超时（等待 ${Math.round(timeoutMs / 1000)} 秒，文件 ${(bytes.length / 1024 / 1024).toFixed(1)} MB），请压缩素材或检查网络、代理连接`
+                : error.name === 'AbortError' ? '素材上传连接被中断，请检查网络或代理连接'
+                  : error instanceof TypeError ? '无法连接素材上传服务，请检查网络或代理连接' : error.message
+              if (!transient || attempt === 2) throw new Error('AIIDE 参考素材上传失败：' + reason + '。视频任务尚未提交，请稍后重试或使用可公开访问的素材链接')
               await retryDelay(1000 * 2 ** attempt)
             } finally { clearTimeout(timer) }
           }

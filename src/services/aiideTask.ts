@@ -63,7 +63,7 @@ export async function runAiideNode(ctx: Context) {
   const fail = (message: string, terminal = false) => {
     if (!active()) return
     stop(run)
-    ctx.update({ status: 'error', error: message, ...(terminal ? { aiideTask: undefined, taskId: undefined } : {}) })
+    ctx.update({ status: 'error', error: message, referenceWarning: undefined, ...(terminal ? { aiideTask: undefined, taskId: undefined } : {}) })
     void ctx.persist()
   }
   ctx.update({ status: 'running', progress: undefined, error: undefined, referenceWarning: undefined })
@@ -80,6 +80,7 @@ export async function runAiideNode(ctx: Context) {
       for (const [type, urls] of [['video', refs.videos], ['image', refs.images], ['audio', refs.audios]] as const) {
         for (const [i, url] of urls.entries()) {
           if (!active()) return
+          ctx.update({ referenceWarning: `正在准备参考${{ image: '图片', video: '视频', audio: '音频' }[type]} ${i + 1}/${urls.length}，较大素材上传可能需要数分钟，尚未提交生成任务。` })
           let remote: string
           try { remote = await ctx.upload(type === 'video' ? ctx.resolveVideoUrl(url) : url) }
           catch (error) { throw new Error(`参考${{ image: '图片', video: '视频', audio: '音频' }[type]}第 ${i + 1} 项上传失败：${error instanceof Error ? error.message : '网络错误'}`) }
@@ -94,6 +95,7 @@ export async function runAiideNode(ctx: Context) {
         duration: ctx.data.duration, generate_audio: ctx.data.generateAudio,
       }
       run.submitting = true
+      ctx.update({ referenceWarning: '参考素材已就绪，正在提交 AIIDE 生成任务，请勿重复点击。' })
       let result: { taskId: string }
       try { result = await ctx.provider.createTask(params) }
       finally { run.submitting = false }
@@ -102,7 +104,7 @@ export async function runAiideNode(ctx: Context) {
         ratio: params.ratio, resolution: params.resolution, duration: params.duration }
       // A response after local cancellation still contains a valuable billed task ID.
       if (ctx.isCurrent()) {
-        ctx.update({ taskId: result.taskId, aiideTask: run.task,
+        ctx.update({ taskId: result.taskId, aiideTask: run.task, referenceWarning: undefined,
           ...(run.canceled ? { status: 'idle', referenceWarning: 'AIIDE 已创建任务，点击「继续查询」取回结果，无需重新生成。' } : {}) })
       }
       if (ctx.rememberTask) await ctx.rememberTask(run.task)
