@@ -59,6 +59,10 @@ export interface NodeData {
   taskId?: string
   /** Durable DMXAPI query state; kept across restarts without persisting credentials. */
   dmxTask?: DmxPendingTask
+  piapiTask?: { taskId: string; providerId: string; body: Record<string, any> }
+  piapiImageTask?: { taskId: string; providerId: string; model: string; prompt: string; ratio?: string; resolution?: string; imageOutputFormat?: 'jpeg' | 'png' }
+  imageOutputFormat?: 'jpeg' | 'png'
+  piapiPrivateReferences?: Record<string, { providerId: string; mode: 'private'; name?: string; assetId?: string }>
   // 本地上传素材（data URL，跨会话持久化）
   _uploads?: Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>
   /** 参考图角色标签：assetId → subject/style/scene。subject 优先序最高。 */
@@ -203,9 +207,9 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.dmxTask ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.dmxTask ? undefined : hasOutput ? 100 : 0,
-                taskId: data.dmxTask?.taskId },
+              data: { ...data, status: data.dmxTask || data.piapiTask || data.piapiImageTask ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.dmxTask || data.piapiTask || data.piapiImageTask ? undefined : hasOutput ? 100 : 0,
+                taskId: data.dmxTask?.taskId || data.piapiTask?.taskId },
             }
           })
         : []
@@ -400,7 +404,11 @@ export const useNodeStore = defineStore('node', () => {
       cancelledImageNodes.add(nodeId)
       ctrl.abort()
     }
-    imageAborts.delete(nodeId)
+    // PiAPI's synchronous POST may still be returning a billed task after local cancellation.
+    const aiStore = useAIStore()
+    const data = nodes.value.find(n => n.id === nodeId)?.data as NodeData | undefined
+    const config = aiStore.getProviderConfig(data?.piapiImageTask?.providerId || data?.providerId || aiStore.defaultImageProviderId)
+    if (config?.kind !== 'piapi') imageAborts.delete(nodeId)
     const t = imageTimers.get(nodeId)
     if (t) {
       window.clearInterval(t)
@@ -456,7 +464,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
-    const providerId = data.dmxTask?.providerId || data.providerId || aiStore.defaultProviderId
+    const providerId = data.dmxTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
       failNode(nodeId, '请先在「设置」中添加中转站')
       return
@@ -479,7 +487,7 @@ export const useNodeStore = defineStore('node', () => {
       const projectId = currentProjectId.value
       return runUnmauNode({
         id: nodeId,
-        data: { ...data, model: data.model || providerConfig.models[0]?.id },
+        data: { ...data, providerId, taskId: data.piapiTask?.taskId || data.taskId, model: data.model || providerConfig.models[0]?.id },
         nodes: nodes.value,
         edges: edges.value,
         provider,
@@ -862,7 +870,7 @@ export const useNodeStore = defineStore('node', () => {
 
   }
 
-  /** 图片节点执行：GeekNow 是同步 API，请求一次直接拿到图，不走轮询 */
+  /** 图片节点执行：由提供方处理同步出图或已有任务查询。 */
   async function executeImageNode(nodeId: string) {
     const node = nodes.value.find((n) => n.id === nodeId)
     if (!node) return
@@ -872,7 +880,10 @@ export const useNodeStore = defineStore('node', () => {
     }
 
     const aiStore = useAIStore()
-    const data = node.data as NodeData
+    const originalData = node.data as NodeData
+    const data = { ...originalData, ...(originalData.piapiImageTask || {}) } as NodeData
+    const projectId = currentProjectId.value
+    const isCurrentImage = () => currentProjectId.value === projectId && nodes.value.some(item => item.id === nodeId)
     const providerId = data.providerId || aiStore.defaultImageProviderId
     console.log('[executeImageNode] providerId =', providerId, 'defaultImage =', aiStore.defaultImageProviderId, 'imageProviders =', aiStore.imageProviders.map(p => ({ id: p.id, name: p.name, hasKey: !!p.apiKey })))
     if (!providerId) {
@@ -899,7 +910,7 @@ export const useNodeStore = defineStore('node', () => {
     }
     const imageModelId = data.model || providerConfig.models[0]?.id
     if (!imageModelId || !providerConfig.models.some((m) => m.id === imageModelId)) {
-      failNode(nodeId, '原图片模型已移除，请在参数卡选择 GPT 图片模型后生成')
+      failNode(nodeId, '原图片模型已移除，请在参数卡重新选择图片模型后生成')
       return
     }
     const provider = aiStore.getImageProvider(providerId)
@@ -913,7 +924,7 @@ export const useNodeStore = defineStore('node', () => {
 
     // 清理 prompt 里的 @[name](id) 标记，避免 AI 按文字生成而非按参考图
     const promptText = (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
-    if (!promptText) {
+    if (!promptText && !data.piapiImageTask) {
       failNode(nodeId, '请输入提示词（不含 @ 标记的有效文字）')
       return
     }
@@ -941,7 +952,7 @@ export const useNodeStore = defineStore('node', () => {
     // 在 10/30/100 三个点上报。这两种情况都比之前的"假进度 setInterval"准。
     let realProgressReceived = false
     const fallbackTimer = window.setInterval(() => {
-      if (realProgressReceived) return
+      if (realProgressReceived || !isCurrentImage() || abortCtrl.signal.aborted) return
       const cur = nodes.value.find((n) => n.id === nodeId)
       const p = (cur?.data?.progress as number) || 0
       if (p < 90) updateNodeData(nodeId, { progress: Math.min(90, p + 5) })
@@ -958,15 +969,29 @@ export const useNodeStore = defineStore('node', () => {
         model: imageModelId,
         prompt: promptText,
         imageUrls: refImages,
+        imageOutputFormat: data.imageOutputFormat,
+        resumeTaskId: data.piapiImageTask?.taskId,
+        onTask: providerConfig.kind === 'piapi' ? async taskId => {
+          const piapiImageTask = taskId ? { taskId, providerId, model: imageModelId, prompt: promptText, ratio: data.ratio, resolution: data.resolution, imageOutputFormat: data.imageOutputFormat } : undefined
+          if (isCurrentImage()) { updateNodeData(nodeId, { piapiImageTask }); await flushPersist() }
+          else if (projectId && window.electronAPI?.store) {
+            const key = PROJECT_PERSIST_PREFIX + projectId
+            const saved = await window.electronAPI.store.get(key)
+            if (!saved) return
+            const parsed = JSON.parse(saved), oldNode = parsed.nodes?.find(item => item.id === nodeId)
+            if (oldNode) { oldNode.data.piapiImageTask = piapiImageTask; await window.electronAPI.store.set(key, JSON.stringify(parsed)) }
+          }
+        } : undefined,
         aspectRatio: data.ratio || '1:1',
         imageSize: modelMeta?.capabilities?.resolutions?.includes(String(data.resolution || '').toUpperCase())
           ? String(data.resolution).toUpperCase() as '1K' | '1.5K' | '2K' | '4K'
-          : modelMeta?.supportsImageSize2K ? '2K' : '1K',
+          : providerConfig.kind === 'piapi' ? '1K' : modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: allowSeed && typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: allowNegative && data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
         n: 1,
         signal: abortCtrl.signal,
         onProgress: ({ progress }) => {
+          if (!isCurrentImage() || abortCtrl.signal.aborted) return
           realProgressReceived = true
           updateNodeData(nodeId, { progress: Math.min(99, Math.max(0, progress)) })
         },
@@ -974,18 +999,22 @@ export const useNodeStore = defineStore('node', () => {
       window.clearInterval(fallbackTimer)
       imageTimers.delete(nodeId)
       const rawUrls = result.imageUrls
+      if (!isCurrentImage() || abortCtrl.signal.aborted) return
       if (rawUrls.length === 0) throw new Error('未拿到图片 URL')
       // 落盘：把可能是 base64 的大 dataUrl 写到磁盘，store 只留 local-upload:/// 路径
       const urls = await Promise.all(
-        rawUrls.map((u) => persistImage(u, { projectId: currentProjectId.value || undefined, nodeId })),
+        rawUrls.map((u) => persistImage(u, { projectId: projectId || undefined, nodeId })),
       )
+      if (!isCurrentImage() || abortCtrl.signal.aborted) return
       const primary = urls[0]
       updateNodeData(nodeId, {
         status: 'completed',
         progress: 100,
         outputImage: primary,
         output: { url: primary, timestamp: Date.now() },
+        piapiImageTask: undefined,
       })
+      if (providerConfig.kind === 'piapi') await flushPersist()
       // 全部候选都进资产库（用户后续翻历史时都能看见）
       const modelMetaForAsset = providerConfig.models.find((m) => m.id === data.model)
       const assetStore = useAssetStore()
@@ -999,25 +1028,26 @@ export const useNodeStore = defineStore('node', () => {
           providerName: providerConfig.name,
           nodeId,
           nodeType: 'ai-image',
-          projectId: currentProjectId.value || undefined,
+          projectId: projectId || undefined,
           ratio: data.ratio,
           resolution: data.resolution
             || modelMetaForAsset?.capabilities?.resolutions?.[0]
             || (modelMetaForAsset?.supportsImageSize2K ? '2K' : '1K'),
         })
       }
-      imageAborts.delete(nodeId)
-      cancelledImageNodes.delete(nodeId)
     } catch (err) {
-      window.clearInterval(fallbackTimer)
-      imageTimers.delete(nodeId)
-      imageAborts.delete(nodeId)
-      if (cancelledImageNodes.has(nodeId)) {
+      if (abortCtrl.signal.aborted) {
         // 用户主动取消：cancelImageNode 已经设好状态，这里安静退出
-        cancelledImageNodes.delete(nodeId)
         return
       }
-      failNode(nodeId, err instanceof Error ? err.message : '生成图片失败')
+      if (isCurrentImage()) failNode(nodeId, err instanceof Error ? err.message : '生成图片失败')
+    } finally {
+      window.clearInterval(fallbackTimer)
+      if (imageTimers.get(nodeId) === fallbackTimer) imageTimers.delete(nodeId)
+      if (imageAborts.get(nodeId) === abortCtrl) {
+        imageAborts.delete(nodeId)
+        cancelledImageNodes.delete(nodeId)
+      }
     }
   }
 

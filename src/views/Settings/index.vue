@@ -43,6 +43,7 @@
           <option value="chuhaiying">出海营 (aiid.edu.kg)</option>
           <option value="geeknow">GeekNow (geeknow.ai)</option>
           <option value="luoci">洛辞 · Seedream 5 Pro Uncensored</option>
+          <option value="piapi">PiAPI · Seedream 5 Pro Less Restriction</option>
         </select>
         <select
           v-else-if="activeTab === 'video'"
@@ -60,6 +61,7 @@
           <option value="fmgo">FMGO API · Feimiao 2.5 (api.fmgo.top)</option>
           <option value="aiide">AIIDE · Seedance 2.5 HC</option>
           <option value="aimi">AIMI · Seedance 2.5 (aimiapi.com)</option>
+          <option value="piapi">PiAPI · Seedance 2.5 (api.piapi.ai)</option>
         </select>
         <select
           v-else-if="activeTab === 'text'"
@@ -98,6 +100,13 @@
           </div>
 
           <div class="provider-body">
+            <p v-if="provider.kind === 'piapi' && provider.type === 'video'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
+              使用 PiAPI API Key。测试连接只查询账户信息，不生成视频。
+              本地素材经官方临时上传服务上传，需要 Creator 或更高套餐；Base64 限 10 MB（原文件约 7.5 MB），直链有效期 24 小时。更大素材或 MOV 请使用公网直链。节点参数卡可勾选「私有资产」或「选择已入库」，等素材 Active 后以 asset:// 引用；私有资产接口另要求 hobbyist 或更高权限，以平台账户实际权限为准。
+            </p>
+            <p v-if="provider.kind === 'piapi' && provider.type === 'image'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
+              Seedream 5 Pro Less Restriction：支持文生图、最多 10 张参考图编辑、1K / 2K。使用 PiAPI API Key，测试连接只查询账户信息。参考图需要公网直链；本地文件先经官方临时上传，需 Creator 或更高权限，原文件约限 7.5 MB。图片接口不使用 Seedance 私有资产 ID。
+            </p>
             <div class="input-group">
               <label>名称</label>
               <input
@@ -330,7 +339,7 @@ const addProviderClick = () => {
   // 用户可以在卡片的"名称"输入框里改
   if (activeTab.value === 'image') {
     const kind = newImageKind.value
-    const baseName = kind === 'chuhaiying' ? '出海营' : kind === 'luoci' ? '洛辞 API' : 'GeekNow'
+    const baseName = kind === 'piapi' ? 'PiAPI · Seedream 5 Pro' : kind === 'chuhaiying' ? '出海营' : kind === 'luoci' ? '洛辞 API' : 'GeekNow'
     const existingCount = aiStore.imageProviders.filter((p) => (p.kind || 'geeknow') === kind).length
     aiStore.addProvider({
       name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,
@@ -350,6 +359,8 @@ const addProviderClick = () => {
     const kind = newVideoKind.value
     const baseName = kind === 'aiide'
       ? 'AIIDE · Seedance 2.5 HC'
+      : kind === 'piapi'
+        ? 'PiAPI · Seedance 2.5'
       : kind === 'aimi'
       ? 'AIMI · Seedance 2.5'
       : kind === 'unmau'

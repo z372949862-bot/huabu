@@ -55,13 +55,26 @@ export function adaptAimiCreateBody(body) {
   }
 }
 
+function isAimiVideoUrl(value) {
+  if (typeof value !== 'string') return false
+  const candidate = value.trim().toLowerCase()
+  if (!candidate.startsWith('https://') && !candidate.startsWith('http://') && !(candidate.startsWith('/') && !candidate.startsWith('//'))) return false
+  try {
+    const url = new URL(value.trim(), AIMI_BASE)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+  } catch { return false }
+}
+
 export function mapAimiTask(raw) {
-  const statusText = String(first(raw, ['status', 'state', 'data.status', 'data.state', 'task.status', 'data.task.status']) || '').toLowerCase()
+  const statusText = String(first(raw, ['status', 'state', 'data.status', 'data.state', 'task.status', 'data.task.status']) || '').trim().toLowerCase()
   const states = { queued: 'pending', submitted: 'pending', pending: 'pending', in_progress: 'processing', processing: 'processing', running: 'processing', completed: 'completed', complete: 'completed', succeeded: 'completed', success: 'completed', done: 'completed', failed: 'failed', failure: 'failed', canceled: 'failed', cancelled: 'failed', error: 'failed' }
   const status = states[statusText] || 'processing'
   const progressValue = Number.parseFloat(String(first(raw, ['progress', 'data.progress', 'task.progress', 'data.task.progress']) || '').replace('%', ''))
-  const videoUrl = first(raw, ['metadata.url', 'data.metadata.url', 'url', 'video_url', 'result_url', 'data.url', 'data.video_url', 'data.result_url', 'result.url', 'result.video_url', 'videos.0.url', 'task.videos.0.url', 'data.videos.0.url', 'data.task.videos.0.url'])
-  const error = first(raw, ['error.message', 'error', 'message', 'detail', 'data.error.message', 'data.error', 'data.message'])
+  const videoPaths = ['metadata.url', 'data.metadata.url', 'url', 'video_url', 'result_url', 'data.url', 'data.video_url', 'data.result_url', 'result.url', 'result.video_url', 'videos.0.url', 'task.videos.0.url', 'data.videos.0.url', 'data.task.videos.0.url']
+  // AIMI task logs may put the failure message in result_url; it is not media.
+  const videoUrl = status === 'failed' ? undefined : videoPaths.map(path => first(raw, [path])).find(isAimiVideoUrl)
+  const error = first(raw, ['fail_reason', 'failure_reason', 'error.message', 'error', 'message', 'detail'].flatMap(field => ['', 'data.', 'task.', 'data.task.'].map(prefix => prefix + field)))
+    || (status === 'failed' ? ['result_url', 'data.result_url', 'task.result_url', 'data.task.result_url'].map(path => first(raw, [path])).find(value => typeof value === 'string' && value.trim() && !isAimiVideoUrl(value)) : undefined)
   return { status, ...(Number.isFinite(progressValue) ? { progress: Math.max(0, Math.min(100, progressValue <= 1 ? progressValue * 100 : progressValue)) } : {}), ...(videoUrl ? { videoUrl: String(videoUrl) } : {}), ...(status === 'failed' ? { error: String(error || `AIMI 任务失败：${statusText}`) } : {}) }
 }
 

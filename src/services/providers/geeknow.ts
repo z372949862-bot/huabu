@@ -18,6 +18,9 @@ import { prepareReferenceImage } from '../imageProviderUtils'
 import { fetchWithTimeout, classifyHttpError } from './_httpUtils'
 
 export interface GenerateImageParams {
+  imageOutputFormat?: 'jpeg' | 'png'
+  resumeTaskId?: string
+  onTask?: (taskId: string | undefined) => Promise<void> | void
   model: string
   prompt: string
   /** 参考图：可以是 https URL、blob:、data:image/...;base64,xxx 或裸 base64。
@@ -103,8 +106,7 @@ export class GeekNowImageProvider implements ImageProvider {
     if (!params.prompt) throw new Error('提示词不能为空')
 
     const tpl = findImageTemplate(params.model, 'geeknow')
-    const style: 'openai' | 'gemini' = tpl?.endpointStyle
-      || (params.model.startsWith('gemini-') ? 'gemini' : 'openai')
+    const style: 'openai' | 'gemini' = tpl?.endpointStyle === 'gemini' || (!tpl && params.model.startsWith('gemini-')) ? 'gemini' : 'openai'
 
     if (style === 'gemini') return this.callGemini(params, tpl)
     return this.callOpenAIStyle(params, tpl)

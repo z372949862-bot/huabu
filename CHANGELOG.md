@@ -1,5 +1,14 @@
 # 更新日志
 
+## 0.3.23
+
+- 新增 PiAPI Seedance 2.5 Less Restriction，支持文生视频、素材参考、视频编辑与延长
+- 新增 PiAPI 私有资产入库、选择已入库素材、状态查询与任务恢复
+- 新增 PiAPI Seedream 5 Pro Less Restriction 图片模型，支持 1K / 2K、10 种比例、最多 10 张参考图以及 JPEG / PNG 输出
+- 图片和视频生成结果保存到本地，已获取任务 ID 的查询、下载重试不重复提交生成
+- 修复 AIMI 失败原因识别，避免将错误文字当作视频地址
+- Windows 安装包与免安装包采用稳定英文文件名，配套自动更新元数据；发布前执行自动测试
+
 ## 0.3.22
 
 - 修复 AIMI sd2.5-n 提交时错误发送 `enable_audio` 导致 HTTP 400

@@ -12,14 +12,14 @@
 
 import type { VideoModelCapabilities } from './videoModelService'
 
-export type ImageProviderKind = 'geeknow' | 'chuhaiying' | 'luoci'
+export type ImageProviderKind = 'geeknow' | 'chuhaiying' | 'luoci' | 'piapi'
 
 export interface ImageModelTemplate {
   id: string
   name: string
   description?: string
   capabilities: VideoModelCapabilities
-  endpointStyle: 'openai' | 'gemini'
+  endpointStyle: 'openai' | 'gemini' | 'piapi'
   supportsReferenceImage: boolean
   supportsImageSize2K?: boolean
   /** 模型自己的实际 WxH 尺寸表；未声明时使用通用映射。 */
@@ -149,7 +149,16 @@ export const LUOCI_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
   },
 ]
 
+export const PIAPI_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [{
+  id: 'seedream-5-pro-less-restriction',
+  name: 'Seedream 5 Pro Less Restriction',
+  description: 'PiAPI · 文生图 / 参考图编辑 · 1K / 2K · 最多 10 张参考图',
+  capabilities: { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'], resolutions: ['1K', '2K'], maxImages: 10 },
+  endpointStyle: 'piapi', supportsReferenceImage: true, supportsImageSize2K: true, supportsSeed: false, supportsNegativePrompt: false,
+}]
+
 const TEMPLATES_BY_KIND: Record<ImageProviderKind, ImageModelTemplate[]> = {
+  piapi: PIAPI_IMAGE_MODEL_TEMPLATES,
   geeknow: GEEKNOW_IMAGE_MODEL_TEMPLATES,
   chuhaiying: CHUHAIYING_IMAGE_MODEL_TEMPLATES,
   luoci: LUOCI_IMAGE_MODEL_TEMPLATES,
@@ -160,6 +169,7 @@ export const IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
   ...GEEKNOW_IMAGE_MODEL_TEMPLATES,
   ...CHUHAIYING_IMAGE_MODEL_TEMPLATES,
   ...LUOCI_IMAGE_MODEL_TEMPLATES,
+  ...PIAPI_IMAGE_MODEL_TEMPLATES,
 ]
 
 export function getImageTemplatesByKind(kind: ImageProviderKind): ImageModelTemplate[] {

@@ -84,6 +84,7 @@
               ></span>
             </div>
             <span class="sr-only">正在生成，请稍候</span>
+            <div v-if="isPiapi25 && data.referenceWarning" class="piapi-preparation-status" role="status">{{ data.referenceWarning }}</div>
           </div>
           <!-- 已完成 - 显示视频首帧，单击展开生成卡片，双击播放大图 -->
           <div
@@ -253,8 +254,9 @@
             </label>
           </div>
 
+          <PiapiAssetReferences v-if="isPiapi25" :provider-id="selectedProviderId" :assets="allAssets" :bindings="data.piapiPrivateReferences" :video-mode="activeDmxMode" :disabled="data.status === 'running' || !!data.piapiTask" @update:bindings="value => nodeStore.updateNodeData(id, { piapiPrivateReferences: value })" @add-asset="addPiapiPrivateAsset" />
           <div v-if="data.referenceWarning" class="reference-warning" role="status">{{ data.referenceWarning }}</div>
-          <div v-if="data.dmxTask && data.status !== 'running'" class="reference-warning">
+          <div v-if="(data.dmxTask || data.piapiTask || data.piapiImageTask) && data.status !== 'running'" class="reference-warning">
             <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询上次任务</button>
             <span>任务已保存，不会重新提交生成。</span>
           </div>
@@ -322,6 +324,11 @@
             </button>
             <transition name="expand-advanced">
               <div v-if="advancedOpen" class="advanced-panel" @click.stop @mousedown.stop>
+                <label v-if="isPiapiImage" class="advanced-field">
+                  <span class="advanced-field-label">图片格式</span>
+                  <select class="advanced-input" :value="data.imageOutputFormat || 'jpeg'" @change="nodeStore.updateNodeData(id, { imageOutputFormat: ($event.target as HTMLSelectElement).value as 'jpeg' | 'png' })"><option value="jpeg">JPEG</option><option value="png">PNG</option></select>
+                  <span class="field-unsupported">1K / 2K · 最多 10 张参考图 · 本地上传需 Creator 或更高权限</span>
+                </label>
                 <label class="advanced-field" :class="{ disabled: !negativePromptSupported }">
                   <span class="advanced-field-label">
                     负面提示词
@@ -364,6 +371,13 @@
             </button>
             <transition name="expand-advanced">
               <div v-if="videoAdvancedOpen" class="advanced-panel video-advanced-panel" @click.stop @mousedown.stop>
+                <div v-if="isPiapi25" class="advanced-select-field">
+                  <span><strong>PiAPI 素材要求</strong><small style="white-space:normal;line-height:1.6">
+                    最多 30 图 / 10 视频 / 10 音频；视频和音频各自总时长不超过 30 秒。支持纯音频参考。
+                    {{ activeDmxMode === 'edit' ? '编辑：源视频 4–30 秒，成片沿用源视频时长与画幅。' : activeDmxMode === 'extend' ? '延长：秒数为成片总时长，不是追加秒数；请在提示词中明确延长要求。' : '普通参考：视频/音频每段 2–30 秒；有参考图时图像画幅优先。' }}
+                    本地上传需要 Creator 或更高套餐，原文件约限 7.5 MB；视频直链支持 MP4/MOV ≤200 MB，音频 MP3/WAV ≤15 MB。
+                  </small></span>
+                </div>
                 <label v-if="audioGenerationSupported" class="advanced-switch-field">
                   <span><strong>生成音频</strong><small>成片同时生成音轨</small></span>
                   <button type="button" class="switch-control" :class="{ active: audioEnabled }" :aria-pressed="audioEnabled" @click.stop="onAudioChange(!audioEnabled)"><span></span></button>
@@ -414,7 +428,7 @@
               <template v-else-if="type === 'ai-image'">
                 <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
                 <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
-                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :default-resolution="selectedModel === 'seedream-5-pro' ? '1K' : undefined" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
+                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :default-resolution="selectedModel === 'seedream-5-pro' || isPiapiImage ? '1K' : undefined" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
@@ -794,6 +808,7 @@ import GenerationModeSelector, { type GenerationModeOption } from './GenerationM
 import GenerationSizeSelector from './GenerationSizeSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
+import PiapiAssetReferences from './PiapiAssetReferences.vue'
 import StylePresetPicker from './StylePresetPicker.vue'
 import InpaintingEditor from './InpaintingEditor.vue'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
@@ -821,6 +836,10 @@ interface Props {
     videoMode?: 'reference' | 'edit' | 'extend'
     dmxFrameMode?: 'first_frame' | 'first_last_frame'
     dmxTask?: import('@/services/dmxapiTask').DmxPendingTask
+    piapiTask?: import('@/stores/node').NodeData['piapiTask']
+    piapiImageTask?: import('@/stores/node').NodeData['piapiImageTask']
+    imageOutputFormat?: 'jpeg' | 'png'
+    piapiPrivateReferences?: import('@/stores/node').NodeData['piapiPrivateReferences']
     ratio?: string
     resolution?: string
     duration?: number
@@ -1827,6 +1846,11 @@ function persistUploadedAssets() {
     _uploads: uploadedAssets.value.map(a => ({ id: a.id, type: a.type, url: a.url, name: a.name }))
   })
 }
+function addPiapiPrivateAsset(asset: { id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }, binding: any) {
+  if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value.push(asset)
+  persistUploadedAssets()
+  nodeStore.updateNodeData(props.id, { piapiPrivateReferences: { ...props.data.piapiPrivateReferences, [asset.url]: binding } })
+}
 
 // 处理文件上传
 const handleFileUpload = async (event: Event) => {
@@ -1927,12 +1951,23 @@ const isAiideSeedance25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'aiide' && selectedModel.value === 'dreamina-seedance-2-5-hc'
 })
+const isPiapi25 = computed(() => {
+  const config = aiStore.getProviderConfig(selectedProviderId.value)
+  return props.type === 'ai-video' && config?.kind === 'piapi' && selectedModel.value === 'seedance-2.5-less-restriction'
+})
+const isPiapiImage = computed(() => props.type === 'ai-image' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'piapi' && selectedModel.value === 'seedream-5-pro-less-restriction')
 const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
   currentTab.value === 'video-edit' ? 'edit' : currentTab.value === 'video-extend' ? 'extend' : 'reference'
 )
 const currentModelCapabilities = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   const model = config?.models.find(m => m.id === selectedModel.value)
+  if (isPiapi25.value) return {
+    ...model?.capabilities,
+    ratios: activeDmxMode.value === 'reference' ? model?.capabilities.ratios : ['adaptive'],
+    durationRange: activeDmxMode.value === 'edit' ? undefined : { min: 4, max: 30 },
+    durationOptions: activeDmxMode.value === 'edit' ? [] : undefined,
+  }
   if (isDmxApi25.value) {
     return {
       ...model?.capabilities,
@@ -1960,7 +1995,7 @@ const durationSupported = computed(() =>
   props.type === 'ai-video' && (!!currentModelCapabilities.value?.durationRange || !!currentModelCapabilities.value?.durationOptions?.length)
 )
 const hasVideoAdvancedParameters = computed(() =>
-  audioGenerationSupported.value || frameRateSupported.value || isDmxApi25.value
+  audioGenerationSupported.value || frameRateSupported.value || isDmxApi25.value || isPiapi25.value
 )
 const outputFormatOptions: Array<'mp4' | 'mov'> = ['mp4', 'mov']
 
@@ -1998,6 +2033,8 @@ const nodeSize = computed(() => {
     '3:4':  { width: 270, height: 360 },
     '3:2':  { width: 390, height: 260 },
     '2:3':  { width: 260, height: 390 },
+    '4:5':  { width: 288, height: 360 },
+    '5:4':  { width: 360, height: 288 },
     '21:9': { width: 460, height: 197 },
   }
   return RATIO_TO_NODE_SIZE[selectedRatio.value] || RATIO_TO_NODE_SIZE['1:1']
@@ -2081,7 +2118,7 @@ const allAssets = computed(() => {
 
 const hasVideoInput = computed(() => allAssets.value.some(asset => asset.type === 'video' && asset.url))
 const referenceCapacityHint = computed(() => {
-  if (props.type !== 'ai-video' || !currentModelCapabilities.value) return ''
+  if (!['ai-video','ai-image'].includes(props.type) || !currentModelCapabilities.value) return ''
   const caps = currentModelCapabilities.value
   const total = allAssets.value.filter(asset => ['image', 'video', 'audio'].includes(asset.type)).length
   if (caps.maxTotalReferences) return `参考素材 ${total}/${caps.maxTotalReferences}`
@@ -2124,6 +2161,8 @@ const videoTabs = computed(() => [
   ...(isDmxApi25.value || isAiideSeedance25.value ? [
     { label: '图生视频', value: 'image-to-video', disabled: !hasImageInput.value },
     { label: '首尾帧', value: 'first-last-frame', disabled: !hasImageInput.value },
+  ] : []),
+  ...(isDmxApi25.value || isAiideSeedance25.value || isPiapi25.value ? [
     { label: '视频编辑', value: 'video-edit', disabled: !hasVideoInput.value },
     { label: '视频延长', value: 'video-extend', disabled: !hasVideoInput.value },
   ] : []),
@@ -2140,7 +2179,7 @@ const videoModeOptions = computed<GenerationModeOption[]>(() =>
     description: tab.value === 'video-edit'
       ? '修改已连接的视频内容'
       : tab.value === 'video-extend'
-        ? '延长已连接的视频'
+        ? isPiapi25.value ? '填写延长后的成片总时长（4–30 秒）' : '延长已连接的视频'
         : undefined,
   }))
 )
@@ -2157,11 +2196,22 @@ watch([hasAnyInput, hasImageInput], ([anyInput, imageInput]) => {
   }
 })
 
-watch([isDmxApi25, isAiideSeedance25], ([dmxEnabled, aiideEnabled]) => {
-  if (!dmxEnabled && !aiideEnabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
+watch([isDmxApi25, isAiideSeedance25, isPiapi25], ([dmxEnabled, aiideEnabled, piapiEnabled]) => {
+  if (!dmxEnabled && !aiideEnabled && !piapiEnabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
     currentTab.value = 'text-to-video'
   }
 })
+watch([isPiapi25, activeDmxMode], ([enabled, mode]) => {
+  if (!enabled) return
+  if (['first-last-frame', 'image-to-video'].includes(currentTab.value)) currentTab.value = hasAnyInput.value ? 'universal-ref' : 'text-to-video'
+  const patch: Record<string, any> = { videoMode: mode }
+  const duration = Number(props.data.duration)
+  if (mode === 'edit') patch.duration = -1
+  else if (!Number.isInteger(duration) || duration < 4 || duration > 30) patch.duration = 5
+  if (!['480p', '720p', '1080p'].includes(String(props.data.resolution || '').toLowerCase())) patch.resolution = '720p'
+  if (mode !== 'reference' || selectedRatio.value === 'auto') selectedRatio.value = 'adaptive'
+  nodeStore.updateNodeData(props.id, patch)
+}, { immediate: true })
 
 watch(activeDmxMode, (mode) => {
   if (!isDmxApi25.value) return
@@ -2471,7 +2521,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.dmxTask) {
+  if (props.data.dmxTask || props.data.piapiTask || props.data.piapiImageTask) {
     nodeStore.executeNode(props.id)
     return
   }
@@ -2592,6 +2642,7 @@ const nodeCaption = computed(() => {
 </script>
 
 <style scoped>
+.piapi-preparation-status { position:absolute; z-index:2; bottom:15px; left:12px; right:12px; text-align:center; color:#d8d8df; background:#25252dcc; border-radius:8px; padding:8px 10px; font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
 .custom-node {
   position: relative;
 }

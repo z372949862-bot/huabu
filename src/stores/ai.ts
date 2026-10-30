@@ -9,6 +9,8 @@ import { DmxApiProvider } from '@/services/providers/dmxapi'
 import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
 import { AiideSeedanceProvider, AIIDE_BASE } from '@/services/providers/aiide'
 import { AimiProvider, AIMI_BASE } from '@/services/providers/aimi'
+import { PiapiProvider, PIAPI_BASE } from '@/services/providers/piapi'
+import { PiapiImageProvider } from '@/services/providers/piapiImage'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
 import { LuociImageProvider } from '@/services/providers/luoci'
@@ -30,7 +32,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | AimiProvider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | AimiProvider | PiapiProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -42,7 +44,7 @@ export interface ProviderModel {
   description?: string
   capabilities: VideoModelCapabilities
   // 图片模型才有的元信息（GeekNow / Chuhaiying 内部分流用）
-  endpointStyle?: 'openai' | 'gemini'
+  endpointStyle?: 'openai' | 'gemini' | 'piapi'
   supportsReferenceImage?: boolean
   supportsImageSize2K?: boolean
   asyncEndpoint?: boolean
@@ -78,6 +80,7 @@ const STORE_KEY = 'aiProviders'
 const LEGACY_KEY = 'apiKey.seedance'
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
 const IMAGE_DEFAULT_BASE_URL: Record<ImageProviderKind, string> = {
+  piapi: PIAPI_BASE,
   geeknow: 'https://www.geeknow.top',
   chuhaiying: 'https://api.aiid.edu.kg',
   luoci: 'https://luocisheng.cn',
@@ -93,8 +96,9 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   fmgo: FMGO_BASE,
   aiide: AIIDE_BASE,
   aimi: AIMI_BASE,
+  piapi: PIAPI_BASE,
 }
-const CURRENT_MIGRATION = 15
+const CURRENT_MIGRATION = 17
 
 declare global {
   interface Window {
@@ -147,6 +151,7 @@ function defaultImageModelSet(kind: ImageProviderKind): ProviderModel[] {
 
 /** 把存档里宽松的 kind 收窄成 image kind（未知 / undefined → 'geeknow'）。 */
 function imageKindOf(conf: Provider): ImageProviderKind {
+  if (conf.kind === 'piapi') return 'piapi'
   if (conf.kind === 'luoci') return 'luoci'
   return conf.kind === 'chuhaiying' ? 'chuhaiying' : 'geeknow'
 }
@@ -162,6 +167,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'fmgo') return 'fmgo'
   if (conf.kind === 'aiide') return 'aiide'
   if (conf.kind === 'aimi') return 'aimi'
+  if (conf.kind === 'piapi') return 'piapi'
   return 'seedance'
 }
 
@@ -208,7 +214,9 @@ export const useAIStore = defineStore('ai', () => {
     let inst = videoCache.get(id)
     if (!inst) {
       const kind = videoKindOf(conf)
-      inst = kind === 'xinshuju'
+      inst = kind === 'piapi'
+        ? new PiapiProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'xinshuju'
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
         : kind === 'aiide'
           ? new AiideSeedanceProvider(conf.apiKey, conf.baseUrl)
@@ -239,7 +247,9 @@ export const useAIStore = defineStore('ai', () => {
     let inst = imageCache.get(id)
     if (!inst) {
       const kind = imageKindOf(conf)
-      inst = kind === 'luoci'
+      inst = kind === 'piapi'
+        ? new PiapiImageProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'luoci'
         ? new LuociImageProvider(conf.apiKey, conf.baseUrl)
         : kind === 'chuhaiying'
           ? new ChuhaiyingImageProvider(conf.apiKey, conf.baseUrl)
@@ -293,13 +303,13 @@ export const useAIStore = defineStore('ai', () => {
 
     if (type === 'image') {
       const imgKind: ImageProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'geeknow' || input.kind === 'luoci')
+        (input.kind === 'chuhaiying' || input.kind === 'geeknow' || input.kind === 'luoci' || input.kind === 'piapi')
           ? input.kind
           : 'geeknow'
       kind = imgKind
       defaultBase = IMAGE_DEFAULT_BASE_URL[imgKind]
       defaultModels = defaultImageModelSet(imgKind)
-      defaultName = imgKind === 'chuhaiying' ? '出海营' : imgKind === 'luoci' ? '洛辞 API' : 'GeekNow'
+      defaultName = imgKind === 'piapi' ? 'PiAPI · Seedream 5 Pro' : imgKind === 'chuhaiying' ? '出海营' : imgKind === 'luoci' ? '洛辞 API' : 'GeekNow'
     } else if (type === 'text') {
       const textKind: TextProviderKind =
         (input.kind === 'deepseek' || input.kind === 'openaichat')
@@ -317,13 +327,15 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'aimi')
+        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'aimi' || input.kind === 'piapi')
           ? input.kind
           : 'seedance'
       kind = vidKind
       defaultBase = VIDEO_DEFAULT_BASE_URL[vidKind]
       defaultModels = defaultVideoModelSet(vidKind)
-      defaultName = vidKind === 'unmau'
+      defaultName = vidKind === 'piapi'
+        ? 'PiAPI · Seedance 2.5'
+        : vidKind === 'unmau'
         ? 'New API · Seedance 2.5'
         : vidKind === 'aiide'
           ? 'AIIDE · Seedance 2.5 HC'
@@ -602,6 +614,14 @@ export const useAIStore = defineStore('ai', () => {
     if (migrationVersion.value < 15 && !providers.value.some((p) => p.type === 'video' && p.kind === 'aimi')) {
       addProvider({ name: 'AIMI · Seedance 2.5', type: 'video', kind: 'aimi' })
     }
+    if (migrationVersion.value < 16 && !providers.value.some((p) => p.type === 'video' && p.kind === 'piapi')) {
+      addProvider({ name: 'PiAPI · Seedance 2.5', type: 'video', kind: 'piapi' })
+    }
+    if (migrationVersion.value < 17 && !providers.value.some((p) => p.type === 'image' && p.kind === 'piapi')) {
+      // Reuse an already configured PiAPI key locally; never log or transmit it here.
+      const existing = providers.value.find(p => p.type === 'video' && p.kind === 'piapi' && p.baseUrl.replace(/[/]+$/, '') === PIAPI_BASE)
+      addProvider({ name: 'PiAPI · Seedream 5 Pro', type: 'image', kind: 'piapi', apiKey: existing?.apiKey || '' })
+    }
 
     // 一次性更新图片目录，保留中转站地址、密钥和用户自定义的 GPT 模型。
     if (migrationVersion.value < 12) {
@@ -628,7 +648,7 @@ export const useAIStore = defineStore('ai', () => {
     // preserving user-added model IDs.
     let catalogChanged = false
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'aimi')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'aimi' && provider.kind !== 'piapi')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const storedModels = provider.models || []
       const current = storedModels.filter((model) => {

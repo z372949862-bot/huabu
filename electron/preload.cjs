@@ -21,6 +21,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (payload) => ipcRenderer.invoke('aimi:upload', payload),
     download: (payload) => ipcRenderer.invoke('aimi:download', payload),
   },
+  piapi: {
+    downloadImage: (payload) => ipcRenderer.invoke('piapi:download-image', payload),
+    ensurePrivateAsset: (payload) => ipcRenderer.invoke('piapi:ensure-private-asset', payload),
+    inspectMedia: (payload) => ipcRenderer.invoke('piapi:inspect-media', payload),
+    request: (payload) => ipcRenderer.invoke('piapi:request', payload),
+    upload: (payload) => ipcRenderer.invoke('piapi:upload', payload),
+    download: (payload) => ipcRenderer.invoke('piapi:download', payload),
+  },
   xinshuju: {
     request: (payload) => ipcRenderer.invoke('xinshuju:request', payload),
     download: (payload) => ipcRenderer.invoke('xinshuju:download', payload),

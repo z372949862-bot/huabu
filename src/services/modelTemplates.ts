@@ -14,8 +14,9 @@ import { YU25_MODELS } from './providers/yu25'
 import { XINSHUJU_MODELS } from './providers/xinshuju'
 import { FMGO_MODELS } from './providers/fmgo'
 import { AIMI_MODELS } from './providers/aimi'
+import { PIAPI_MODELS } from './providers/piapi'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'aimi'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'aimi' | 'piapi'
 
 export interface ModelTemplate {
   id: string
@@ -275,13 +276,14 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   fmgo: FMGO_VIDEO_MODEL_TEMPLATES,
   aiide: AIIDE_VIDEO_MODEL_TEMPLATES,
   aimi: AIMI_VIDEO_MODEL_TEMPLATES,
+  piapi: PIAPI_MODELS,
 }
 
 /** 兼容旧代码：返回全部去重模板（按 id）。新代码用 getModelTemplatesByKind。 */
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...PIAPI_MODELS]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

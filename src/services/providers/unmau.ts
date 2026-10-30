@@ -177,13 +177,19 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
   const current = () => !signal.aborted && runs.get(id) === controller && isCurrent();
   const check = () => { if (!current()) throw new DOMException('已取消','AbortError'); };
   try {
-    const refs = collectReferences(data,nodes,edges,id), body = provider.buildBody ? provider.buildBody(data,refs) : buildUnmauBody(data,refs);
+    const savedBody = provider.resumeBody?.(data);
+    const refs = savedBody ? null : provider.prepareReferences ? provider.prepareReferences(data,nodes,edges,id) : collectReferences(data,nodes,edges,id);
+    const body = savedBody || (provider.buildBody ? provider.buildBody(data,refs) : buildUnmauBody(data,refs));
     const resumeTaskId = provider.canResumeTask && data.taskId ? String(data.taskId) : '';
     provider.validate();
-    update({status:'running',progress:resumeTaskId ? 10 : 0,error:undefined,outputVideo:undefined,taskId:resumeTaskId || undefined});
+    update({status:'running',progress:resumeTaskId ? 10 : 0,error:undefined,referenceWarning:undefined,outputVideo:undefined,taskId:resumeTaskId || undefined});
     let taskId = resumeTaskId, directVideoUrl;
     if (!taskId) {
-      for (const field of ['images','videos','audios','image_urls']) if (body[field]) {
+      if (provider.prepareAssets) await provider.prepareAssets(body,readFile,signal,{
+        update: patch => { check(); update(patch); },
+        savePrivateReferences: async bindings => { check(); update({piapiPrivateReferences:{...(data.piapiPrivateReferences||{}),...bindings}}); if(persist) await persist(); }
+      });
+      else for (const field of ['images','videos','audios','image_urls']) if (body[field]) {
         const uploaded = [];
         for (const url of body[field]) {check();uploaded.push(await provider.uploadAsset(url,readFile,signal,field));}
         body[field] = uploaded;
@@ -193,6 +199,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
       const created = await provider.createTask(body);
       taskId = created.taskId; directVideoUrl = created.videoUrl;
       check(); update({taskId});
+      if (provider.pendingTask) update(provider.pendingTask(taskId,body,data));
       if (persist) await persist();
     }
     const start = Date.now(); let transientErrors = 0, deliveryStarted = null;
@@ -206,6 +213,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
       check();
       if (state.status === 'failed') {
         update({taskId:undefined});
+        if(provider.clearPendingTask) update(provider.clearPendingTask());
         if (persist) await persist();
         throw new Error(state.error || '平台视频生成失败');
       }
@@ -215,6 +223,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
         try {url=await provider.download(taskId,state.videoUrl);}
         catch(error) {if(error.retryable){transientErrors=Math.min(transientErrors+1,3);continue;}throw error;}
         check(); update({status:'completed',progress:100,outputVideo:url,error:undefined,taskId:undefined});
+        if(provider.clearPendingTask) update(provider.clearPendingTask());
         if (persist) await persist();
         complete(url,provider.assetMeta ? provider.assetMeta(body,data) : body); return;
       }

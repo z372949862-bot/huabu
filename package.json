@@ -1,6 +1,6 @@
 {
   "name": "ai-video-canvas",
-  "version": "0.3.22",
+  "version": "0.3.23",
   "description": "芜湖AI - 图片与视频生成画布",
   "main": "electron/main.cjs",
   "type": "module",
@@ -67,10 +67,10 @@
       "shortcutName": "芜湖AI",
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "${productName}-${version}-Setup.${ext}"
+      "artifactName": "ai-video-canvas-setup-0.3.23.exe"
     },
     "portable": {
-      "artifactName": "${productName}-${version}-portable.exe"
+      "artifactName": "ai-video-canvas-portable-0.3.23.exe"
     }
   },
   "keywords": [

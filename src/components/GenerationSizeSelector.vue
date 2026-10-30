@@ -98,6 +98,8 @@ const ratioOptions: RatioOption[] = [
   { label: '9:16', value: '9:16', aspect: '9 / 16' },
   { label: '3:2', value: '3:2', aspect: '3 / 2' },
   { label: '2:3', value: '2:3', aspect: '2 / 3' },
+  { label: '4:5', value: '4:5', aspect: '4 / 5' },
+  { label: '5:4', value: '5:4', aspect: '5 / 4' },
 ]
 
 const fallbackResolutions = ['480p', '720p', '1080p']

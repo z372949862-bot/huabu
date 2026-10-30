@@ -428,8 +428,18 @@ const pasteCopiedNodes = (at?: { clientX: number; clientY: number }) => {
   const pastedNodes = nodeClipboard.nodes.map((node, index) => {
     const newId = `${node.id}-copy-${stamp}-${index}`
     idMap.set(node.id, newId)
+    const copied = cloneData(node)
+    if (copied.data?.piapiTask || copied.data?.piapiImageTask) {
+      delete copied.data.piapiTask
+      delete copied.data.piapiImageTask
+      delete copied.data.taskId
+      delete copied.data.referenceWarning
+      delete copied.data.error
+      copied.data.status = copied.data.outputVideo || copied.data.outputImage ? 'completed' : 'idle'
+      copied.data.progress = copied.data.outputVideo || copied.data.outputImage ? 100 : 0
+    }
     return {
-      ...cloneData(node),
+      ...copied,
       id: newId,
       draggable: true,
       selectable: true,
