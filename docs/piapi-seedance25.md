@@ -15,6 +15,7 @@
 
 ## 已实现范围与限制
 - POST /api/v1/task，model=seedance，task_type=seedance-2.5-less-restriction；认证 X-API-Key。
+- 无参考素材时发送 mode=text_to_video，省略 omni_reference_task_type；有图片、视频或音频参考时发送 mode=omni_reference，并按操作发送 reference/edit/extend。纯文字模式携带参考任务类型会被平台以 HTTP 400 拒绝。
 - 分辨率 480p/720p/1080p，默认720p；时长4–30整数秒，接口默认5秒。
 - 比例16:9、9:16、4:3、3:4、21:9、1:1、自适应。普通参考生成时参考图比例优先。
 - 提示词最多4000字符；最多30图/10视频/10音频、合计50项，允许纯音频参考。

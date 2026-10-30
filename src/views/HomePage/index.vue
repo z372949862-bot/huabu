@@ -268,6 +268,15 @@ const hasSeenLatest = computed(() => localStorage.getItem('lastSeenVersion') ===
 // 新公告始终插到数组最前面。界面只展示最近两次版本更新，较早记录不再出现。
 const changelogEntries = [
   {
+    version: '0.3.25',
+    date: '2026-10-30',
+    items: [
+      '修复 PiAPI Seedance 2.5 纯文字生成时的参数冲突，解决 HTTP 400 报错',
+      '素材参考、视频编辑与延长继续按对应模式提交',
+      '提交失败仍不会自动重提，避免重复生成和重复扣费',
+    ],
+  },
+  {
     version: '0.3.24',
     date: '2026-10-30',
     items: [

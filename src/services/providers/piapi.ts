@@ -86,9 +86,10 @@ export function buildPiapiBody(data, refs) {
   return body
 }
 export function piapiPayload(body) {
-  const input = { prompt: body.prompt, duration: body.duration, aspect_ratio: body.aspect_ratio, resolution: body.resolution, omni_reference_task_type: body.omni_reference_task_type, auto_upload_assets: false }
+  const input = { prompt: body.prompt, duration: body.duration, aspect_ratio: body.aspect_ratio, resolution: body.resolution, auto_upload_assets: false }
   for (const [field, target] of fields) if (body[field]?.length) input[target] = body[field]
   input.mode = fields.some(([field]) => body[field]?.length) ? 'omni_reference' : 'text_to_video'
+  if (input.mode === 'omni_reference') input.omni_reference_task_type = body.omni_reference_task_type
   return { model: 'seedance', task_type: PIAPI_MODEL, input }
 }
 export function mapPiapiTask(raw) {

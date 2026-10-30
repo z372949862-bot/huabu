@@ -8,7 +8,13 @@ afterEach(() => { delete window.electronAPI; vi.restoreAllMocks() })
 
 describe('PiAPI documented payload', () => {
   it('maps catalog ID to seedance task_type with documented defaults', () => {
-    expect(piapiPayload(buildPiapiBody(defaults, empty))).toEqual({ model: 'seedance', task_type: PIAPI_MODEL, input: { prompt: defaults.prompt, duration: 5, aspect_ratio: '16:9', resolution: '720p', omni_reference_task_type: 'reference', auto_upload_assets: false, mode: 'text_to_video' } })
+    expect(piapiPayload(buildPiapiBody(defaults, empty))).toEqual({ model: 'seedance', task_type: PIAPI_MODEL, input: { prompt: defaults.prompt, duration: 5, aspect_ratio: '16:9', resolution: '720p', auto_upload_assets: false, mode: 'text_to_video' } })
+  })
+  it.each(['images', 'videos', 'audios'])('uses omni reference fields only with %s references', field => {
+    const payload = piapiPayload(buildPiapiBody(defaults, { ...empty, [field]: ['https://media.example.com/reference'] }))
+    expect(payload.input).toMatchObject({ mode: 'omni_reference', omni_reference_task_type: 'reference' })
+    const plain = piapiPayload(buildPiapiBody(defaults, empty))
+    expect(JSON.parse(JSON.stringify(plain)).input).not.toHaveProperty('omni_reference_task_type')
   })
   it.each([4, 5, 15, 30])('supports %s seconds', duration => expect(buildPiapiBody({ ...defaults, duration }, empty).duration).toBe(duration))
   it.each([-1, 0, 3, 31, 4.5, NaN])('rejects invalid duration %s before submission', duration => expect(() => buildPiapiBody({ ...defaults, duration }, empty)).toThrow('4–30'))
@@ -26,10 +32,11 @@ describe('PiAPI documented payload', () => {
   })
   it('forces edit adaptive ratio, duration -1 and raw readable source', () => {
     const body = buildPiapiBody({ ...defaults, videoMode: 'edit', ratio: '16:9', duration: 10 }, { ...empty, videos: [url] })
-    expect(piapiPayload(body).input).toMatchObject({ duration: -1, aspect_ratio: 'adaptive', omni_reference_task_type: 'edit', auto_upload_assets: false, video_urls: [url] })
+    expect(piapiPayload(body).input).toMatchObject({ mode: 'omni_reference', duration: -1, aspect_ratio: 'adaptive', omni_reference_task_type: 'edit', auto_upload_assets: false, video_urls: [url] })
   })
   it('preserves total target duration for extension', () => {
     expect(buildPiapiBody({ ...defaults, videoMode: 'extend', duration: 20 }, { ...empty, videos: [url] })).toMatchObject({ duration: 20, aspect_ratio: 'adaptive' })
+    expect(piapiPayload(buildPiapiBody({ ...defaults, videoMode: 'extend', duration: 20 }, { ...empty, videos: [url] })).input).toMatchObject({ mode: 'omni_reference', omni_reference_task_type: 'extend', duration: 20 })
     expect(() => buildPiapiBody({ ...defaults, videoMode: 'extend' }, empty)).toThrow('至少一段')
   })
   it.each([['images', 31], ['videos', 11], ['audios', 11]])('checks %s count', (field, count) => {
