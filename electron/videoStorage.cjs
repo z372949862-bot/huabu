@@ -71,6 +71,9 @@ function createVideoSaver({ root, fetch, timeoutMs = 300000, maxBytes = 1024 * 1
         if (controller.signal.aborted) throw new Error('成片已生成，但保存到本地超时，请重试保存')
         throw error
       } finally {
+        // Stop the network body even when rejecting on status/MIME/size before
+        // pipeline takes ownership of it.
+        controller.abort()
         clearTimeout(timer)
         await fs.promises.rm(temporary, { force: true }).catch(() => {})
       }

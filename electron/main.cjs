@@ -36,10 +36,11 @@ require('./aimi.cjs')({ ipcMain, net, app })
 require('./piapi.cjs')({ ipcMain, net, app })
 require('./xinshuju.cjs')({ ipcMain, net, app })
 require('./qiling.cjs')({ ipcMain, net, app })
-require('./aiide.cjs')({ ipcMain, net })
+const mediaFetch = require('./mediaFetch.cjs').createMediaFetch(net)
+require('./aiide.cjs')({ ipcMain, fetch: mediaFetch })
 const saveGeneratedVideo = require('./videoStorage.cjs').createVideoSaver({
   root: path.join(app.getPath('userData'), 'generated-videos', 'automatic'),
-  fetch: (...args) => net.fetch(...args),
+  fetch: mediaFetch,
 })
 ipcMain.handle('video:save-generated', async (_event, payload) => {
   try { return { ok: true, ...(await saveGeneratedVideo(payload)) } }

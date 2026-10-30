@@ -2,7 +2,7 @@ const crypto = require('crypto')
 
 // AIIDE accepts public media URLs, not multipart local files. Keep the existing
 // staging host, but upload outside renderer CORS and never send provider keys.
-module.exports = function registerAiide({ ipcMain, net, retryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+module.exports = function registerAiide({ ipcMain, fetch, retryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const cache = new Map()
   const inflight = new Map()
   ipcMain.handle('aiide:upload', async (_event, { dataUrl } = {}) => {
@@ -24,12 +24,15 @@ module.exports = function registerAiide({ ipcMain, net, retryDelay = ms => new P
             try {
               const form = new FormData()
               form.append('file', new Blob([bytes], { type: match[1] }), `reference.${ext}`)
-              const response = await net.fetch('https://imageproxy.zhongzhuan.chat/api/upload', {
+              const response = await fetch('https://imageproxy.zhongzhuan.chat/api/upload', {
                 method: 'POST', body: form, signal: controller.signal,
               })
-              if (!response.ok) throw Object.assign(new Error(`素材图床上传失败（HTTP ${response.status}）`), {
-                retryable: response.status >= 500 || [408, 429].includes(response.status),
-              })
+              if (!response.ok) {
+                await response.body?.cancel().catch(() => {})
+                throw Object.assign(new Error(`素材图床上传失败（HTTP ${response.status}）`), {
+                  retryable: response.status >= 500 || [408, 429].includes(response.status),
+                })
+              }
               const result = await response.json()
               let url
               try { url = new URL(result?.url) } catch { throw new Error('素材图床未返回有效地址') }

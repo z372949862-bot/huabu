@@ -6,7 +6,7 @@ const register = createRequire(import.meta.url)('../../../electron/aiide.cjs')
 function setup() {
   const handlers = new Map<string, Function>()
   const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ url: 'https://example.com/reference.png' })))
-  register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) }, net: { fetch }, retryDelay: async () => {} })
+  register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) }, fetch, retryDelay: async () => {} })
   return { upload: handlers.get('aiide:upload')!, fetch }
 }
 const dataUrl = 'data:image/png;base64,YWJj'

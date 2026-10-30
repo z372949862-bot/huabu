@@ -1,6 +1,6 @@
 {
   "name": "ai-video-canvas",
-  "version": "0.3.26",
+  "version": "0.3.27",
   "description": "芜湖AI - 图片与视频生成画布",
   "main": "electron/main.cjs",
   "type": "module",
@@ -13,7 +13,8 @@
     "electron:build:portable": "vite build && electron-builder --win portable",
     "electron:build:installer": "vite build && electron-builder --win nsis",
     "electron:build:dir": "vite build && electron-builder --win --dir",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:electron-network": "electron scripts/test-media-fetch.cjs"
   },
   "build": {
     "beforePack": "./scripts/check-license-release.cjs",
@@ -68,10 +69,10 @@
       "shortcutName": "芜湖AI",
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "ai-video-canvas-setup-0.3.26.exe"
+      "artifactName": "ai-video-canvas-setup-0.3.27.exe"
     },
     "portable": {
-      "artifactName": "ai-video-canvas-portable-0.3.26.exe"
+      "artifactName": "ai-video-canvas-portable-0.3.27.exe"
     }
   },
   "keywords": [
