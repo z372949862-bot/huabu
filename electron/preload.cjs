@@ -44,6 +44,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (payload) => ipcRenderer.invoke('qiling:upload', payload),
     download: (payload) => ipcRenderer.invoke('qiling:download', payload),
   },
+  aiide: {
+    upload: (payload) => ipcRenderer.invoke('aiide:upload', payload),
+  },
   store: {
     get: (key) => ipcRenderer.invoke('store:get', key),
     set: (key, value) => ipcRenderer.invoke('store:set', key, value),

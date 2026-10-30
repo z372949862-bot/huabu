@@ -12,6 +12,8 @@ import { isQilingCb480Model, isQilingCbFullModel, isQilingCbModel, isQilingGfMod
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
 import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
+import { runAiideNode, cancelAiideNode, type AiidePendingTask } from '@/services/aiideTask'
+import { ensureAiideMediaUrl } from '@/services/aiideMedia'
 
 export interface NodeData {
   label: string
@@ -59,6 +61,7 @@ export interface NodeData {
   taskId?: string
   /** Durable DMXAPI query state; kept across restarts without persisting credentials. */
   dmxTask?: DmxPendingTask
+  aiideTask?: AiidePendingTask
   piapiTask?: { taskId: string; providerId: string; body: Record<string, any> }
   piapiImageTask?: { taskId: string; providerId: string; model: string; prompt: string; ratio?: string; resolution?: string; imageOutputFormat?: 'jpeg' | 'png' }
   imageOutputFormat?: 'jpeg' | 'png'
@@ -207,9 +210,9 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.dmxTask || data.piapiTask || data.piapiImageTask ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.dmxTask || data.piapiTask || data.piapiImageTask ? undefined : hasOutput ? 100 : 0,
-                taskId: data.dmxTask?.taskId || data.piapiTask?.taskId },
+              data: { ...data, status: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask ? undefined : hasOutput ? 100 : 0,
+                taskId: data.dmxTask?.taskId || data.aiideTask?.taskId || data.piapiTask?.taskId },
             }
           })
         : []
@@ -379,6 +382,7 @@ export const useNodeStore = defineStore('node', () => {
   }
 
   function cancelExecution(nodeId: string) {
+    cancelAiideNode(nodeId)
     cancelDmxApiNode(nodeId)
     cancelUnmauNode(nodeId)
     const t = runningTasks.get(nodeId)
@@ -464,7 +468,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
-    const providerId = data.dmxTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
+    const providerId = data.dmxTask?.providerId || data.aiideTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
       failNode(nodeId, '请先在「设置」中添加中转站')
       return
@@ -515,6 +519,40 @@ export const useNodeStore = defineStore('node', () => {
 
     if (providerConfig.kind === 'dmxapi') {
       return executeDmxApiNode(nodeId, provider, providerConfig, data)
+    }
+
+    if (providerConfig.kind === 'aiide') {
+      const projectId = currentProjectId.value
+      return runAiideNode({
+        id: nodeId, data: { ...data }, nodes: nodes.value, edges: edges.value,
+        providerId, provider, upload: ensureAiideMediaUrl,
+        resolveVideoUrl: url => assetStore.remoteVideoUrl(url),
+        update: patch => updateNodeData(nodeId, patch), persist: flushPersist,
+        isCurrent: () => currentProjectId.value === projectId && nodes.value.includes(node),
+        rememberTask: async task => {
+          if (currentProjectId.value === projectId) {
+            if (nodes.value.includes(node)) await flushPersist()
+            return
+          }
+          // A billed POST can finish after switching projects. Save only into
+          // the original existing node, never into the newly opened canvas.
+          const storage = window.electronAPI?.store
+          if (!storage || !projectId) return
+          const key = PROJECT_PERSIST_PREFIX + projectId
+          const raw = await storage.get(key)
+          if (!raw) return
+          const saved = JSON.parse(raw)
+          const original = saved.nodes?.find((item: any) => item.id === nodeId)
+          if (!original) return
+          original.data = { ...original.data, aiideTask: task }
+          await storage.set(key, JSON.stringify(saved))
+        },
+        complete: (url, task) => useAssetStore().addAsset({
+          type: 'video', url, prompt: task.prompt, model: task.model,
+          providerId: task.providerId, providerName: providerConfig.name, nodeId, nodeType: 'ai-video',
+          projectId: projectId || undefined, ratio: task.ratio, resolution: task.resolution, duration: task.duration,
+        }),
+      })
     }
 
     let { imageUrl, videoUrl } = resolveAssets(nodeId)

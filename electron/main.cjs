@@ -36,6 +36,7 @@ require('./aimi.cjs')({ ipcMain, net, app })
 require('./piapi.cjs')({ ipcMain, net, app })
 require('./xinshuju.cjs')({ ipcMain, net, app })
 require('./qiling.cjs')({ ipcMain, net, app })
+require('./aiide.cjs')({ ipcMain, net })
 const saveGeneratedVideo = require('./videoStorage.cjs').createVideoSaver({
   root: path.join(app.getPath('userData'), 'generated-videos', 'automatic'),
   fetch: (...args) => net.fetch(...args),

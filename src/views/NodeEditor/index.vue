@@ -429,7 +429,8 @@ const pasteCopiedNodes = (at?: { clientX: number; clientY: number }) => {
     const newId = `${node.id}-copy-${stamp}-${index}`
     idMap.set(node.id, newId)
     const copied = cloneData(node)
-    if (copied.data?.piapiTask || copied.data?.piapiImageTask) {
+    if (copied.data?.aiideTask || copied.data?.piapiTask || copied.data?.piapiImageTask) {
+      delete copied.data.aiideTask
       delete copied.data.piapiTask
       delete copied.data.piapiImageTask
       delete copied.data.taskId

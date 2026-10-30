@@ -3,6 +3,7 @@ import {
   AIIDE_BASE,
   AIIDE_SEEDANCE_25_MODEL,
   AiideSeedanceProvider,
+  AiideRequestError,
   buildAiideSeedanceBody,
   mapAiideTaskResponse,
 } from '../aiide'
@@ -206,5 +207,34 @@ describe('Aiide Seedance 2.5 HC', () => {
     expect(status.status).toBe('pending')
     expect(fetchMock.mock.calls[0][0]).toBe(`${AIIDE_BASE}/v1/video/generations/task%2Fa%20b`)
     expect(fetchMock.mock.calls[0][1].method).toBe('GET')
+  })
+
+  it('marks query 502 and HTTP 200 fail_to_fetch_task responses retryable', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'fail_to_fetch_task', message: 'upstream unavailable' }), { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'fail_to_fetch_task', message: 'upstream unavailable' })))
+    vi.stubGlobal('fetch', fetchMock)
+    const provider = new AiideSeedanceProvider(apiKey)
+    await expect(provider.getTaskStatus('saved')).rejects.toMatchObject({ retryable: true })
+    await expect(provider.getTaskStatus('saved')).rejects.toMatchObject({ retryable: true })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('distinguishes an authentication error from temporary query/network failures', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    const provider = new AiideSeedanceProvider(apiKey)
+    await expect(provider.getTaskStatus('saved')).rejects.toMatchObject({ retryable: false })
+    await expect(provider.getTaskStatus('saved')).rejects.toBeInstanceOf(AiideRequestError)
+  })
+
+  it('does not automatically repeat a billed submission after a 502', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('upstream unavailable', { status: 502 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(new AiideSeedanceProvider(apiKey).createTask({ model: AIIDE_SEEDANCE_25_MODEL, prompt: '向前走' }))
+      .rejects.toThrow('提交结果不确定')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST')
   })
 })

@@ -15,6 +15,10 @@ import { fetchWithTimeout } from './_httpUtils'
 export const AIIDE_BASE = 'https://www.aiide.com'
 export const AIIDE_SEEDANCE_25_MODEL = 'dreamina-seedance-2-5-hc'
 
+export class AiideRequestError extends Error {
+  constructor(message: string, public retryable = false) { super(message); this.name = 'AiideRequestError' }
+}
+
 const MEDIA_TYPES = new Set(['image_url', 'video_url', 'audio_url'])
 const FAILED_STATES = new Set(['failure', 'failed', 'error', 'expired', 'cancelled', 'canceled', 'rejected'])
 const COMPLETED_STATES = new Set(['success', 'succeeded', 'completed', 'complete', 'done', 'finished'])
@@ -203,17 +207,27 @@ export class AiideSeedanceProvider implements AIProvider {
   }
 
   async createTask(params: CreateTaskParams): Promise<{ taskId: string }> {
-    const raw = await this.request<any>('/v1/video/generations', {
-      method: 'POST',
-      body: JSON.stringify(buildAiideSeedanceBody(params)),
-    }, 180_000)
+    const body = JSON.stringify(buildAiideSeedanceBody(params))
+    let raw: any
+    try {
+      raw = await this.request<any>('/v1/video/generations', { method: 'POST', body }, 180_000)
+    } catch (error) {
+      if (error instanceof AiideRequestError && error.retryable) {
+        throw new Error(error.message + '；提交结果不确定，请先到 AIIDE 平台核实任务，避免重复生成或扣费。软件未自动重提')
+      }
+      throw error
+    }
     const taskId = firstText(raw, ['task_id', 'data.task_id', 'data.data.task_id', 'id', 'data.id'])
     if (!taskId) throw new Error('AIIDE 创建任务未返回任务 ID，请在平台确认任务状态后再重试')
     return { taskId }
   }
 
-  async getTaskStatus(taskId: string): Promise<TaskStatus> {
-    const raw = await this.request<any>(`/v1/video/generations/${encodeURIComponent(taskId)}`, { method: 'GET' })
+  async getTaskStatus(taskId: string, signal?: AbortSignal): Promise<TaskStatus> {
+    const raw = await this.request<any>(`/v1/video/generations/${encodeURIComponent(taskId)}`, { method: 'GET', signal })
+    if (raw?.code === 'fail_to_fetch_task') throw new AiideRequestError('AIIDE 暂时无法查询任务：' + (raw.message || raw.code), true)
+    if (raw?.success === false || (raw?.code && !['success', 'ok', '0', '200'].includes(String(raw.code).toLowerCase()))) {
+      throw new AiideRequestError('AIIDE 查询失败：' + (raw.message || raw.code || '平台未返回任务状态'))
+    }
     return mapAiideTaskResponse(raw)
   }
 
@@ -252,6 +266,7 @@ export class AiideSeedanceProvider implements AIProvider {
     try {
       response = await fetchWithTimeout(this.baseUrl + path, {
         ...init,
+        externalSignal: init.signal || undefined,
         timeoutMs,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -260,7 +275,7 @@ export class AiideSeedanceProvider implements AIProvider {
         },
       })
     } catch (error) {
-      throw new Error(`无法连接到 AIIDE (${this.baseUrl})：${error instanceof Error ? error.message : '网络错误'}`)
+      throw new AiideRequestError(`无法连接到 AIIDE (${this.baseUrl})：${error instanceof Error ? error.message : '网络错误'}`, !init.signal?.aborted)
     }
 
     if (!response.ok) {
@@ -270,10 +285,11 @@ export class AiideSeedanceProvider implements AIProvider {
         const parsed = JSON.parse(bodyText)
         detail = parsed?.error?.message || parsed?.message || detail
       } catch { /* Keep the response text as the diagnostic. */ }
-      if (response.status === 401) throw new Error('AIIDE API Key 无效或已过期')
-      if (response.status === 429) throw new Error(`AIIDE 请求频率或额度受限：${detail}`)
-      throw new Error(`AIIDE 请求失败 ${response.status}：${detail.slice(0, 1000)}`)
+      if (response.status === 401) throw new AiideRequestError('AIIDE API Key 无效或已过期')
+      if (response.status === 429) throw new AiideRequestError(`AIIDE 请求频率或额度受限：${detail}`, true)
+      throw new AiideRequestError(`AIIDE 请求失败 ${response.status}：${detail.slice(0, 1000)}`, response.status >= 500 || response.status === 408)
     }
-    return await response.json() as T
+    try { return await response.json() as T }
+    catch { throw new AiideRequestError('AIIDE 返回了无效响应，暂时无法确认任务状态', true) }
   }
 }

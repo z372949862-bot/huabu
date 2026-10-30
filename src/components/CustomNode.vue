@@ -256,7 +256,7 @@
 
           <PiapiAssetReferences v-if="isPiapi25" :provider-id="selectedProviderId" :assets="allAssets" :bindings="data.piapiPrivateReferences" :video-mode="activeDmxMode" :disabled="data.status === 'running' || !!data.piapiTask" @update:bindings="value => nodeStore.updateNodeData(id, { piapiPrivateReferences: value })" @add-asset="addPiapiPrivateAsset" />
           <div v-if="data.referenceWarning" class="reference-warning" role="status">{{ data.referenceWarning }}</div>
-          <div v-if="(data.dmxTask || data.piapiTask || data.piapiImageTask) && data.status !== 'running'" class="reference-warning">
+          <div v-if="(data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask) && data.status !== 'running'" class="reference-warning">
             <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询上次任务</button>
             <span>任务已保存，不会重新提交生成。</span>
           </div>
@@ -836,6 +836,7 @@ interface Props {
     videoMode?: 'reference' | 'edit' | 'extend'
     dmxFrameMode?: 'first_frame' | 'first_last_frame'
     dmxTask?: import('@/services/dmxapiTask').DmxPendingTask
+    aiideTask?: import('@/services/aiideTask').AiidePendingTask
     piapiTask?: import('@/stores/node').NodeData['piapiTask']
     piapiImageTask?: import('@/stores/node').NodeData['piapiImageTask']
     imageOutputFormat?: 'jpeg' | 'png'
@@ -2521,7 +2522,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.dmxTask || props.data.piapiTask || props.data.piapiImageTask) {
+  if (props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask) {
     nodeStore.executeNode(props.id)
     return
   }
