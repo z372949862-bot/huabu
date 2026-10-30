@@ -2,6 +2,13 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  license: {
+    status: () => ipcRenderer.invoke('license:status'),
+    activate: code => ipcRenderer.invoke('license:activate', code),
+    refresh: () => ipcRenderer.invoke('license:refresh'),
+    openUpdate: () => ipcRenderer.invoke('license:open-update'),
+    onChanged: callback => { const handler = (_event, state) => callback(state); ipcRenderer.on('license:changed', handler); return () => ipcRenderer.removeListener('license:changed', handler) },
+  },
   unmau: {
     request: (payload) => ipcRenderer.invoke('unmau:request', payload),
     upload: (payload) => ipcRenderer.invoke('unmau:upload', payload),

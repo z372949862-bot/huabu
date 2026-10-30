@@ -17,3 +17,13 @@ lerna-debug.log*
 out
 release
 temp_*
+license-data/
+license-trial/
+*.private.pem
+admin-login.txt
+admin-bootstrap-url.txt
+.wrangler/
+.dev.vars*
+.env*
+license-cloud-private/
+*.secrets.json

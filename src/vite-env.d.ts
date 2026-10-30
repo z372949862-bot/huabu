@@ -9,6 +9,13 @@ declare const __APP_VERSION__: string
 interface Window {
   electronAPI?: {
     platform: string
+    license?: {
+      status: () => Promise<any>
+      activate: (code: string) => Promise<any>
+      refresh: () => Promise<any>
+      openUpdate: () => Promise<void>
+      onChanged: (callback: (state: any) => void) => () => void
+    }
     unmau?: {
       request: (payload: any) => Promise<any>
       upload: (payload: any) => Promise<any>

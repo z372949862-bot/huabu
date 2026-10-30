@@ -1,0 +1,18 @@
+const fs=require('fs'),path=require('path')
+const target=path.join(__dirname,'public');fs.mkdirSync(target,{recursive:true})
+let html=fs.readFileSync(path.join(__dirname,'../license-server/admin.html'),'utf8')
+html=html.replaceAll('芜湖AI · 授权管理试用','芜湖AI · 云端授权管理').replaceAll('本地试用 · 仅此电脑','云端授权 · 管理员专用').replaceAll('试用版每 15 秒验证，断开服务后最多保留 60 秒授权。','客户端每 5 分钟验证；暂时断网最多保留 1 小时授权。').replaceAll('首次打开会使用本机的一次性登录链接。重新登录可读取私有数据目录中的 admin-login.txt。','请输入你保管的管理员登录码。管理凭证和签名私钥不会包含在客户端中。').replaceAll('当前试用不连接云端，不影响正式版。停用只限制使用，不删除项目。','在线设备通常 5 分钟内应用停用；离线凭证最多 1 小时到期。停用不删除项目。')
+html=html.replace('<section class="stats">',`<section class="card"><h2>强制更新策略</h2><p>仅对安装了 v0.3.24 或后续版本的客户端生效。低于最低版本时禁止使用，提示 10 秒后退出；未升级的更早版本无法远程关闭。请先发布可下载的新安装包，再提高最低版本。</p><form id="policy-form"><label class="policy-toggle"><input id="policy-enabled" type="checkbox">启用最低版本限制</label><label>最低可用版本<input id="policy-minimum" placeholder="0.3.24" required pattern="[0-9]+\\.[0-9]+\\.[0-9]+"></label><label>更新提示<input id="policy-message" maxlength="200" placeholder="请更新后继续使用"></label><button>保存更新策略</button></form><p id="policy-status"></p></section><section class="stats">`)
+fs.writeFileSync(path.join(target,'admin.html'),html)
+let js=fs.readFileSync(path.join(__dirname,'../license-server/admin.js'),'utf8')
+js=js.replace("el('total').textContent=data.licenses.length","el('total').textContent=data.counts.total").replace("el('bound').textContent=data.licenses.filter(l=>l.binding).length","el('bound').textContent=data.counts.bound||0").replace("el('disabled').textContent=data.licenses.filter(l=>l.status==='disabled').length","el('disabled').textContent=data.counts.disabled||0").replace('已登录本机授权后台','已登录云端授权后台')
+const bootstrap=js.lastIndexOf('task(async()=>{const token=')
+if(bootstrap<0)throw new Error('Local admin bootstrap changed; review the cloud entry point')
+js=js.slice(0,bootstrap)
+js=js.replace("csrf=data.csrf;", "csrf=data.csrf;await loadUpdatePolicy();")
+js=js.replace("create:'创建授权'", "'update-policy':'修改更新策略',create:'创建授权'")
+js+=`async function loadUpdatePolicy(){const {policy}=await api('update-policy');el('policy-enabled').checked=policy.enabled;el('policy-minimum').value=policy.minVersion;el('policy-message').value=policy.message;el('policy-status').textContent=(policy.enabled?'已启用 · 最低版本 v'+policy.minVersion:'当前未限制最低版本')+' · 策略版本 '+policy.revision}
+el('policy-form').addEventListener('submit',event=>{event.preventDefault();task(async()=>{const enabled=el('policy-enabled').checked,minVersion=el('policy-minimum').value.trim();if(!confirm(enabled?'确认要求客户端最低为 v'+minVersion+'？较低版本收到指令后将禁止使用并在10秒后退出。请确保该版本安装包已发布。':'确认关闭最低版本限制？客户端仍需有效授权。'))return;await api('update-policy',{enabled,minVersion,message:el('policy-message').value.trim()});await loadUpdatePolicy();message('更新策略已保存，在线客户端通常在5分钟内检查生效')})})
+task(refresh)
+`
+fs.writeFileSync(path.join(target,'admin.js'),js)

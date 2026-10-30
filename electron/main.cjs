@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, protocol, net, Menu, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain: rawIpcMain, safeStorage, protocol, net, Menu, dialog, shell } = require('electron')
 const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs')
@@ -6,10 +6,23 @@ const { spawn } = require('child_process')
 const Store = require('electron-store')
 const { autoUpdater } = require('electron-updater')
 const log = require('electron-log')
+const licenseConfig = require('./license-config.cjs')
+const licensePreview = !!(licenseConfig.trial || licenseConfig.preview)
+const applicationTitle = licenseConfig.trial ? '芜湖AI · 授权试用' : licenseConfig.preview ? '芜湖AI · 云端授权验证' : '芜湖AI'
+const { createLicenseClient } = require('./license-client.cjs')
+let mainWindow = null
+const license = createLicenseClient({ app, safeStorage, net, config: licenseConfig, notify: state => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('license:changed', state)
+} })
+const ipcMain = license.guardedIpc(rawIpcMain)
+license.register(rawIpcMain)
+rawIpcMain.handle('license:open-update', () => shell.openExternal(require('./update-policy.cjs').RELEASE_URL))
 
 // 更名后继续使用旧数据目录，保留已有项目、素材和中转站配置。
-app.setPath('userData', path.join(app.getPath('appData'), app.isPackaged ? 'AI Video Canvas' : 'ai-video-canvas'))
-app.setName('芜湖AI')
+app.setPath('userData', path.join(app.getPath('appData'), licenseConfig.trial ? 'WuhuAI License Trial' : licenseConfig.preview ? 'WuhuAI Cloud License Preview' : app.isPackaged ? 'AI Video Canvas' : 'ai-video-canvas'))
+app.setName(applicationTitle)
+if (!app.requestSingleInstanceLock()) app.quit()
+app.on('second-instance', () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.restore(); mainWindow.focus() } })
 
 // 画布中的视频缩略图按用户要求带声音预览。Chromium 默认要求手势才可
 // 播放有声媒体，桌面应用在创建窗口前关闭该限制；浏览器版仍保留点击重试。
@@ -37,8 +50,6 @@ const store = new Store({ name: 'ai-video-canvas-config' })
 // 更新日志写文件，方便排查（Windows: %USERPROFILE%\AppData\Roaming\AI Video Canvas\logs\main.log）
 log.transports.file.level = 'info'
 autoUpdater.logger = log
-
-let mainWindow = null
 
 // ---- 本地上传文件落盘 ----
 let uploadsDir = ''
@@ -423,7 +434,7 @@ ipcMain.handle('jianying:export-draft', async (_event, clips, draftName) => {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    title: '芜湖AI',
+    title: applicationTitle,
     width: 1400,
     height: 900,
     minWidth: 1200,
@@ -434,6 +445,13 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
+  })
+  mainWindow.webContents.on('page-title-updated', event => { if (licensePreview) { event.preventDefault(); mainWindow.setTitle(applicationTitle) } })
+  // Also protect direct renderer HTTP calls used by several older providers.
+  mainWindow.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
+    const fromRenderer = details.webContentsId === mainWindow?.webContents.id
+    const devPage = !app.isPackaged && details.url.startsWith(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173')
+    callback({ cancel: fromRenderer && !devPage && !license.getState().authorized && !license.canRecoverHttp(details.method) })
   })
 
   const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
@@ -461,13 +479,13 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // 隐藏菜单栏
   Menu.setApplicationMenu(null)
 
   // 自动更新（仅在打包后的 app 中生效，dev 模式跳过）
   // 可见式更新：不自动下载，把事件推给渲染端由用户确认
-  if (app.isPackaged) {
+  if (app.isPackaged && !licensePreview) {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
 
@@ -490,7 +508,7 @@ app.whenReady().then(() => {
 
   // 渲染端触发的更新操作
   ipcMain.handle('updater:check', async () => {
-    if (!app.isPackaged) return { ok: false, reason: 'dev-mode' }
+    if (!app.isPackaged || licensePreview) return { ok: false, reason: 'dev-mode' }
     try {
       const r = await autoUpdater.checkForUpdates()
       return { ok: true, version: r && r.updateInfo && r.updateInfo.version }
@@ -563,12 +581,15 @@ app.whenReady().then(() => {
     }
   })
 
+  await license.init()
   createWindow()
+  mainWindow.webContents.once('did-finish-load',()=>license.startEnforcement())
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
+  license.dispose()
   if (process.platform !== 'darwin') app.quit()
 })

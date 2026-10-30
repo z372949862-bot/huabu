@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>芜湖AI · 授权管理试用</title><link rel="stylesheet" href="/admin.css"><script src="/admin.js" defer></script></head><body>
+<main><header><div class="brand">WH <span>芜湖AI · 授权管理</span></div><span class="pill">本地试用 · 仅此电脑</span></header>
+<section class="hero"><p class="eyebrow">DEVICE LICENSE</p><h1>每一份授权，都由你掌握。</h1><p>发码、绑定、续期与停用，在同一个地方完成。试用版每 15 秒验证，断开服务后最多保留 60 秒授权。</p></section>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="login" class="card"><h2>管理员登录</h2><p>首次打开会使用本机的一次性登录链接。重新登录可读取私有数据目录中的 admin-login.txt。</p><form id="login-form"><input id="password" type="password" autocomplete="off" placeholder="管理登录码" required><button>登录后台</button></form></section>
+<div id="dashboard" hidden>
+<section class="stats"><article><span>授权总数</span><strong id="total">0</strong></article><article><span>已绑定设备</span><strong id="bound">0</strong></article><article><span>已停用</span><strong id="disabled">0</strong></article></section>
+<section class="card"><div class="section-title"><h2>发放新授权</h2><button id="refresh" class="subtle">刷新列表</button></div><form id="create-form"><label>客户 / 备注<input id="label" maxlength="80" placeholder="例如：张先生 / 测试电脑"></label><label>有效天数<input id="days" type="number" min="1" max="36500" value="7" required></label><button>生成一机一码</button></form><div id="created" hidden><p>激活码只在创建时显示，请复制并妥善保存。</p><div class="code-row"><code id="new-code"></code><button id="copy">复制激活码</button></div></div></section>
+<section class="card"><div class="section-title"><h2>授权列表</h2><span>一码一设备 · 手动解绑换机</span></div><div class="table-wrap"><table><thead><tr><th>备注 / 码尾</th><th>状态</th><th>到期时间</th><th>绑定设备</th><th>最近验证</th><th>操作</th></tr></thead><tbody id="licenses"></tbody></table></div><p id="empty">还没有授权，请先生成一个激活码。</p></section>
+<section class="card"><h2>最近操作</h2><ul id="audit"></ul></section><footer><span>当前试用不连接云端，不影响正式版。停用只限制使用，不删除项目。</span><button id="logout" class="subtle">退出管理</button></footer>
+</div></main></body></html>

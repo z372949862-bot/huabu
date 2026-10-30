@@ -1,0 +1,43 @@
+{
+  "name": "wuhu-ai-license",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "rules": [
+    {
+      "type": "Text",
+      "globs": [
+        "**/*.html",
+        "**/*.css",
+        "**/public/admin.js"
+      ],
+      "fallthrough": true
+    }
+  ],
+  "vars": {
+    "PUBLIC_ORIGIN": "https://wuhu-ai-license.wuhu-ai-d506eab0.workers.dev",
+    "HEARTBEAT_SECONDS": "300",
+    "LEASE_SECONDS": "3600"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wuhu-ai-license",
+      "database_id": "f5e995a9-f5be-4fe0-8ca9-2e0f5908e2d0",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "17 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": false
+  },
+  "account_id": "d506eab0761ef4123082c81b9f2e54c9"
+}
