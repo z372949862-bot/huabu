@@ -8,6 +8,7 @@
  * 模型 ID 来自 api.aiid.edu.kg 各自的 OpenAPI 文档。
  */
 
+import { Qiling1080Models } from './qiling1080'
 import type { VideoModelCapabilities } from './videoModelService'
 import { UNMAU_MODELS } from './providers/unmau'
 import { YU25_MODELS } from './providers/yu25'
@@ -106,6 +107,7 @@ export const AIMI_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = AIMI_MODELS
 
 /** 器灵中转站默认模型（仅 Seedance 系列） */
 export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
+  ...Qiling1080Models,
   {
     id: 'SD2.5-满血-GF-480P',
     name: 'SD2.5 满血 GF · 480P',

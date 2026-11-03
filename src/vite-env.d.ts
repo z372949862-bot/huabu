@@ -41,7 +41,7 @@ interface Window {
     }
     qiling?: {
       upload: (payload: { apiKey: string; dataUrl: string }) => Promise<any>
-      download: (payload: { apiKey: string; taskId?: string; videoUrl?: string }) => Promise<any>
+      download: (payload: { apiKey: string; taskId?: string; videoUrl?: string; model?: string }) => Promise<any>
     }
     aiide?: {
       upload: (payload: { dataUrl: string }) => Promise<{ ok: boolean; data?: { url: string }; error?: string }>

@@ -8,6 +8,8 @@ import { ensureRemoteAssetUrl, urlToFile } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
 import { prepareQilingReferences } from '@/services/qilingReferences'
 import { ensureQilingImageUrl } from '@/services/qilingImageHost'
+import { Qiling1080GF, Qiling1080Supported } from '@/services/qiling1080'
+import { ChuhaiyingVideoProvider } from '@/services/providers/chuhaiyingVideo'
 import { isQilingCb480Model, isQilingCbFullModel, isQilingCbModel, isQilingGfModel } from '@/services/providers/chuhaiyingVideo'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
 import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/providers/unmau'
@@ -56,6 +58,7 @@ export interface NodeData {
   /** DMXAPI Seedance 2.5: reference / edit / extend. */
   videoMode?: 'reference' | 'edit' | 'extend'
   dmxFrameMode?: 'first_frame' | 'first_last_frame'
+  qilingFrameMode?: 'first_frame' | 'first_last_frame'
   outputFormat?: 'mp4' | 'mov'
   returnLastFrame?: boolean
   taskId?: string
@@ -600,7 +603,17 @@ export const useNodeStore = defineStore('node', () => {
       return
     }
 
-    if (isQilingSeedance25 && isQilingGfModel(modelId)) {
+    if (isQilingSeedance25 && Qiling1080Supported(modelId)) {
+      const limits = modelId === Qiling1080GF ? [10, 5, 5] : [30, 10, 10]
+      if (refImages.length > limits[0] || refVideos.length > limits[1] || refAudios.length > limits[2]) {
+        failNode(nodeId, modelId + ' 素材上限为 ' + limits[0] + '图/' + limits[1] + '视频/' + limits[2] + '音频')
+        return
+      }
+      if ([...refVideos, ...refAudios].some(url => !String(url).startsWith('https://'))) {
+        failNode(nodeId, '这两个1080P型号的音视频参考须使用已上传的HTTPS链接；本地图片可直接上传')
+        return
+      }
+    } else if (isQilingSeedance25 && isQilingGfModel(modelId)) {
       if (refImages.length > 10 || refVideos.length > 5 || refAudios.length > 5) {
         failNode(nodeId, `${modelId} 最多支持 10 张图、5 个视频、5 个音频参考`)
         return
@@ -772,6 +785,7 @@ export const useNodeStore = defineStore('node', () => {
         model: modelId,
         prompt: promptText,
         mode,
+        qilingFrameMode: data.qilingFrameMode,
         ...(content.length ? { content } : {}),
         image_urls: refImages.length > 0 ? refImages : undefined,
         ratio: data.ratio,
@@ -808,7 +822,9 @@ export const useNodeStore = defineStore('node', () => {
 
       try {
         polling = true
-        const status = await provider.getTaskStatus(taskId)
+        const status = provider instanceof ChuhaiyingVideoProvider
+          ? await provider.getTaskStatus(taskId, modelId)
+          : await provider.getTaskStatus(taskId)
         if (!active()) return
 
         // 进度计算：网关给真值优先；否则按已耗时估算（cap 95，留 5% 给收尾）
@@ -829,7 +845,7 @@ export const useNodeStore = defineStore('node', () => {
           if (providerConfig.kind === 'qiling') {
             updateNodeData(nodeId, { progress: 99, taskId })
             try {
-              outputVideo = await (provider as typeof provider & { download: (id: string, url?: string) => Promise<string> }).download(taskId, status.videoUrl)
+              outputVideo = await (provider as typeof provider & { download: (id: string, url?: string, model?: string) => Promise<string> }).download(taskId, status.videoUrl, modelId)
               if (!active()) return
             } catch (error) {
               if (!active()) return

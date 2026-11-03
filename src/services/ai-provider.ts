@@ -29,6 +29,8 @@ export interface CreateTaskParams {
   omniReferenceTaskType?: 'auto' | 'reference' | 'edit' | 'extend'
   outputFormat?: 'mp4' | 'mov'
   returnLastFrame?: boolean
+  /** Explicit frame mode for the Qiling GF 1080P adapter. */
+  qilingFrameMode?: 'first_frame' | 'first_last_frame'
 }
 
 export interface TextToImageParams {

@@ -106,16 +106,21 @@ module.exports = function registerQiling({ ipcMain, net, app, uploadRetryDelay =
     }
   }
 
-  ipcMain.handle('qiling:download', wrap(async ({ apiKey, taskId, videoUrl }) => {
+  ipcMain.handle('qiling:download', wrap(async ({ apiKey, taskId, videoUrl, model }) => {
     assertAsciiApiKey(apiKey)
     if (taskId !== undefined && (typeof taskId !== 'string' || !taskId || taskId.length > 512)) throw new Error('器灵任务 ID 无效')
     const candidates = []
-    if (taskId) candidates.push(`${BASE}/v1/videos/${encodeURIComponent(taskId)}/content`)
+    const newModel = model === 'SD2.5-满血-JS-1080P' || model === 'SD2.5-满血-GF-1080P'
+    if (taskId && !newModel) candidates.push(`${BASE}/v1/videos/${encodeURIComponent(taskId)}/content`)
     if (videoUrl) {
       let parsed
       try { parsed = new URL(videoUrl) } catch { throw new Error('器灵返回的视频地址无效') }
       if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('器灵返回的视频地址无效')
       if (!candidates.includes(parsed.href)) candidates.push(parsed.href)
+    }
+    if (taskId && model === 'SD2.5-满血-JS-1080P') {
+      const legacyContent = BASE + '/v1/videos/' + encodeURIComponent(taskId) + '/content'
+      if (!candidates.includes(legacyContent)) candidates.push(legacyContent)
     }
     if (!candidates.length) throw Object.assign(new Error('器灵尚未返回可下载的视频地址'), { retryable: true })
 
