@@ -800,6 +800,7 @@
 </style>
 
 <script setup lang="ts">
+import { Qiling1080GF, Qiling1080Supported } from '@/services/qiling1080'
 import { ref, computed, watch, provide, inject, onMounted, nextTick } from 'vue'
 import { hoverVideo as vHoverVideo, stopHoverVideo } from '@/utils/hoverVideo'
 import { receivingNodeKey, receivingOffsetKey, receivingSurfaceKey, connectionPointerKey, connectionFrameTilt } from '@/utils/canvasConnection'
@@ -847,6 +848,7 @@ interface Props {
     referenceWarning?: string
     videoMode?: 'reference' | 'edit' | 'extend'
     dmxFrameMode?: 'first_frame' | 'first_last_frame'
+    qilingFrameMode?: 'first_frame' | 'first_last_frame'
     dmxTask?: import('@/services/dmxapiTask').DmxPendingTask
     aiideTask?: import('@/services/aiideTask').AiidePendingTask
     piapiTask?: import('@/stores/node').NodeData['piapiTask']
@@ -939,8 +941,8 @@ watch(isSelected, (selected, wasSelected) => {
 })
 const currentTab = ref(props.data.videoMode === 'edit' ? 'video-edit'
   : props.data.videoMode === 'extend' ? 'video-extend'
-  : props.data.dmxFrameMode === 'first_frame' ? 'image-to-video'
-  : props.data.dmxFrameMode === 'first_last_frame' ? 'first-last-frame' : 'text-to-video')
+  : (props.data.qilingFrameMode || props.data.dmxFrameMode) === 'first_frame' ? 'image-to-video'
+  : (props.data.qilingFrameMode || props.data.dmxFrameMode) === 'first_last_frame' ? 'first-last-frame' : 'text-to-video')
 // 比例从节点 data.ratio 恢复（没有才用默认 16:9）；否则切走再切回会丢失用户选择
 const selectedRatio = ref<string>((props.data as any).ratio || '16:9')
 const localSeed = ref<number>(((props.data as any).seed as number) || 0)
@@ -1958,6 +1960,7 @@ const removeConnectedAsset = (assetId: string) => {
 // 注：原来还有一个 onMounted 重复加载，已合并到上方初始化块
 
 // 当前选中模型的能力（视频和图片节点共用，从 selectedProviderId + selectedModel 反查）
+const isQilingGf1080 = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'qiling' && selectedModel.value === Qiling1080GF)
 const isDmxApi25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'dmxapi' && selectedModel.value === 'doubao-seedance-2-5-260628'
@@ -2180,7 +2183,7 @@ const shouldShowUploadPrompt = computed(() => {
 const videoTabs = computed(() => [
   { label: '文生视频', value: 'text-to-video', disabled: hasAnyInput.value },
   { label: '全能参考', value: 'universal-ref', disabled: !hasAnyInput.value },
-  ...(isDmxApi25.value || isAiideSeedance25.value ? [
+  ...(isDmxApi25.value || isAiideSeedance25.value || isQilingGf1080.value ? [
     { label: '图生视频', value: 'image-to-video', disabled: !hasImageInput.value },
     { label: '首尾帧', value: 'first-last-frame', disabled: !hasImageInput.value },
   ] : []),
@@ -2262,10 +2265,19 @@ watch(activeDmxMode, (mode) => {
 }, { immediate: true })
 
 watch(currentTab, (tab) => {
+  if (isQilingGf1080.value) nodeStore.updateNodeData(props.id, {
+    qilingFrameMode: tab === 'image-to-video' ? 'first_frame' : tab === 'first-last-frame' ? 'first_last_frame' : undefined,
+  })
   if (!isDmxApi25.value) return
   nodeStore.updateNodeData(props.id, {
     dmxFrameMode: tab === 'image-to-video' ? 'first_frame' : tab === 'first-last-frame' ? 'first_last_frame' : undefined,
   })
+})
+
+watch(selectedModel, model => {
+  if (!Qiling1080Supported(model)) return
+  nodeStore.updateNodeData(props.id, { qilingFrameMode: undefined })
+  currentTab.value = hasAnyInput.value ? 'universal-ref' : 'text-to-video'
 })
 
 watch(() => props.data.prompt, (newPrompt) => {
@@ -2604,6 +2616,8 @@ const executeNode = async () => {
       inputVideos: refVideos,
       inputAudios: refAudios,
       videoMode: activeDmxMode.value,
+      qilingFrameMode: isQilingGf1080.value && currentTab.value === 'image-to-video' ? 'first_frame'
+        : isQilingGf1080.value && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
       dmxFrameMode: isDmxApi25.value && currentTab.value === 'image-to-video' ? 'first_frame'
         : isDmxApi25.value && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
     } as any)

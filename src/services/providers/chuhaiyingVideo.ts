@@ -23,6 +23,7 @@ import type {
   TextToVideoParams,
   TaskStatus,
 } from '../ai-provider'
+import { Qiling1080Create, Qiling1080JS, Qiling1080Supported } from '../qiling1080'
 import { urlToBase64, compressImageToDataUrl } from '../imageProviderUtils'
 
 const DEFAULT_BASE_URL = 'https://api.aiid.edu.kg'
@@ -191,6 +192,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
   name = '出海营视频'
   private apiKey = ''
   private baseUrl = DEFAULT_BASE_URL
+  private qiling1080Tasks = new Map<string, string>()
 
   constructor(apiKey?: string, baseUrl?: string) {
     if (apiKey) this.apiKey = apiKey
@@ -223,6 +225,11 @@ export class ChuhaiyingVideoProvider implements AIProvider {
   }
 
   async createTask(params: CreateTaskParams): Promise<{ taskId: string }> {
+    if (Qiling1080Supported(params.model)) {
+      const result = await Qiling1080Create((path, init, legacy) => this.request(path, init, legacy), params)
+      this.qiling1080Tasks.set(result.taskId, params.model)
+      return result
+    }
     const model = params.model || DEFAULT_MODEL
     const isOmniOrVeo = model.startsWith('gemini-omni') || model.startsWith('veo')
     const isSd2 = model.startsWith('sd2-')
@@ -443,18 +450,19 @@ export class ChuhaiyingVideoProvider implements AIProvider {
     return { taskId: String(taskId) }
   }
 
-  async getTaskStatus(taskId: string): Promise<TaskStatus> {
+  async getTaskStatus(taskId: string, model?: string): Promise<TaskStatus> {
     const data = await this.request<any>(
       `/v1/videos/${encodeURIComponent(taskId)}`,
-      { method: 'GET' }
+      { method: 'GET' },
+      (model || this.qiling1080Tasks.get(taskId)) === Qiling1080JS
     )
     return mapVideoTaskResponse(data, /(?:^|\.)qilingze\.com$/i.test(new URL(this.baseUrl).hostname))
   }
 
-  async download(taskId: string, videoUrl?: string): Promise<string> {
+  async download(taskId: string, videoUrl?: string, model?: string): Promise<string> {
     const bridge = window.electronAPI?.qiling
     if (!bridge) throw new Error('器灵本地下载组件未加载，请完全退出并重新打开软件')
-    const result = await bridge.download({ apiKey: this.apiKey, taskId, videoUrl })
+    const result = await bridge.download({ apiKey: this.apiKey, taskId, videoUrl, model: model || this.qiling1080Tasks.get(taskId) })
     if (!result?.ok || !result.data?.path) {
       const error = new Error(result?.error || '器灵视频下载失败') as Error & { retryable?: boolean }
       error.retryable = !!result?.retryable
@@ -496,7 +504,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
     throw new Error('出海营视频站不支持文生图，请用图片中转站')
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, qilingLegacy = false): Promise<T> {
     if (!this.apiKey) throw new Error('未配置 API Key')
 
     // 60 秒超时，避免 Cloudflare 524
@@ -511,7 +519,7 @@ export class ChuhaiyingVideoProvider implements AIProvider {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
-          ...(this.baseUrl.toLowerCase().includes('qilingze.com') ? { 'X-Qiling-API-Version': '1' } : {}),
+          ...(!qilingLegacy && this.baseUrl.toLowerCase().includes('qilingze.com') ? { 'X-Qiling-API-Version': '1' } : {}),
           ...(init.headers || {}),
         },
       })
