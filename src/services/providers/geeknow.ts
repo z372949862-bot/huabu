@@ -16,7 +16,7 @@ import {
 } from '../imageModelTemplates'
 import { prepareReferenceImage } from '../imageProviderUtils'
 import { fetchWithTimeout, classifyHttpError } from './_httpUtils'
-import { SUNBURST26_MODEL, SUNBURST26_BASE_URL, sunburst26Size, sunburst26Fields, resolveSunburst26Gifs, type Sunburst26Options, type GeekNowImageResult } from '../geeknowSunburst26'
+import { SUNBURST26_MODEL, sunburst26Size, sunburst26Fields, resolveSunburst26Gifs, type Sunburst26Options, type GeekNowImageResult } from '../geeknowSunburst26'
 
 export interface GenerateImageParams {
   sunburst26?: Sunburst26Options
@@ -247,9 +247,8 @@ export class GeekNowImageProvider implements ImageProvider {
       if (!tpl?.omitResponseFormat) body.response_format = 'url'
     }
 
-    // The new official channel uses td; explicit third-party/custom endpoints are respected.
-    const baseUrl = isSunburst26 && this.baseUrl === DEFAULT_BASE_URL ? SUNBURST26_BASE_URL : this.baseUrl
-    const url = `${baseUrl}/v1/images/generations`
+    // Respect the configured endpoint; a documentation example is not a host migration.
+    const url = `${this.baseUrl}/v1/images/generations`
     const data = await this.request<any>(url, body, params.signal, isSunburst26 ? 300_000 : undefined)
     if (isSunburst26 && body.output_format === 'gif') {
       const sources = this.extractOpenAIImages(data)
@@ -277,6 +276,25 @@ export class GeekNowImageProvider implements ImageProvider {
   // ---------- HTTP 通用 ----------
 
   private async request<T>(url: string, body: any, externalSignal?: AbortSignal, timeoutMs?: number): Promise<T> {
+    if (externalSignal?.aborted) throw new Error('已取消')
+    const bridge = (window as any).electronAPI?.geeknow
+    if (bridge?.request) {
+      const requestId = crypto.randomUUID()
+      const onAbort = () => { void bridge.cancel?.({ requestId }).catch(() => {}) }
+      externalSignal?.addEventListener('abort', onAbort, { once: true })
+      let result
+      try {
+        result = await bridge.request({ url, body, apiKey: this.apiKey, requestId })
+      } catch {
+        throw new Error(`GeekNow 桌面请求通道异常（${new URL(url).origin}），未自动重试。请先核实平台任务状态`)
+      } finally { externalSignal?.removeEventListener('abort', onAbort) }
+      if (!result?.ok) {
+        if (result?.cancelled) throw new Error(result.error || '已取消')
+        const message = result?.status ? classifyHttpError(result.status, result.error || '') : result?.error || '桌面通道未返回结果'
+        throw new Error(`${new URL(url).origin}：${message}`)
+      }
+      return result.data as T
+    }
     let res: Response
     try {
       res = await fetchWithTimeout(url, {
@@ -293,7 +311,7 @@ export class GeekNowImageProvider implements ImageProvider {
       const msg = err instanceof Error ? err.message : String(err || '')
       // fetchWithTimeout 已经把超时/取消转成可读 Error；纯网络错误兜底加上 baseUrl 上下文
       if (msg === '已取消' || msg.startsWith('请求超时')) throw err
-      throw new Error(`无法连接到 ${this.baseUrl}：${msg || '网络错误'}`)
+      throw new Error(`无法连接到 ${new URL(url).origin}：${msg || '网络错误'}。请检查网络、证书或跨域限制；未自动重新提交生成请求`)
     }
     if (!res.ok) {
       let detail = ''

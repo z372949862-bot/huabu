@@ -1,7 +1,6 @@
 import { ratioToSize, findImageTemplate } from './imageModelTemplates'
 
 export const SUNBURST26_MODEL = 'gpt-image-2.6-sunburst'
-export const SUNBURST26_BASE_URL = 'https://td.geeknow.top'
 export const SUNBURST26_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] as const
 
 export interface Sunburst26Options {

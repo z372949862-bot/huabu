@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  geeknow: {
+    request: payload => ipcRenderer.invoke('geeknow:request', payload),
+    cancel: payload => ipcRenderer.invoke('geeknow:cancel', payload),
+  },
   license: {
     status: () => ipcRenderer.invoke('license:status'),
     activate: code => ipcRenderer.invoke('license:activate', code),

@@ -51,11 +51,11 @@ describe('GeekNow GPT image request contracts', () => {
 })
 
 describe('GeekNow Sunburst 2.6', () => {
-  it('uses the documented new default channel and sends PNG, actual pixels and all references', async () => {
+  it('keeps the configured default channel and sends PNG, actual pixels and all references', async () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ url: 'https://example.com/result.png' }] })))
     vi.stubGlobal('fetch', fetch)
     await new GeekNowImageProvider('fake-key').generateImage({ model: SUNBURST26_MODEL, prompt: 'test', aspectRatio: '16:9', imageUrls: ['ref1', 'ref2'] })
-    expect(fetch.mock.calls[0][0]).toBe('https://td.geeknow.top/v1/images/generations')
+    expect(fetch.mock.calls[0][0]).toBe('https://www.geeknow.top/v1/images/generations')
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ model: SUNBURST26_MODEL, prompt: 'test', n: 1, size: '1536x864', quality: 'medium', output_format: 'png', response_format: 'url', image: ['ref1', 'ref2'] })
   })
 
@@ -67,6 +67,37 @@ describe('GeekNow Sunburst 2.6', () => {
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ size: '1728x1152', quality: 'xhigh', output_format: 'png' })
     expect(JSON.parse(fetch.mock.calls[0][1].body)).not.toHaveProperty('frame_count')
     expect(result.imageUrls).toEqual(['data:image/png;base64,aW1hZ2U='])
+  })
+
+  it('uses the desktop bridge for generation without any renderer POST', async () => {
+    const request = vi.fn().mockResolvedValue({ ok: true, data: { data: [{ url: 'https://example.com/result.png' }] } })
+    vi.stubGlobal('electronAPI', { geeknow: { request, cancel: vi.fn() } })
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
+    await new GeekNowImageProvider('fake-key').generateImage({ model: SUNBURST26_MODEL, prompt: 'test', imageUrls: ['ref1'] })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ url: 'https://www.geeknow.top/v1/images/generations', apiKey: 'fake-key', requestId: expect.any(String), body: expect.objectContaining({ model: SUNBURST26_MODEL, image: ['ref1'] }) }))
+  })
+
+  it('shows the actual host and certificate error without falling back to a second POST', async () => {
+    const request = vi.fn().mockResolvedValue({ ok: false, error: 'net::ERR_CERT_COMMON_NAME_INVALID' })
+    vi.stubGlobal('electronAPI', { geeknow: { request, cancel: vi.fn() } })
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
+    await expect(new GeekNowImageProvider('fake-key', 'https://custom.example').generateImage({ model: SUNBURST26_MODEL, prompt: 'test' })).rejects.toThrow('https://custom.example：net::ERR_CERT_COMMON_NAME_INVALID')
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('cancels the desktop wait through its request ID', async () => {
+    let resolve!: (value: unknown) => void
+    const request = vi.fn().mockImplementation(() => new Promise(done => { resolve = done }))
+    const cancel = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('electronAPI', { geeknow: { request, cancel } })
+    const controller = new AbortController()
+    const running = new GeekNowImageProvider('fake-key').generateImage({ model: SUNBURST26_MODEL, prompt: 'test', signal: controller.signal })
+    controller.abort()
+    expect(cancel).toHaveBeenCalledWith({ requestId: request.mock.calls[0][0].requestId })
+    resolve({ ok: false, cancelled: true, error: '已取消' })
+    await expect(running).rejects.toThrow('已取消')
   })
 
   it('uses independent size maps and auto size only for GIF', () => {
