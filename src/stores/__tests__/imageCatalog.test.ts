@@ -17,7 +17,7 @@ it('migrates existing image catalogs without changing credentials, custom GPTs o
   const store = useAIStore()
   await store.init()
   const migrated = store.getProviderConfig('images')!
-  expect(migrated.models.map(m => m.id)).toEqual(['gpt-image-2', 'gpt-image-2-pro', 'gpt-image-2.5-sunburst', 'gpt-image-2-vip', 'gpt-custom'])
+  expect(migrated.models.map(m => m.id)).toEqual(['gpt-image-2', 'gpt-image-2-pro', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-sunburst', 'gpt-image-2-vip', 'gpt-custom'])
   expect(migrated.apiKey).toBe(image.apiKey)
   expect(migrated.baseUrl).toBe(image.baseUrl)
   expect(store.defaultImageProviderId).toBe('images')
@@ -34,4 +34,21 @@ it('migrates existing image catalogs without changing credentials, custom GPTs o
   const reopened = useAIStore()
   await reopened.init()
   expect(reopened.getProviderConfig('images')!.models).toEqual(migrated.models)
+})
+
+it('adds Sunburst 2.6 to already-migrated GeekNow providers and persists it without duplicate entries', async () => {
+  vi.useFakeTimers()
+  const provider = { id: 'existing', name: '我的 GeekNow', type: 'image', kind: 'geeknow', baseUrl: 'https://custom.example/v1', apiKey: 'fake-key', models: [{ id: 'gpt-custom', name: '自定义名称', capabilities: { ratios: ['1:1'] } }] }
+  const disk = new Map([['aiProviders', JSON.stringify({ providers: [provider], migrationVersion: 17, defaultImageProviderId: provider.id })]])
+  vi.stubGlobal('electronAPI', { store: { get: async (key: string) => disk.get(key), set: async (key: string, value: string) => { disk.set(key, value) } } })
+  setActivePinia(createPinia())
+  const store = useAIStore(); await store.init()
+  const actual = store.getProviderConfig(provider.id)!
+  expect(actual).toMatchObject({ name: provider.name, baseUrl: provider.baseUrl, apiKey: provider.apiKey })
+  expect(actual.models.find(model => model.id === 'gpt-image-2.6-sunburst')).toMatchObject({ supportsReferenceImage: true, supportsSeed: false })
+  expect(actual.models.find(model => model.id === 'gpt-custom')).toEqual(provider.models[0])
+  expect(store.defaultImageProviderId).toBe(provider.id)
+  await vi.advanceTimersByTimeAsync(250)
+  setActivePinia(createPinia()); const reopened = useAIStore(); await reopened.init()
+  expect(reopened.getProviderConfig(provider.id)!.models.filter(model => model.id === 'gpt-image-2.6-sunburst')).toHaveLength(1)
 })

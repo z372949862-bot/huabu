@@ -37,6 +37,11 @@ require('./piapi.cjs')({ ipcMain, net, app })
 require('./xinshuju.cjs')({ ipcMain, net, app })
 require('./qiling.cjs')({ ipcMain, net, app })
 const mediaFetch = require('./mediaFetch.cjs').createMediaFetch(net)
+const fetchImageResult = require('./imageResultFetch.cjs').createImageResultFetch({ fetch: mediaFetch })
+ipcMain.handle('image:download-result', async (_event, payload) => {
+  try { return { ok: true, ...(await fetchImageResult(payload || {})) } }
+  catch (error) { return { ok: false, error: error.message || '图片下载失败' } }
+})
 require('./aiide.cjs')({ ipcMain, fetch: mediaFetch })
 const saveGeneratedVideo = require('./videoStorage.cjs').createVideoSaver({
   root: path.join(app.getPath('userData'), 'generated-videos', 'automatic'),

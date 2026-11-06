@@ -6,6 +6,7 @@ import { useAIStore } from '@/stores/ai'
 import { useAssetStore } from '@/stores/asset'
 import { ensureRemoteAssetUrl, urlToFile } from '@/services/imageHost'
 import { persistImage } from '@/services/imageStorage'
+import { SUNBURST26_MODEL, type Sunburst26Options, type GeekNowImageResult } from '@/services/geeknowSunburst26'
 import { prepareQilingReferences } from '@/services/qilingReferences'
 import { ensureQilingImageUrl } from '@/services/qilingImageHost'
 import { isQilingCb480Model, isQilingCbFullModel, isQilingCbModel, isQilingGfModel } from '@/services/providers/chuhaiyingVideo'
@@ -65,6 +66,8 @@ export interface NodeData {
   piapiTask?: { taskId: string; providerId: string; body: Record<string, any> }
   piapiImageTask?: { taskId: string; providerId: string; model: string; prompt: string; ratio?: string; resolution?: string; imageOutputFormat?: 'jpeg' | 'png' }
   imageOutputFormat?: 'jpeg' | 'png'
+  sunburst26?: Sunburst26Options
+  geeknowImageResult?: GeekNowImageResult
   piapiPrivateReferences?: Record<string, { providerId: string; mode: 'private'; name?: string; assetId?: string }>
   // 本地上传素材（data URL，跨会话持久化）
   _uploads?: Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>
@@ -210,8 +213,8 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask ? undefined : hasOutput ? 100 : 0,
+              data: { ...data, status: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
                 taskId: data.dmxTask?.taskId || data.aiideTask?.taskId || data.piapiTask?.taskId },
             }
           })
@@ -412,7 +415,7 @@ export const useNodeStore = defineStore('node', () => {
     const aiStore = useAIStore()
     const data = nodes.value.find(n => n.id === nodeId)?.data as NodeData | undefined
     const config = aiStore.getProviderConfig(data?.piapiImageTask?.providerId || data?.providerId || aiStore.defaultImageProviderId)
-    if (config?.kind !== 'piapi') imageAborts.delete(nodeId)
+    if (config?.kind !== 'piapi' && data?.model !== SUNBURST26_MODEL) imageAborts.delete(nodeId)
     const t = imageTimers.get(nodeId)
     if (t) {
       window.clearInterval(t)
@@ -919,7 +922,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const originalData = node.data as NodeData
-    const data = { ...originalData, ...(originalData.piapiImageTask || {}) } as NodeData
+    const data = { ...originalData, ...(originalData.piapiImageTask || {}), ...(originalData.geeknowImageResult || {}) } as NodeData
     const projectId = currentProjectId.value
     const isCurrentImage = () => currentProjectId.value === projectId && nodes.value.some(item => item.id === nodeId)
     const providerId = data.providerId || aiStore.defaultImageProviderId
@@ -962,7 +965,7 @@ export const useNodeStore = defineStore('node', () => {
 
     // 清理 prompt 里的 @[name](id) 标记，避免 AI 按文字生成而非按参考图
     const promptText = (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
-    if (!promptText && !data.piapiImageTask) {
+    if (!promptText && !data.piapiImageTask && !data.geeknowImageResult) {
       failNode(nodeId, '请输入提示词（不含 @ 标记的有效文字）')
       return
     }
@@ -1008,6 +1011,19 @@ export const useNodeStore = defineStore('node', () => {
         prompt: promptText,
         imageUrls: refImages,
         imageOutputFormat: data.imageOutputFormat,
+        sunburst26: data.sunburst26,
+        geeknowImageResult: data.geeknowImageResult,
+        onGeekNowImageResult: imageModelId === SUNBURST26_MODEL ? async result => {
+          const geeknowImageResult = { ...result, providerId, ratio: data.ratio, resolution: data.resolution }
+          if (isCurrentImage()) { updateNodeData(nodeId, { geeknowImageResult }); await flushPersist() }
+          else if (projectId && window.electronAPI?.store) {
+            const key = PROJECT_PERSIST_PREFIX + projectId
+            const saved = await window.electronAPI.store.get(key)
+            if (!saved) return
+            const parsed = JSON.parse(saved), oldNode = parsed.nodes?.find(item => item.id === nodeId)
+            if (oldNode) { oldNode.data.geeknowImageResult = geeknowImageResult; await window.electronAPI.store.set(key, JSON.stringify(parsed)) }
+          }
+        } : undefined,
         resumeTaskId: data.piapiImageTask?.taskId,
         onTask: providerConfig.kind === 'piapi' ? async taskId => {
           const piapiImageTask = taskId ? { taskId, providerId, model: imageModelId, prompt: promptText, ratio: data.ratio, resolution: data.resolution, imageOutputFormat: data.imageOutputFormat } : undefined
@@ -1023,7 +1039,7 @@ export const useNodeStore = defineStore('node', () => {
         aspectRatio: data.ratio || '1:1',
         imageSize: modelMeta?.capabilities?.resolutions?.includes(String(data.resolution || '').toUpperCase())
           ? String(data.resolution).toUpperCase() as '1K' | '1.5K' | '2K' | '4K'
-          : providerConfig.kind === 'piapi' ? '1K' : modelMeta?.supportsImageSize2K ? '2K' : '1K',
+          : providerConfig.kind === 'piapi' || imageModelId === SUNBURST26_MODEL ? '1K' : modelMeta?.supportsImageSize2K ? '2K' : '1K',
         seed: allowSeed && typeof data.seed === 'number' && data.seed > 0 ? data.seed : undefined,
         negativePrompt: allowNegative && data.negativePrompt && data.negativePrompt.trim() ? data.negativePrompt.trim() : undefined,
         n: 1,
@@ -1051,8 +1067,9 @@ export const useNodeStore = defineStore('node', () => {
         outputImage: primary,
         output: { url: primary, timestamp: Date.now() },
         piapiImageTask: undefined,
+        geeknowImageResult: undefined,
       })
-      if (providerConfig.kind === 'piapi') await flushPersist()
+      if (providerConfig.kind === 'piapi' || imageModelId === SUNBURST26_MODEL) await flushPersist()
       // 全部候选都进资产库（用户后续翻历史时都能看见）
       const modelMetaForAsset = providerConfig.models.find((m) => m.id === data.model)
       const assetStore = useAssetStore()

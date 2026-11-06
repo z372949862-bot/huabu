@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     read: (filePath) => ipcRenderer.invoke('upload:read', filePath),
   },
   image: {
+    downloadResult: (payload) => ipcRenderer.invoke('image:download-result', payload),
     // payload: { projectId, nodeId, dataUrl, ext? } → { path } | null
     save: (payload) => ipcRenderer.invoke('image:save', payload),
     delete: (filePath) => ipcRenderer.invoke('image:delete', filePath),

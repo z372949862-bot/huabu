@@ -16,8 +16,12 @@ import {
 } from '../imageModelTemplates'
 import { prepareReferenceImage } from '../imageProviderUtils'
 import { fetchWithTimeout, classifyHttpError } from './_httpUtils'
+import { SUNBURST26_MODEL, SUNBURST26_BASE_URL, sunburst26Size, sunburst26Fields, resolveSunburst26Gifs, type Sunburst26Options, type GeekNowImageResult } from '../geeknowSunburst26'
 
 export interface GenerateImageParams {
+  sunburst26?: Sunburst26Options
+  geeknowImageResult?: GeekNowImageResult
+  onGeekNowImageResult?: (result: GeekNowImageResult) => Promise<void> | void
   imageOutputFormat?: 'jpeg' | 'png'
   resumeTaskId?: string
   onTask?: (taskId: string | undefined) => Promise<void> | void
@@ -202,8 +206,14 @@ export class GeekNowImageProvider implements ImageProvider {
     params: GenerateImageParams,
     tpl: ImageModelTemplate | undefined
   ): Promise<ImageGenerationResult> {
+    const isSunburst26 = params.model === SUNBURST26_MODEL
+    if (isSunburst26 && params.geeknowImageResult?.sources.length) {
+      return { imageUrls: await resolveSunburst26Gifs(params.geeknowImageResult.sources, params.signal) }
+    }
     const requestedSize = params.imageSize === '4K' ? '4K' : params.imageSize === '2K' ? '2K' : '1K'
-    const size = ratioToSize(params.aspectRatio || '16:9', requestedSize, tpl?.sizeMaps)
+    const size = isSunburst26
+      ? sunburst26Size(params.sunburst26 ?? {}, params.aspectRatio || '1:1', requestedSize)
+      : ratioToSize(params.aspectRatio || '16:9', requestedSize, tpl?.sizeMaps)
     const isGptImage = params.model.startsWith('gpt-image-')
 
     const body: Record<string, any> = {
@@ -212,6 +222,8 @@ export class GeekNowImageProvider implements ImageProvider {
       n: params.n ?? 1,
       size,
     }
+    // Validate before preparing references or making a billed request.
+    if (isSunburst26) Object.assign(body, sunburst26Fields(params.sunburst26 ?? {}))
     if (params.seed && params.seed > 0) body.seed = params.seed
     if (params.negativePrompt && params.negativePrompt.trim()) {
       body.negative_prompt = params.negativePrompt.trim()
@@ -229,14 +241,21 @@ export class GeekNowImageProvider implements ImageProvider {
       body.image = refImages
     }
 
-    if (isGptImage) {
+    if (isGptImage && !isSunburst26) {
       body.quality = 'high'
       // VIP 通道建议省略 response_format，由网关自行选择 URL 或 Base64。
       if (!tpl?.omitResponseFormat) body.response_format = 'url'
     }
 
-    const url = `${this.baseUrl}/v1/images/generations`
-    const data = await this.request<any>(url, body, params.signal)
+    // The new official channel uses td; explicit third-party/custom endpoints are respected.
+    const baseUrl = isSunburst26 && this.baseUrl === DEFAULT_BASE_URL ? SUNBURST26_BASE_URL : this.baseUrl
+    const url = `${baseUrl}/v1/images/generations`
+    const data = await this.request<any>(url, body, params.signal, isSunburst26 ? 300_000 : undefined)
+    if (isSunburst26 && body.output_format === 'gif') {
+      const sources = this.extractOpenAIImages(data)
+      await params.onGeekNowImageResult?.({ sources, model: params.model, prompt: params.prompt })
+      return { imageUrls: await resolveSunburst26Gifs(sources, params.signal) }
+    }
     return { imageUrls: this.extractOpenAIImages(data) }
   }
 
@@ -257,11 +276,12 @@ export class GeekNowImageProvider implements ImageProvider {
 
   // ---------- HTTP 通用 ----------
 
-  private async request<T>(url: string, body: any, externalSignal?: AbortSignal): Promise<T> {
+  private async request<T>(url: string, body: any, externalSignal?: AbortSignal, timeoutMs?: number): Promise<T> {
     let res: Response
     try {
       res = await fetchWithTimeout(url, {
         method: 'POST',
+        timeoutMs,
         externalSignal,
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,

@@ -16,7 +16,11 @@ it('adds the Seedream image provider once and reuses only the official PiAPI key
   expect(added[0].models[0].capabilities).toMatchObject({ resolutions: ['1K', '2K'], maxImages: 10 })
   expect(added[0].models[0].capabilities.ratios).toHaveLength(10)
   expect(store.getImageProvider(added[0].id)).toBeInstanceOf(PiapiImageProvider)
-  expect(store.getProviderConfig('gpt')).toMatchObject(image); expect(store.defaultImageProviderId).toBe('gpt')
+  const { models, ...existingSettings } = image
+  expect(store.getProviderConfig('gpt')).toMatchObject(existingSettings)
+  expect(store.getProviderConfig('gpt')!.models.slice(0, models.length)).toEqual(models)
+  expect(store.getProviderConfig('gpt')!.models.at(-1)?.id).toBe('gpt-image-2.6-sunburst')
+  expect(store.defaultImageProviderId).toBe('gpt')
   await vi.advanceTimersByTimeAsync(300)
   setActivePinia(createPinia()); const reopened = useAIStore(); await reopened.init()
   expect(reopened.imageProviders.filter(provider => provider.kind === 'piapi')).toHaveLength(1)

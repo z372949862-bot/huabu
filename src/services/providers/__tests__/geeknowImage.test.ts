@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GeekNowImageProvider } from '../geeknow'
 import { findImageTemplate, ratioToSize } from '../../imageModelTemplates'
+import { SUNBURST26_MODEL, sunburst26Fields, sunburst26Size } from '../../geeknowSunburst26'
 
 vi.mock('../../imageProviderUtils', () => ({
   prepareReferenceImage: async (url: string) => ({ base64: url, mimeType: 'image/png' }),
@@ -45,6 +46,61 @@ describe('GeekNow GPT image request contracts', () => {
         expect(w * h).toBeGreaterThanOrEqual(655360)
         expect(w * h).toBeLessThanOrEqual(8294400)
       }
+    }
+  })
+})
+
+describe('GeekNow Sunburst 2.6', () => {
+  it('uses the documented new default channel and sends PNG, actual pixels and all references', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ url: 'https://example.com/result.png' }] })))
+    vi.stubGlobal('fetch', fetch)
+    await new GeekNowImageProvider('fake-key').generateImage({ model: SUNBURST26_MODEL, prompt: 'test', aspectRatio: '16:9', imageUrls: ['ref1', 'ref2'] })
+    expect(fetch.mock.calls[0][0]).toBe('https://td.geeknow.top/v1/images/generations')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ model: SUNBURST26_MODEL, prompt: 'test', n: 1, size: '1536x864', quality: 'medium', output_format: 'png', response_format: 'url', image: ['ref1', 'ref2'] })
+  })
+
+  it('keeps custom URLs and transmits custom WxH with selected quality', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] })))
+    vi.stubGlobal('fetch', fetch)
+    const result = await new GeekNowImageProvider('fake-key', 'https://custom.example/v1/').generateImage({ model: SUNBURST26_MODEL, prompt: 'test', sunburst26: { customSize: true, width: 1728, height: 1152, quality: 'xhigh', frameCount: 12 } })
+    expect(fetch.mock.calls[0][0]).toBe('https://custom.example/v1/images/generations')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ size: '1728x1152', quality: 'xhigh', output_format: 'png' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).not.toHaveProperty('frame_count')
+    expect(result.imageUrls).toEqual(['data:image/png;base64,aW1hZ2U='])
+  })
+
+  it('uses independent size maps and auto size only for GIF', () => {
+    expect(sunburst26Size({}, '16:9', '1K')).toBe('1536x864')
+    expect(sunburst26Size({}, '16:9', '2K')).toBe('2048x1152')
+    expect(sunburst26Size({}, '16:9', '4K')).toBe('3840x2160')
+    expect(sunburst26Size({ format: 'gif', customSize: true, width: 1000, height: 1000 })).toBe('auto')
+    expect(sunburst26Fields({ format: 'gif' })).toEqual({ output_format: 'gif', quality: 'medium', response_format: 'url', frame_count: 9, frame_duration_ms: 200 })
+    for (const options of [{ customSize: true, width: 0, height: 768 }, { customSize: true, width: 16.9, height: 2 }]) expect(() => sunburst26Size(options)).toThrow('正整数')
+  })
+
+  it.each([{ frameCount: 1 }, { frameCount: 65 }, { frameCount: 2.5 }, { frameDurationMs: 25 }, { frameDurationMs: 2001 }])('rejects invalid GIF settings before a billed request: %j', async options => {
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
+    await expect(new GeekNowImageProvider('fake-key').generateImage({ model: SUNBURST26_MODEL, prompt: 'test', sunburst26: { format: 'gif', ...options } })).rejects.toThrow('GIF')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('persists every returned source before downloads and retries only GET after a failure', async () => {
+    const sources = ['https://cdn.example/storyboard.png', 'https://cdn.example/animation.png']
+    const fetch = vi.fn().mockImplementation(async (_url: string, options: RequestInit) => options.method === 'POST'
+      ? new Response(JSON.stringify({ data: sources.map(url => ({ url })) }))
+      : new Response('unavailable', { status: 503 }))
+    vi.stubGlobal('fetch', fetch)
+    const onResult = vi.fn()
+    const provider = new GeekNowImageProvider('fake-key')
+    await expect(provider.generateImage({ model: SUNBURST26_MODEL, prompt: 'loop', sunburst26: { format: 'gif', frameCount: 12, frameDurationMs: 150 }, onGeekNowImageResult: onResult })).rejects.toThrow('重试下载')
+    expect(onResult).toHaveBeenCalledWith({ sources, model: SUNBURST26_MODEL, prompt: 'loop' })
+    expect(onResult.mock.invocationCallOrder[0]).toBeLessThan(fetch.mock.invocationCallOrder[1])
+    expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toMatchObject({ size: 'auto', output_format: 'gif', frame_count: 12, frame_duration_ms: 150 })
+    await expect(provider.generateImage({ model: SUNBURST26_MODEL, prompt: 'loop', geeknowImageResult: onResult.mock.calls[0][0] })).rejects.toThrow('重试下载')
+    expect(fetch.mock.calls.filter(([, opts]) => opts.method === 'POST')).toHaveLength(1)
+    for (const [, options] of fetch.mock.calls.slice(1)) {
+      expect(options.headers).toBeUndefined()
+      expect(options.credentials).toBe('omit')
     }
   })
 })

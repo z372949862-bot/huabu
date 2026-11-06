@@ -54,6 +54,14 @@ const VIP_SIZE_MAPS: ImageModelTemplate['sizeMaps'] = {
   '4K': { '1:1': '2880x2880', '4:3': '3264x2448', '3:4': '2448x3264', '3:2': '3504x2336', '2:3': '2336x3504', '16:9': '3840x2160', '9:16': '2160x3840', '21:9': '3808x1632' },
 }
 
+// 2.6 has its own presets. Higher tiers are pixel conversions, not API enum values;
+// callers may also supply custom WxH, subject to the upstream's current limits.
+const SUNBURST26_SIZE_MAPS: ImageModelTemplate['sizeMaps'] = {
+  '1K': { '1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536', '16:9': '1536x864', '9:16': '864x1536' },
+  '2K': { '1:1': '2048x2048', '3:2': '2048x1366', '2:3': '1366x2048', '16:9': '2048x1152', '9:16': '1152x2048' },
+  '4K': { '1:1': '4096x4096', '3:2': '3840x2560', '2:3': '2560x3840', '16:9': '3840x2160', '9:16': '2160x3840' },
+}
+
 /** GeekNow 只保留 GPT Image 系列。 */
 export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
   {
@@ -86,6 +94,18 @@ export const GEEKNOW_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
     supportsReferenceImage: true,
     supportsImageSize2K: true,
     sizeMaps: SUNBURST_SIZE_MAPS,
+    supportsSeed: false,
+    supportsNegativePrompt: false,
+  },
+  {
+    id: 'gpt-image-2.6-sunburst',
+    name: 'GPT Image 2.6 Sunburst',
+    description: '图片 / GIF 动图生成，支持参考图和自定义像素尺寸',
+    capabilities: { ratios: ['1:1', '3:2', '2:3', '16:9', '9:16'], resolutions: ['1K', '2K', '4K'] },
+    endpointStyle: 'openai',
+    supportsReferenceImage: true,
+    supportsImageSize2K: true,
+    sizeMaps: SUNBURST26_SIZE_MAPS,
     supportsSeed: false,
     supportsNegativePrompt: false,
   },

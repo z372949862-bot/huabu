@@ -256,6 +256,11 @@
 
           <PiapiAssetReferences v-if="isPiapi25" :provider-id="selectedProviderId" :assets="allAssets" :bindings="data.piapiPrivateReferences" :video-mode="activeDmxMode" :disabled="data.status === 'running' || !!data.piapiTask" @update:bindings="value => nodeStore.updateNodeData(id, { piapiPrivateReferences: value })" @add-asset="addPiapiPrivateAsset" />
           <div v-if="data.referenceWarning" class="reference-warning" role="status">{{ data.referenceWarning }}</div>
+          <div v-if="data.geeknowImageResult && data.status !== 'running'" class="reference-warning">
+            <button class="option-btn" @click.stop="nodeStore.executeNode(id)">重试下载 GIF</button>
+            <button class="option-btn" @click.stop="discardGeekNowResult">放弃此结果</button>
+            <span>已保留上次生成结果，重试只下载，不会再次生成。放弃后再次生成会计费。</span>
+          </div>
           <div v-if="(data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask) && data.status !== 'running'" class="reference-warning">
             <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询上次任务</button>
             <span>任务已保存，不会重新提交生成。</span>
@@ -324,6 +329,7 @@
             </button>
             <transition name="expand-advanced">
               <div v-if="advancedOpen" class="advanced-panel" @click.stop @mousedown.stop>
+                <Sunburst26Parameters v-if="isSunburst26" :model-value="data.sunburst26" :ratio="selectedRatio" :resolution="data.resolution" :disabled="data.status === 'running' || !!data.geeknowImageResult" @update:model-value="value => nodeStore.updateNodeData(id, { sunburst26: value })" />
                 <label v-if="isPiapiImage" class="advanced-field">
                   <span class="advanced-field-label">图片格式</span>
                   <select class="advanced-input" :value="data.imageOutputFormat || 'jpeg'" @change="nodeStore.updateNodeData(id, { imageOutputFormat: ($event.target as HTMLSelectElement).value as 'jpeg' | 'png' })"><option value="jpeg">JPEG</option><option value="png">PNG</option></select>
@@ -431,7 +437,8 @@
               <template v-else-if="type === 'ai-image'">
                 <ProviderSelector v-model="selectedProviderId" :providers="imageProviderOptions" placement="up" />
                 <ModelSelector v-model="selectedModel" :models="availableImageModels" label="图片模型" placement="up" />
-                <GenerationSizeSelector v-model="selectedRatio" :capabilities="currentModelCapabilities" :default-resolution="selectedModel === 'seedream-5-pro' || isPiapiImage ? '1K' : undefined" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
+                <GenerationSizeSelector v-if="!isSunburst26 || (!data.sunburst26?.customSize && data.sunburst26?.format !== 'gif')" v-model="selectedRatio" :capabilities="currentModelCapabilities" :default-resolution="selectedModel === 'seedream-5-pro' || isPiapiImage || isSunburst26 ? '1K' : undefined" label="图片尺寸" :resolution="data.resolution" @update:resolution="onResolutionChange" />
+                <button v-else class="option-btn" @click.stop="advancedOpen = !advancedOpen">{{ data.sunburst26?.format === 'gif' ? 'GIF · 自动尺寸' : `${data.sunburst26?.width || '—'} × ${data.sunburst26?.height || '—'}` }}</button>
               </template>
 
               <!-- 文本节点：中转站 + 模型选择 -->
@@ -812,6 +819,8 @@ import GenerationSizeSelector from './GenerationSizeSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
 import PiapiAssetReferences from './PiapiAssetReferences.vue'
+import Sunburst26Parameters from './Sunburst26Parameters.vue'
+import { SUNBURST26_MODEL } from '@/services/geeknowSunburst26'
 import StylePresetPicker from './StylePresetPicker.vue'
 import InpaintingEditor from './InpaintingEditor.vue'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
@@ -843,6 +852,8 @@ interface Props {
     piapiTask?: import('@/stores/node').NodeData['piapiTask']
     piapiImageTask?: import('@/stores/node').NodeData['piapiImageTask']
     imageOutputFormat?: 'jpeg' | 'png'
+    sunburst26?: import('@/services/geeknowSunburst26').Sunburst26Options
+    geeknowImageResult?: import('@/services/geeknowSunburst26').GeekNowImageResult
     piapiPrivateReferences?: import('@/stores/node').NodeData['piapiPrivateReferences']
     ratio?: string
     resolution?: string
@@ -1960,6 +1971,7 @@ const isPiapi25 = computed(() => {
   return props.type === 'ai-video' && config?.kind === 'piapi' && selectedModel.value === 'seedance-2.5-less-restriction'
 })
 const isPiapiImage = computed(() => props.type === 'ai-image' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'piapi' && selectedModel.value === 'seedream-5-pro-less-restriction')
+const isSunburst26 = computed(() => props.type === 'ai-image' && ['geeknow', undefined].includes(aiStore.getProviderConfig(selectedProviderId.value)?.kind) && selectedModel.value === SUNBURST26_MODEL)
 const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
   currentTab.value === 'video-edit' ? 'edit' : currentTab.value === 'video-extend' ? 'extend' : 'reference'
 )
@@ -2548,7 +2560,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask) {
+  if (props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
     nodeStore.executeNode(props.id)
     return
   }
@@ -2556,6 +2568,12 @@ function handleGenerateClick() {
 }
 
 // 视频/图片节点参考素材：blob:/data: URL 直接传给 store，store 调用前会上传图床转公网 URL
+function discardGeekNowResult() {
+  if (window.confirm('放弃已返回的 GIF 结果？之后点击生成将提交新请求并可能再次计费。')) {
+    nodeStore.updateNodeData(props.id, { geeknowImageResult: undefined, status: 'idle', error: undefined })
+  }
+}
+
 const executeNode = async () => {
   if (props.data.status === 'running') return
   // 收集所有参考图 URL（不仅是第一张）

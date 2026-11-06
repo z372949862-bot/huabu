@@ -648,6 +648,14 @@ export const useAIStore = defineStore('ai', () => {
     // preserving user-added model IDs.
     let catalogChanged = false
     for (const provider of providers.value) {
+      if (provider.type !== 'image' || imageKindOf(provider) !== 'geeknow') continue
+      const added = defaultImageModelSet('geeknow').find(model => model.id === 'gpt-image-2.6-sunburst')!
+      if (!provider.models.some(model => model.id === added.id)) {
+        provider.models = [...provider.models, added]
+        catalogChanged = true
+      }
+    }
+    for (const provider of providers.value) {
       if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'aimi' && provider.kind !== 'piapi')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const storedModels = provider.models || []
