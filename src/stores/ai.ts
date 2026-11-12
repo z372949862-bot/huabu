@@ -10,6 +10,7 @@ import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
 import { AiideSeedanceProvider, AIIDE_BASE } from '@/services/providers/aiide'
 import { AimiProvider, AIMI_BASE } from '@/services/providers/aimi'
 import { PiapiProvider, PIAPI_BASE } from '@/services/providers/piapi'
+import { IdeaGatesProvider, IDEAGATES_BASE, IDEAGATES_GROUPS, isIdeaGatesKind, ideaGatesModels } from '@/services/providers/ideagates'
 import { PiapiImageProvider } from '@/services/providers/piapiImage'
 import { GeekNowImageProvider, type ImageProvider } from '@/services/providers/geeknow'
 import { ChuhaiyingImageProvider } from '@/services/providers/chuhaiying'
@@ -32,7 +33,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | AimiProvider | PiapiProvider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | AimiProvider | PiapiProvider | IdeaGatesProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -86,6 +87,8 @@ const IMAGE_DEFAULT_BASE_URL: Record<ImageProviderKind, string> = {
   luoci: 'https://luocisheng.cn',
 }
 const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
+  ideagates: IDEAGATES_BASE,
+  'ideagates-overseas': IDEAGATES_BASE,
   seedance: 'https://api.aiid.edu.kg',
   chuhaiying: 'https://api.aiid.edu.kg',
   qiling: 'https://api.qilingze.com',
@@ -98,7 +101,7 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   aimi: AIMI_BASE,
   piapi: PIAPI_BASE,
 }
-const CURRENT_MIGRATION = 17
+const CURRENT_MIGRATION = 18
 
 declare global {
   interface Window {
@@ -158,6 +161,7 @@ function imageKindOf(conf: Provider): ImageProviderKind {
 
 /** 把存档里宽松的 kind 收窄成 video kind（未知 / undefined → 'seedance'）。 */
 function videoKindOf(conf: Provider): VideoProviderKind {
+  if (isIdeaGatesKind(conf.kind)) return conf.kind
   if (conf.kind === 'chuhaiying') return 'chuhaiying'
   if (conf.kind === 'qiling') return 'qiling'
   if (conf.kind === 'unmau') return 'unmau'
@@ -214,7 +218,9 @@ export const useAIStore = defineStore('ai', () => {
     let inst = videoCache.get(id)
     if (!inst) {
       const kind = videoKindOf(conf)
-      inst = kind === 'piapi'
+      inst = isIdeaGatesKind(kind)
+        ? new IdeaGatesProvider(conf.apiKey, conf.baseUrl, kind)
+        : kind === 'piapi'
         ? new PiapiProvider(conf.apiKey, conf.baseUrl)
         : kind === 'xinshuju'
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
@@ -327,13 +333,13 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'aimi' || input.kind === 'piapi')
+        (isIdeaGatesKind(input.kind) || input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'aimi' || input.kind === 'piapi')
           ? input.kind
           : 'seedance'
       kind = vidKind
       defaultBase = VIDEO_DEFAULT_BASE_URL[vidKind]
       defaultModels = defaultVideoModelSet(vidKind)
-      defaultName = vidKind === 'piapi'
+      defaultName = isIdeaGatesKind(vidKind) ? IDEAGATES_GROUPS[vidKind].name : vidKind === 'piapi'
         ? 'PiAPI · Seedance 2.5'
         : vidKind === 'unmau'
         ? 'New API · Seedance 2.5'
@@ -425,6 +431,11 @@ export const useAIStore = defineStore('ai', () => {
   function addModel(providerId: string, modelId: string, override?: Partial<ProviderModel>) {
     const p = getProviderConfig(providerId)
     if (!p) return
+    if (isIdeaGatesKind(p.kind)) {
+      p.models = ideaGatesModels(p.kind)
+      persist()
+      return
+    }
     if (p.models.find((m) => m.id === modelId)) return
     if (p.type === 'text') {
       const tpl = getChatTemplatesByKind('openaichat').find((t) => t.id === modelId)
@@ -621,6 +632,14 @@ export const useAIStore = defineStore('ai', () => {
       // Reuse an already configured PiAPI key locally; never log or transmit it here.
       const existing = providers.value.find(p => p.type === 'video' && p.kind === 'piapi' && p.baseUrl.replace(/[/]+$/, '') === PIAPI_BASE)
       addProvider({ name: 'PiAPI · Seedream 5 Pro', type: 'image', kind: 'piapi', apiKey: existing?.apiKey || '' })
+    }
+
+    if (migrationVersion.value < 18) {
+      for (const kind of ['ideagates', 'ideagates-overseas'] as const) {
+        if (!providers.value.some(p => p.type === 'video' && p.kind === kind)) {
+          addProvider({ name: IDEAGATES_GROUPS[kind].name, type: 'video', kind })
+        }
+      }
     }
 
     // 一次性更新图片目录，保留中转站地址、密钥和用户自定义的 GPT 模型。

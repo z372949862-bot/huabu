@@ -17,7 +17,8 @@ import { FMGO_MODELS } from './providers/fmgo'
 import { AIMI_MODELS } from './providers/aimi'
 import { PIAPI_MODELS } from './providers/piapi'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'aimi' | 'piapi'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'aimi' | 'piapi' | 'ideagates' | 'ideagates-overseas'
+import { ideaGatesModels } from './providers/ideagates'
 
 export interface ModelTemplate {
   id: string
@@ -268,6 +269,8 @@ export const CHUHAIYING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
 ]
 
 const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
+  ideagates: ideaGatesModels('ideagates'),
+  'ideagates-overseas': ideaGatesModels('ideagates-overseas'),
   seedance: SEEDANCE_MODEL_TEMPLATES,
   chuhaiying: CHUHAIYING_VIDEO_MODEL_TEMPLATES,
   qiling: QILING_VIDEO_MODEL_TEMPLATES,

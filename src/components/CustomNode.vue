@@ -227,7 +227,7 @@
             </div>
 
             <!-- 上传按钮 -->
-            <label class="asset-upload">
+            <label v-if="!isIdeaGates25" class="asset-upload">
               <input
                 type="file"
                 :accept="type === 'ai-image' ? 'image/*' : 'image/*,video/*,audio/*'"
@@ -240,7 +240,7 @@
           </div>
 
           <!-- 首次上传按钮（无素材时） -->
-          <div v-if="shouldShowUploadPrompt" class="upload-prompt"
+          <div v-if="shouldShowUploadPrompt && !isIdeaGates25" class="upload-prompt"
             :class="{ 'refs-blocked': refImageBlocked }">
             <label class="upload-prompt-btn">
               <input
@@ -255,6 +255,16 @@
           </div>
 
           <PiapiAssetReferences v-if="isPiapi25" :provider-id="selectedProviderId" :assets="allAssets" :bindings="data.piapiPrivateReferences" :video-mode="activeDmxMode" :disabled="data.status === 'running' || !!data.piapiTask" @update:bindings="value => nodeStore.updateNodeData(id, { piapiPrivateReferences: value })" @add-asset="addPiapiPrivateAsset" />
+          <IdeaGatesReferences v-if="isIdeaGates25" :disabled="data.status === 'running' || !!data.ideagatesTask" @add="addIdeaGatesReference" />
+          <div v-if="data.ideagatesTask?.submissionUncertain && !data.ideagatesTask?.taskId && data.status !== 'running'" class="reference-warning">
+            <span>上次提交结果未确认，请先联系平台核对。</span>
+            <button class="option-btn" @click.stop="recoverIdeaGatesTask">填写已创建的任务号</button>
+            <button class="option-btn" @click.stop="clearIdeaGatesUncertainty">已核对未创建</button>
+          </div>
+          <div v-else-if="data.ideagatesTask?.taskId && data.status !== 'running'" class="reference-warning">
+            <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询上次任务</button>
+            <span>使用原分组和 Key，不会重新生成。</span>
+          </div>
           <div v-if="data.referenceWarning" class="reference-warning" role="status">{{ data.referenceWarning }}</div>
           <div v-if="data.geeknowImageResult && data.status !== 'running'" class="reference-warning">
             <button class="option-btn" @click.stop="nodeStore.executeNode(id)">重试下载 GIF</button>
@@ -820,6 +830,8 @@ import GenerationSizeSelector from './GenerationSizeSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 import ProviderSelector from './ProviderSelector.vue'
 import PiapiAssetReferences from './PiapiAssetReferences.vue'
+import IdeaGatesReferences from './IdeaGatesReferences.vue'
+import { isIdeaGatesKind } from '@/services/providers/ideagates'
 import Sunburst26Parameters from './Sunburst26Parameters.vue'
 import { SUNBURST26_MODEL } from '@/services/geeknowSunburst26'
 import StylePresetPicker from './StylePresetPicker.vue'
@@ -851,6 +863,7 @@ interface Props {
     qilingFrameMode?: 'first_frame' | 'first_last_frame'
     dmxTask?: import('@/services/dmxapiTask').DmxPendingTask
     aiideTask?: import('@/services/aiideTask').AiidePendingTask
+    ideagatesTask?: import('@/services/ideagatesTask').IdeaGatesPendingTask
     piapiTask?: import('@/stores/node').NodeData['piapiTask']
     piapiImageTask?: import('@/stores/node').NodeData['piapiImageTask']
     imageOutputFormat?: 'jpeg' | 'png'
@@ -1863,6 +1876,22 @@ function persistUploadedAssets() {
     _uploads: uploadedAssets.value.map(a => ({ id: a.id, type: a.type, url: a.url, name: a.name }))
   })
 }
+function addIdeaGatesReference(asset: { id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }) {
+  if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value.push(asset)
+  persistUploadedAssets()
+}
+function recoverIdeaGatesTask() {
+  const task = props.data.ideagatesTask
+  if (!task) return
+  const id = window.prompt('填写平台核对得到的原任务 ID（不是 cgt 溯源号）')?.trim()
+  if (!id || id.startsWith('cgt')) return
+  nodeStore.updateNodeData(props.id, { ideagatesTask: { ...task, taskId: id, submissionUncertain: false }, status: 'idle', error: undefined })
+}
+function clearIdeaGatesUncertainty() {
+  if (window.confirm('是否已向平台核对，确认上次请求没有创建任务？清除此记录后再次生成会提交新任务并可能计费。')) {
+    nodeStore.updateNodeData(props.id, { ideagatesTask: undefined, taskId: undefined, status: 'idle', error: undefined })
+  }
+}
 function addPiapiPrivateAsset(asset: { id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }, binding: any) {
   if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value.push(asset)
   persistUploadedAssets()
@@ -1973,6 +2002,7 @@ const isPiapi25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'piapi' && selectedModel.value === 'seedance-2.5-less-restriction'
 })
+const isIdeaGates25 = computed(() => props.type === 'ai-video' && isIdeaGatesKind(aiStore.getProviderConfig(selectedProviderId.value)?.kind))
 const isPiapiImage = computed(() => props.type === 'ai-image' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'piapi' && selectedModel.value === 'seedream-5-pro-less-restriction')
 const isSunburst26 = computed(() => props.type === 'ai-image' && ['geeknow', undefined].includes(aiStore.getProviderConfig(selectedProviderId.value)?.kind) && selectedModel.value === SUNBURST26_MODEL)
 const activeDmxMode = computed<'reference' | 'edit' | 'extend'>(() =>
@@ -1987,7 +2017,7 @@ const currentModelCapabilities = computed(() => {
     durationRange: undefined,
     durationOptions: [],
   }
-  if (isPiapi25.value) return {
+  if (isPiapi25.value || isIdeaGates25.value) return {
     ...model?.capabilities,
     ratios: activeDmxMode.value === 'reference' ? model?.capabilities.ratios : ['adaptive'],
     durationRange: activeDmxMode.value === 'edit' ? undefined : { min: 4, max: 30 },
@@ -2183,11 +2213,11 @@ const shouldShowUploadPrompt = computed(() => {
 const videoTabs = computed(() => [
   { label: '文生视频', value: 'text-to-video', disabled: hasAnyInput.value },
   { label: '全能参考', value: 'universal-ref', disabled: !hasAnyInput.value },
-  ...(isDmxApi25.value || isAiideSeedance25.value || isQilingGf1080.value ? [
+  ...(isDmxApi25.value || isAiideSeedance25.value || isQilingGf1080.value || isIdeaGates25.value ? [
     { label: '图生视频', value: 'image-to-video', disabled: !hasImageInput.value },
     { label: '首尾帧', value: 'first-last-frame', disabled: !hasImageInput.value },
   ] : []),
-  ...(isDmxApi25.value || isAiideSeedance25.value || isPiapi25.value ? [
+  ...(isDmxApi25.value || isAiideSeedance25.value || isPiapi25.value || isIdeaGates25.value ? [
     { label: '视频编辑', value: 'video-edit', disabled: !hasVideoInput.value },
     { label: '视频延长', value: 'video-extend', disabled: !hasVideoInput.value },
   ] : []),
@@ -2204,7 +2234,7 @@ const videoModeOptions = computed<GenerationModeOption[]>(() =>
     description: tab.value === 'video-edit'
       ? '修改已连接的视频内容'
       : tab.value === 'video-extend'
-        ? isPiapi25.value ? '填写延长后的成片总时长（4–30 秒）' : '延长已连接的视频'
+        ? isPiapi25.value || isIdeaGates25.value ? '填写延长后的成片总时长（4–30 秒）' : '延长已连接的视频'
         : undefined,
   }))
 )
@@ -2221,8 +2251,8 @@ watch([hasAnyInput, hasImageInput], ([anyInput, imageInput]) => {
   }
 })
 
-watch([isDmxApi25, isAiideSeedance25, isPiapi25], ([dmxEnabled, aiideEnabled, piapiEnabled]) => {
-  if (!dmxEnabled && !aiideEnabled && !piapiEnabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
+watch([isDmxApi25, isAiideSeedance25, isPiapi25, isIdeaGates25], ([dmxEnabled, aiideEnabled, piapiEnabled, ideaEnabled]) => {
+  if (!dmxEnabled && !aiideEnabled && !piapiEnabled && !ideaEnabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
     currentTab.value = 'text-to-video'
   }
 })
@@ -2262,6 +2292,15 @@ watch(activeDmxMode, (mode) => {
     selectedRatio.value = 'adaptive'
     if (mode === 'edit') nodeStore.updateNodeData(props.id, { duration: -1 } as any)
   }
+}, { immediate: true })
+
+watch([isIdeaGates25, activeDmxMode], ([enabled, mode]) => {
+  if (!enabled) return
+  const patch: Record<string, any> = { resolution: '720p', videoMode: mode }
+  if (mode !== 'edit' && (!Number.isInteger(props.data.duration) || Number(props.data.duration) < 4 || Number(props.data.duration) > 30)) patch.duration = 5
+  if (mode !== 'reference') selectedRatio.value = 'adaptive'
+  else if (['auto', 'adaptive'].includes(selectedRatio.value)) selectedRatio.value = '16:9'
+  nodeStore.updateNodeData(props.id, patch)
 }, { immediate: true })
 
 watch(currentTab, (tab) => {
@@ -2572,7 +2611,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
+  if (props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
     nodeStore.executeNode(props.id)
     return
   }
@@ -2618,8 +2657,8 @@ const executeNode = async () => {
       videoMode: activeDmxMode.value,
       qilingFrameMode: isQilingGf1080.value && currentTab.value === 'image-to-video' ? 'first_frame'
         : isQilingGf1080.value && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
-      dmxFrameMode: isDmxApi25.value && currentTab.value === 'image-to-video' ? 'first_frame'
-        : isDmxApi25.value && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
+      dmxFrameMode: (isDmxApi25.value || isIdeaGates25.value) && currentTab.value === 'image-to-video' ? 'first_frame'
+        : (isDmxApi25.value || isIdeaGates25.value) && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
     } as any)
   }
   console.log('[executeNode] refImages:', refImageUrls.length, 'video:', !!inputVideo)

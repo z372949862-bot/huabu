@@ -62,6 +62,8 @@
           <option value="aiide">AIIDE · Seedance 2.5 HC</option>
           <option value="aimi">AIMI · Seedance 2.5 (aimiapi.com)</option>
           <option value="piapi">PiAPI · Seedance 2.5 (api.piapi.ai)</option>
+          <option value="ideagates">IDEA Gates · Seedance NSFW 可溯源 · 2.5 / 720P</option>
+          <option value="ideagates-overseas">IDEA Gates · 海外-NSFW 视频 8.5 折 · 2.5 / 720P</option>
         </select>
         <select
           v-else-if="activeTab === 'text'"
@@ -100,6 +102,9 @@
           </div>
 
           <div class="provider-body">
+            <p v-if="isIdeaGatesKind(provider.kind)" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
+              请填写此分组专用的 API Key。仅接入 Seedance 2.5 / 720P；实际分组由 Key 决定，选择名称不会改变 Key 的分组。测试连接只查询模型权限。参考素材使用公网 HTTPS 链接或已登记的 asset:// 引用；续接时长为成片总时长。
+            </p>
             <p v-if="provider.kind === 'piapi' && provider.type === 'video'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
               使用 PiAPI API Key。测试连接只查询账户信息，不生成视频。
               本地素材经官方临时上传服务上传，需要 Creator 或更高套餐；Base64 限 10 MB（原文件约 7.5 MB），直链有效期 24 小时。更大素材或 MOV 请使用公网直链。节点参数卡可勾选「私有资产」或「选择已入库」，等素材 Active 后以 asset:// 引用；私有资产接口另要求 hobbyist 或更高权限，以平台账户实际权限为准。
@@ -187,7 +192,7 @@
                   </button>
                 </div>
 
-                <div class="add-model-row">
+                <div v-if="!isIdeaGatesKind(provider.kind)" class="add-model-row">
                   <input
                     v-model="customModelId[provider.id]"
                     placeholder="或填自定义模型 ID"
@@ -247,6 +252,7 @@ import { useAIStore } from '@/stores/ai'
 import { useNodeStore } from '@/stores/node'
 import type { ProviderStatus, Provider } from '@/stores/ai'
 import { getModelTemplatesByKind, type VideoProviderKind } from '@/services/modelTemplates'
+import { IDEAGATES_GROUPS, isIdeaGatesKind } from '@/services/providers/ideagates'
 
 onErrorCaptured((err) => {
   console.error('[Settings] render error:', err)
@@ -357,7 +363,7 @@ const addProviderClick = () => {
     })
   } else {
     const kind = newVideoKind.value
-    const baseName = kind === 'aiide'
+    const baseName = isIdeaGatesKind(kind) ? IDEAGATES_GROUPS[kind].name : kind === 'aiide'
       ? 'AIIDE · Seedance 2.5 HC'
       : kind === 'piapi'
         ? 'PiAPI · Seedance 2.5'

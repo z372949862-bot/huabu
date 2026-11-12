@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  ideagates: {
+    request: payload => ipcRenderer.invoke('ideagates:request', payload),
+    download: payload => ipcRenderer.invoke('ideagates:download', payload),
+  },
   geeknow: {
     request: payload => ipcRenderer.invoke('geeknow:request', payload),
     cancel: payload => ipcRenderer.invoke('geeknow:cancel', payload),

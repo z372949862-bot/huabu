@@ -17,6 +17,8 @@ import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/provide
 import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
 import { runAiideNode, cancelAiideNode, type AiidePendingTask } from '@/services/aiideTask'
 import { ensureAiideMediaUrl } from '@/services/aiideMedia'
+import { IdeaGatesProvider, isIdeaGatesKind } from '@/services/providers/ideagates'
+import { runIdeaGatesNode, cancelIdeaGatesNode, type IdeaGatesPendingTask } from '@/services/ideagatesTask'
 
 export interface NodeData {
   label: string
@@ -66,6 +68,8 @@ export interface NodeData {
   /** Durable DMXAPI query state; kept across restarts without persisting credentials. */
   dmxTask?: DmxPendingTask
   aiideTask?: AiidePendingTask
+  ideagatesTask?: IdeaGatesPendingTask
+  ideagatesResult?: Record<string, any>
   piapiTask?: { taskId: string; providerId: string; body: Record<string, any> }
   piapiImageTask?: { taskId: string; providerId: string; model: string; prompt: string; ratio?: string; resolution?: string; imageOutputFormat?: 'jpeg' | 'png' }
   imageOutputFormat?: 'jpeg' | 'png'
@@ -166,13 +170,16 @@ export const useNodeStore = defineStore('node', () => {
   }
 
   /** 立刻写盘（不等 debounce），用于切项目前确保旧项目最新数据落盘。 */
-  async function flushPersist() {
+  async function flushPersist(strict = false) {
     if (persistTimer) {
       clearTimeout(persistTimer)
       persistTimer = null
     }
     const electronStore = window.electronAPI?.store
-    if (!electronStore) return
+    if (!electronStore) {
+      if (strict) throw new Error('任务存储不可用，本次未提交生成')
+      return
+    }
     const pid = currentProjectId.value
     if (!pid) return
     try {
@@ -186,6 +193,7 @@ export const useNodeStore = defineStore('node', () => {
       await electronStore.set(CURRENT_PROJECT_KEY, pid)
     } catch (err) {
       console.warn('flushPersist failed:', err)
+      if (strict) throw new Error('任务记录写入失败，请检查磁盘空间后重试；本次不会继续提交')
     }
   }
 
@@ -216,9 +224,9 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
-                taskId: data.dmxTask?.taskId || data.aiideTask?.taskId || data.piapiTask?.taskId },
+              data: { ...data, status: data.ideagatesTask || data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.ideagatesTask || data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
+                taskId: data.ideagatesTask?.taskId || data.dmxTask?.taskId || data.aiideTask?.taskId || data.piapiTask?.taskId },
             }
           })
         : []
@@ -388,6 +396,7 @@ export const useNodeStore = defineStore('node', () => {
   }
 
   function cancelExecution(nodeId: string) {
+    cancelIdeaGatesNode(nodeId)
     cancelAiideNode(nodeId)
     cancelDmxApiNode(nodeId)
     cancelUnmauNode(nodeId)
@@ -474,7 +483,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
-    const providerId = data.dmxTask?.providerId || data.aiideTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
+    const providerId = data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
       failNode(nodeId, '请先在「设置」中添加中转站')
       return
@@ -492,6 +501,51 @@ export const useNodeStore = defineStore('node', () => {
     }
 
     cancelExecution(nodeId)
+
+    if (isIdeaGatesKind(providerConfig.kind)) {
+      const projectId = currentProjectId.value
+      const submissionId = data.ideagatesTask?.submissionId || crypto.randomUUID()
+      let trackedNode = node
+      const originalNode = () => {
+        const current = nodes.value.find(item => item.id === nodeId && (item === trackedNode || item.data?.ideagatesTask?.submissionId === submissionId))
+        if (current) trackedNode = current
+        return current
+      }
+      // Capture credentials for this run; edits to settings must not switch a running task's Key.
+      const pinnedProvider = new IdeaGatesProvider(apiKey, providerConfig.baseUrl, providerConfig.kind)
+      return runIdeaGatesNode({
+        id: nodeId, submissionId, data: { ...data, model: data.model || providerConfig.models[0]?.id }, nodes: nodes.value, edges: edges.value,
+        kind: providerConfig.kind, providerId, provider: pinnedProvider,
+        resolveVideoUrl: url => assetStore.remoteVideoUrl(url),
+        update: patch => { if (currentProjectId.value === projectId && originalNode()) updateNodeData(nodeId, patch) }, persist: () => flushPersist(true),
+        isCurrent: () => currentProjectId.value === projectId && !!originalNode(),
+        rememberTask: async task => {
+          if (currentProjectId.value === projectId) {
+            if (originalNode()) {
+              updateNodeData(nodeId, { ideagatesTask: task, taskId: task?.taskId })
+              await flushPersist(true)
+            }
+            return
+          }
+          const storage = window.electronAPI?.store
+          if (!storage || !projectId) return
+          const key = PROJECT_PERSIST_PREFIX + projectId
+          const raw = await storage.get(key)
+          if (!raw) return
+          const saved = JSON.parse(raw)
+          const original = saved.nodes?.find((item: any) => item.id === nodeId)
+          if (!original || original.data?.ideagatesTask?.submissionId !== submissionId) return
+          original.data = { ...original.data, ideagatesTask: task }
+          await storage.set(key, JSON.stringify(saved))
+        },
+        complete: (url, task, sourceUrl) => useAssetStore().addAsset({
+          type: 'video', url, sourceUrl, prompt: task.prompt, model: task.model,
+          providerId: task.providerId, providerName: providerConfig.name, nodeId, nodeType: 'ai-video',
+          projectId: projectId || undefined, ratio: task.ratio, resolution: task.resolution,
+          duration: task.duration && task.duration > 0 ? task.duration : undefined,
+        }),
+      })
+    }
 
     if (provider instanceof UnmauProvider) {
       const projectId = currentProjectId.value
