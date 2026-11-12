@@ -13,6 +13,7 @@ function setup() {
   const disk = new Map<string, string>([['aiProviders', JSON.stringify({ providers: [existing], defaultProviderId: 'old', migrationVersion: 17 })]])
   vi.stubGlobal('electronAPI', { store: { get: async (key: string) => disk.get(key) ?? null, set: async (key: string, value: string) => { disk.set(key, value) }, delete: vi.fn() } })
   setActivePinia(createPinia())
+  vi.spyOn(IdeaGatesProvider.prototype, 'prepareTask').mockImplementation(async params => params)
   return { disk, ai: useAIStore(), store: useNodeStore() }
 }
 describe('IDEA Gates persistent integration', () => {

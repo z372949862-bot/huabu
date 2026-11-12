@@ -21,6 +21,7 @@ interface Context {
   nodes: Array<{ id: string; type?: string; data?: Record<string, any> }>; edges: Array<{ source: string; target: string }>
   provider: {
     identity?: () => Promise<string>
+    prepareTask?: (params: CreateTaskParams, signal: AbortSignal, notify: (message: string) => void) => Promise<CreateTaskParams>
     createTask: (params: CreateTaskParams) => Promise<{ taskId: string; keyFingerprint?: string; request?: Record<string, any>; warning?: string }>
     getTaskStatus: (id: string, fingerprint?: string) => Promise<IdeaGatesStatus>
     download: (id: string, url: string, fingerprint?: string) => Promise<string>
@@ -32,13 +33,14 @@ interface Context {
   isCurrent: () => boolean
   complete: (url: string, task: IdeaGatesPendingTask, sourceUrl: string) => void
 }
-interface Run { ctx: Context; task?: IdeaGatesPendingTask; canceled: boolean; submitting: boolean; timer?: ReturnType<typeof setTimeout> }
+interface Run { ctx: Context; task?: IdeaGatesPendingTask; canceled: boolean; submitting: boolean; preparation: AbortController; timer?: ReturnType<typeof setTimeout> }
 const runs = new Map<string, Run>()
 function stop(run: Run) { if (run.timer) clearTimeout(run.timer); if (runs.get(run.ctx.id) === run) runs.delete(run.ctx.id) }
 export function cancelIdeaGatesNode(id: string) {
   const run = runs.get(id)
   if (!run) return
   run.canceled = true
+  run.preparation.abort()
   if (run.timer) clearTimeout(run.timer)
   if (!run.submitting) stop(run)
   if (run.ctx.isCurrent()) run.ctx.update({ status: 'idle', progress: undefined, referenceWarning: run.submitting ? '正在确认提交结果，请勿重复生成。' : '已停止本地查询，平台任务仍会继续；可继续查询原任务。' })
@@ -61,7 +63,7 @@ export function buildIdeaGatesNodeParams(ctx: Pick<Context, 'id' | 'nodes' | 'ed
 }
 export async function runIdeaGatesNode(ctx: Context) {
   if (runs.has(ctx.id)) return
-  const run: Run = { ctx, canceled: false, submitting: false }; runs.set(ctx.id, run)
+  const run: Run = { ctx, canceled: false, submitting: false, preparation: new AbortController() }; runs.set(ctx.id, run)
   const active = () => runs.get(ctx.id) === run && !run.canceled && ctx.isCurrent()
   const saveTask = async (task: IdeaGatesPendingTask | undefined) => {
     if (ctx.isCurrent()) ctx.update({ ideagatesTask: task, taskId: task?.taskId })
@@ -84,7 +86,12 @@ export async function runIdeaGatesNode(ctx: Context) {
   try {
     if (ctx.data.ideagatesTask?.taskId) run.task = { ...ctx.data.ideagatesTask }
     else {
-      const params = buildIdeaGatesNodeParams(ctx)
+      let params = buildIdeaGatesNodeParams(ctx)
+      if (ctx.provider.prepareTask) params = await ctx.provider.prepareTask(params, run.preparation.signal, message => {
+        if (!active()) { run.preparation.abort(); throw new DOMException('已停止准备素材', 'AbortError') }
+        ctx.update({ referenceWarning: message })
+      })
+      if (!active()) { stop(run); return }
       const request = buildIdeaGatesBody(params, ctx.kind)
       const keyFingerprint = await ctx.provider.identity?.()
       if (!active()) { stop(run); return }
@@ -102,6 +109,7 @@ export async function runIdeaGatesNode(ctx: Context) {
       if (ctx.isCurrent()) ctx.update({ referenceWarning: result.warning, ...(run.canceled ? { status: 'idle' } : {}) })
     }
   } catch (error) {
+    if (!active() && !run.submitting) { stop(run); return }
     if (!accepted && !(error as IdeaGatesError).uncertain) await saveTask(undefined).catch(() => {})
     await fail(error instanceof Error ? error.message : 'IDEA Gates 提交失败')
     return

@@ -16,6 +16,12 @@ function setup() {
   return { fetch, root, call: (channel: string, args: any) => handlers.get('ideagates:' + channel)(null, { apiKey: 'sk-test', group: 'ideagates', ...args }) }
 }
 describe('IDEA Gates desktop transport', () => {
+  it('preserves a failed task with its native error as a terminal response, not a transport failure', async () => {
+    const { fetch, call } = setup()
+    const raw = { id: 'task_failed', status: 'failed', error: { code: 'invalid_media', message: 'media rejected' } }
+    fetch.mockResolvedValue(json(raw))
+    expect(await call('request', { path: '/contents/generations/tasks/task_failed' })).toMatchObject({ ok: true, data: { raw } })
+  })
   it('submits native JSON once and archives request/response without credentials', async () => {
     const { fetch, call, root } = setup(); fetch.mockResolvedValue(json({ id: 'task_1', extra: 0 }))
     const result = await call('request', { path: '/contents/generations/tasks', body })

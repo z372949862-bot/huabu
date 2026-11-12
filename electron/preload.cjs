@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   ideagates: {
+    prepareAsset: payload => ipcRenderer.invoke('ideagates:prepare-asset', payload),
+    getAsset: payload => ipcRenderer.invoke('ideagates:get-asset', payload),
     request: payload => ipcRenderer.invoke('ideagates:request', payload),
     download: payload => ipcRenderer.invoke('ideagates:download', payload),
   },

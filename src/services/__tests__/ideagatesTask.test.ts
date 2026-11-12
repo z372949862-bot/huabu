@@ -99,4 +99,34 @@ describe('IDEA Gates task lifecycle', () => {
     expect(ctx.data).toMatchObject({ status: 'completed', ideagatesTask: undefined })
     expect(ctx.provider.createTask).not.toHaveBeenCalled()
   })
+  it('waits for local registration before persisting a submission marker or creating video', async () => {
+    const ctx = context({ inputImages: ['local-upload:///C:/a.png'] })
+    let ready!: (params: any) => void
+    const prepareTask = vi.fn((params, _signal, notify) => {
+      notify('等待官方素材处理')
+      return new Promise<any>(resolve => { ready = () => resolve({ ...params, content: [{ type: 'text', text: params.prompt }, { type: 'image_url', image_url: { url: 'asset://active_image' }, role: 'reference_image' }] }) })
+    })
+    const work = runIdeaGatesNode({ ...ctx, provider: { ...ctx.provider, prepareTask } })
+    expect(ctx.data.referenceWarning).toContain('素材处理')
+    expect(ctx.rememberTask).not.toHaveBeenCalled()
+    expect(ctx.provider.createTask).not.toHaveBeenCalled()
+    ready({}); await work
+    expect(ctx.provider.createTask).toHaveBeenCalledWith(expect.objectContaining({ content: expect.arrayContaining([expect.objectContaining({ image_url: { url: 'asset://active_image' } })]) }))
+  })
+  it('never submits after local preparation fails or completes after cancellation', async () => {
+    const ctx = context({ inputVideos: ['local-upload:///C:/a.mp4'] })
+    const prepareTask = vi.fn().mockRejectedValueOnce(new Error('素材未通过处理'))
+    const full = { ...ctx, provider: { ...ctx.provider, prepareTask } }
+    await runIdeaGatesNode(full)
+    expect(ctx.data.error).toContain('素材未通过处理')
+    expect(ctx.provider.createTask).not.toHaveBeenCalled()
+    let finish!: (params: any) => void
+    prepareTask.mockImplementation(() => new Promise(r => { finish = r }))
+    const work = runIdeaGatesNode(full)
+    cancelIdeaGatesNode(ctx.id)
+    expect(prepareTask.mock.lastCall?.[1].aborted).toBe(true)
+    finish({ model: pending.model, prompt: 'late' }); await work
+    expect(ctx.data.status).toBe('idle')
+    expect(ctx.provider.createTask).not.toHaveBeenCalled()
+  })
 })

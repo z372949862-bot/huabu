@@ -45,7 +45,7 @@ function validateBody(body, group) {
 function redact(message, key) {
   return String(message).split(key).join('[redacted]').replace(/https:\/\/[^\s"<>]+/g, value => value.split('?')[0] + (value.includes('?') ? '?[redacted]' : ''))
 }
-module.exports = function registerIdeaGates({ ipcMain, net, app }) {
+module.exports = function registerIdeaGates({ ipcMain, net, app, stagingFetch }) {
   const directory = path.join(app.getPath('userData'), 'ideagates-tasks')
   const downloads = new Map()
   const wrap = handler => async (_event, args = {}) => {
@@ -56,7 +56,7 @@ module.exports = function registerIdeaGates({ ipcMain, net, app }) {
       if (args.keyFingerprint && args.keyFingerprint !== fingerprint) throw new Error('此任务必须使用创建时的同一个 Key，请恢复原 Key 后继续查询')
       return { ok: true, data: await handler({ ...args, apiKey: key }, fingerprint) }
     } catch (error) {
-      return { ok: false, error: redact(error.message || 'IDEA Gates 请求失败', key || '\u0000'), retryable: !!error.retryable, uncertain: !!error.uncertain, status: error.status, retryAfterMs: error.retryAfterMs }
+      return { ok: false, error: redact(error.message || 'IDEA Gates 请求失败', key || '\u0000'), code: error.code, retryable: !!error.retryable, uncertain: !!error.uncertain, status: error.status, retryAfterMs: error.retryAfterMs }
     }
   }
   async function save(id, fingerprint, patch) {
@@ -66,21 +66,25 @@ module.exports = function registerIdeaGates({ ipcMain, net, app }) {
     await fs.writeFile(file + '.tmp', JSON.stringify({ ...previous, ...patch }, null, 2))
     await fs.rename(file + '.tmp', file)
   }
-  async function request(apiKey, route, body) {
-    const create = !!body
+  async function request(apiKey, route, body, extraHeaders = {}) {
+    const create = route === '/contents/generations/tasks' && !!body
+    const post = !!body
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), create ? 180000 : 60000)
     try {
-      const response = await net.fetch(BASE + route, { method: create ? 'POST' : 'GET', redirect: 'error', signal: controller.signal,
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json', ...(create ? { 'Content-Type': 'application/json' } : {}) },
-        ...(create ? { body: JSON.stringify(body) } : {}) })
+      const response = await net.fetch(BASE + route, { method: post ? 'POST' : 'GET', redirect: 'error', signal: controller.signal,
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json', ...(post ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders },
+        ...(post ? { body: JSON.stringify(body) } : {}) })
       const raw = await response.json().catch(() => { throw Object.assign(new Error('平台返回非 JSON 响应'), { retryable: !create, uncertain: create }) })
-      if (!response.ok) {
+      if (!response.ok || route.startsWith('/asset') && (raw?.success === false || raw?.error || raw?.ResponseMetadata?.Error)) {
+        const problem = raw?.error || raw?.ResponseMetadata?.Error || raw
+        const code = problem.code || problem.Code
         const retry = response.headers.get('retry-after')
         const seconds = retry && /^\d+(\.\d+)?$/.test(retry) ? Number(retry) * 1000 : retry ? Date.parse(retry) - Date.now() : 0
-        throw Object.assign(new Error(`IDEA Gates HTTP ${response.status}：${raw?.error?.message || raw?.message || '请求失败'}`), {
+        throw Object.assign(new Error(`IDEA Gates HTTP ${response.status}：${problem.message || problem.Message || code || '请求失败'}${route.startsWith('/asset') && response.status === 503 ? '；当前 Key 的分组可能未开放素材库，视频尚未提交' : ''}`), {
+          code,
           status: response.status, uncertain: create && (response.status >= 500 || response.status === 408),
-          retryable: !create && (response.status >= 500 || [408, 409, 425, 429].includes(response.status)), retryAfterMs: Number.isFinite(seconds) ? Math.max(0, seconds) : 0,
+          retryable: !create && code !== 'idempotency_conflict' && (response.status >= 500 || [408, 425, 429].includes(response.status) || response.status === 409 && (!route.startsWith('/asset') || code === 'seedance_asset_submission_pending')), retryAfterMs: Number.isFinite(seconds) ? Math.max(0, seconds) : 0,
         })
       }
       return raw
@@ -93,6 +97,11 @@ module.exports = function registerIdeaGates({ ipcMain, net, app }) {
       throw error
     } finally { clearTimeout(timer) }
   }
+  const assets = require('./ideagatesAssets.cjs')({ app, request, mediaUrl,
+    upload: require('./aiide.cjs').createMediaUploader({ fetch: stagingFetch || ((...args) => net.fetch(...args)) }),
+  })
+  ipcMain.handle('ideagates:prepare-asset', wrap((args, fingerprint) => assets.prepare(args, fingerprint)))
+  ipcMain.handle('ideagates:get-asset', wrap(async ({ apiKey, id, assetType }) => ({ asset: await assets.get(apiKey, id, assetType) })))
   ipcMain.handle('ideagates:request', wrap(async ({ apiKey, path: route, body, group }, fingerprint) => {
     if (route === '/identity' && !body) return { keyFingerprint: fingerprint }
     const create = route === '/contents/generations/tasks' && !!body

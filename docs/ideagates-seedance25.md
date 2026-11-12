@@ -16,10 +16,13 @@ Each entry has its own API Key. Actual routing/group is determined by the Key; s
 1. Open 设置 → 视频中转站; the two entries are added on migration, with empty Keys.
 2. Enter the matching Key into each entry and test the connection. Tests only GET `/v1/models`; no paid generation.
 3. Select the provider on a video node. The catalog exposes one model at 720p, 4–30 seconds.
-4. Use text only, or add public HTTPS reference links / already-registered `asset://` IDs. This integration does not upload files to an external storage service or create asset-library records.
+4. Use the + picker for local images, videos or audio (up to 100 MB each), or add HTTPS links / existing `asset://` IDs. On Generate, local bytes are staged at `imageproxy.zhongzhuan.chat` without the API Key, registered via IDEA Gates `/asset/groups` and `/asset/create`, and polled with `/asset/get` until Active and the type matches. Only then is a video task submitted. Overseas asset-library availability depends on the actual Key.
 5. First-frame and first/last-frame modes require exactly one/two images, without additional reference images, video or audio. Editing sends `duration=-1, ratio=adaptive`; extending sends total output seconds and `ratio=adaptive`.
 
 ## Task and result handling
+
+- Asset registration persists exact request bodies and idempotency keys under `ideagates-assets/`, isolated by Key fingerprint and selected group. Same bytes reuse their registered ID across restarts; ambiguous registrations reuse the same body/key. Confirmed terminal/missing local assets are re-registered on retry, after checking group existence; only a confirmed missing group resets its registration. Auth/transient errors do not discard records. The API permits same-user/same-group sharing; existing IDs may be entered with another eligible Key and are validated by the server.
+- Canceling preparation stops the video submission; an in-flight staging/registration may finish and is retained for reuse. Registration failures never fall back to a paid video submission. No remote asset deletion is performed.
 
 - Requests use Electron's network bridge and `Authorization: Bearer ...` at `https://ideagates.com/v1`.
 - Capability validation precedes the one-time task POST. Network/5xx uncertainty does not automatically resubmit. A persisted uncertainty marker blocks another POST until the user reconciles with the platform and enters the task ID or confirms none was created.

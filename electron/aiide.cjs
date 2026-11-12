@@ -2,10 +2,10 @@ const crypto = require('crypto')
 
 // AIIDE accepts public media URLs, not multipart local files. Keep the existing
 // staging host, but upload outside renderer CORS and never send provider keys.
-module.exports = function registerAiide({ ipcMain, fetch, retryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+function createMediaUploader({ fetch, retryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const cache = new Map()
   const inflight = new Map()
-  ipcMain.handle('aiide:upload', async (_event, { dataUrl } = {}) => {
+  return async ({ dataUrl } = {}) => {
     try {
       const match = typeof dataUrl === 'string' && dataUrl.match(/^data:((?:image|video|audio)\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/i)
       const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/tiff': 'tiff', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav' }
@@ -64,5 +64,10 @@ module.exports = function registerAiide({ ipcMain, fetch, retryDelay = ms => new
       }
       return { ok: true, data: await inflight.get(hash) }
     } catch (error) { return { ok: false, error: error.message || 'AIIDE 素材上传失败' } }
-  })
+  }
 }
+module.exports = function registerAiide({ ipcMain, ...options }) {
+  const upload = createMediaUploader(options)
+  ipcMain.handle('aiide:upload', (_event, args) => upload(args))
+}
+module.exports.createMediaUploader = createMediaUploader

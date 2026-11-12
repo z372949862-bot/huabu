@@ -6,7 +6,7 @@
       <button type="button" :disabled="disabled || !url.trim()" @click="add">添加</button>
     </div>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
-    <p v-else>本地素材请先上传到自己的存储，再添加链接。已登记素材可直接引用。</p>
+    <p v-else>可用上方 + 添加本地图片、视频、音频（每个不超过 100 MB）。点击生成后，文件先上传至 imageproxy.zhongzhuan.chat 临时服务，再登记到 IDEA Gates 官方素材库，等待可用后生成；Key 不会发送给临时上传服务。已登记素材自动复用，海外组以平台实际支持为准。</p>
   </div>
 </template>
 <script setup lang="ts">

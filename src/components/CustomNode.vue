@@ -199,7 +199,11 @@
             :class="{ 'refs-blocked': refImageBlocked }">
             <div class="asset-item" v-for="asset in filteredAssetsForNode" :key="asset.id" @mouseenter="showReferencePreview(asset, $event)" @mouseleave="hideReferencePreview">
               <!-- 图片缩略图 -->
-              <div v-if="asset.type === 'image'" class="asset-thumbnail">
+              <div v-if="isIdeaGates25 && asset.url.startsWith('asset://')" class="asset-thumbnail audio" :title="asset.name + '（已登记素材）'">
+                <span style="font-size:12px;padding:8px">已登记{{ asset.type === 'image' ? '图片' : asset.type === 'video' ? '视频' : '音频' }}</span>
+                <button class="asset-remove" @click.stop="asset.fromNode ? removeConnectedAsset(asset.id) : removeAsset(asset.id)">×</button>
+              </div>
+              <div v-else-if="asset.type === 'image'" class="asset-thumbnail">
                 <img :src="asset.url" :alt="asset.name" />
                 <button
                   v-if="type === 'ai-image' && !refImageBlocked"
@@ -227,7 +231,7 @@
             </div>
 
             <!-- 上传按钮 -->
-            <label v-if="!isIdeaGates25" class="asset-upload">
+            <label class="asset-upload">
               <input
                 type="file"
                 :accept="type === 'ai-image' ? 'image/*' : 'image/*,video/*,audio/*'"
@@ -240,7 +244,7 @@
           </div>
 
           <!-- 首次上传按钮（无素材时） -->
-          <div v-if="shouldShowUploadPrompt && !isIdeaGates25" class="upload-prompt"
+          <div v-if="shouldShowUploadPrompt" class="upload-prompt"
             :class="{ 'refs-blocked': refImageBlocked }">
             <label class="upload-prompt-btn">
               <input
@@ -1218,6 +1222,7 @@ const updateReferencePreviewPosition = (target: HTMLElement) => {
 
 const showReferencePreviewElement = (asset: any, target: HTMLElement) => {
   if (!asset?.url) return
+  if (asset.url.startsWith('asset://')) return
   cancelReferencePreviewHide()
   const ratio = Math.max(0.45, Math.min(2.2, assetAspectRatio(asset)))
   hoveredReferenceRatio.value = ratio

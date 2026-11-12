@@ -103,7 +103,7 @@
 
           <div class="provider-body">
             <p v-if="isIdeaGatesKind(provider.kind)" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
-              请填写此分组专用的 API Key。仅接入 Seedance 2.5 / 720P；实际分组由 Key 决定，选择名称不会改变 Key 的分组。测试连接只查询模型权限。参考素材使用公网 HTTPS 链接或已登记的 asset:// 引用；续接时长为成片总时长。
+              请填写此分组专用的 API Key。仅接入 Seedance 2.5 / 720P；实际分组由 Key 决定，选择名称不会改变 Key 的分组。测试连接只查询模型权限。本地素材会先临时上传，再登记到官方素材库后生成；也支持 HTTPS 链接和已有素材 ID。海外组的素材库以实际返回为准。续接时长为成片总时长。
             </p>
             <p v-if="provider.kind === 'piapi' && provider.type === 'video'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
               使用 PiAPI API Key。测试连接只查询账户信息，不生成视频。

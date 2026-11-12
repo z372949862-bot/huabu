@@ -1,4 +1,5 @@
 import type { AuthResult, ContentItem, CreateTaskParams, ImageToVideoParams, TaskStatus, TextToVideoParams } from '../ai-provider'
+import { isLocalIdeaGatesMedia, prepareIdeaGatesMedia } from '../ideagatesMedia'
 
 export const IDEAGATES_BASE = 'https://ideagates.com/v1'
 export type IdeaGatesKind = 'ideagates' | 'ideagates-overseas'
@@ -83,6 +84,20 @@ export class IdeaGatesProvider {
     return model.video
   }
   async identity() { return (await this.request('/identity')).keyFingerprint as string }
+  async prepareTask(params: CreateTaskParams, signal: AbortSignal, notify: (message: string) => void) {
+    const validation = { ...params, content: params.content?.map(item => {
+      if (item.type === 'text') return item
+      const value = item[item.type]
+      return value && typeof value === 'object' && isLocalIdeaGatesMedia(value.url)
+        ? { ...item, [item.type]: { url: 'asset://local_validation' } } : item
+    }) }
+    buildIdeaGatesBody(validation, this.kind)
+    await this.modelCapabilities()
+    return prepareIdeaGatesMedia(params, {
+      prepareAsset: async payload => this.unpack(await this.bridge().prepareAsset({ ...payload, apiKey: this.apiKey, group: this.kind })).asset,
+      getAsset: async (id, assetType) => this.unpack(await this.bridge().getAsset({ id, assetType, apiKey: this.apiKey, group: this.kind })).asset,
+    }, signal, notify)
+  }
   async createTask(params: CreateTaskParams) {
     const body = buildIdeaGatesBody(params, this.kind)
     const capability = await this.modelCapabilities()
