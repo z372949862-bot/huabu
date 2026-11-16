@@ -26,6 +26,11 @@ interface Window {
       upload: (payload: any) => Promise<any>
       download: (payload: any) => Promise<any>
     }
+    luociImage?: {
+      request: (payload: { key: string; route: string; body?: unknown; requestKey?: string }) => Promise<{ ok: boolean; data?: any; error?: string; status?: number }>
+      upload: (payload: { key: string; modelId: string; base64: string; mime: string; name: string }) => Promise<{ ok: boolean; data?: any; error?: string }>
+      download: (payload: { key: string; taskId: string; url: string }) => Promise<{ ok: boolean; data?: { dataUrl: string }; error?: string }>
+    }
     luociVideo?: {
       request: (payload: any) => Promise<any>
       download: (payload: any) => Promise<any>

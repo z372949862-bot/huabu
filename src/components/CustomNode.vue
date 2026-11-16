@@ -281,6 +281,11 @@
             <button class="option-btn" @click.stop="discardGeekNowResult">放弃此结果</button>
             <span>已保留上次生成结果，重试只下载，不会再次生成。放弃后再次生成会计费。</span>
           </div>
+          <div v-if="data.luociImageTask && data.status !== 'running'" class="reference-warning">
+            <button class="option-btn" @click.stop="nodeStore.executeNode(id)">{{ data.luociImageTask.taskId ? '继续获取上次图片' : '恢复上次提交' }}</button>
+            <button class="option-btn" @click.stop="discardLuociImageTask">清除记录</button>
+            <span>{{ data.luociImageTask.taskId ? '任务已保存，继续获取不会重新生成。' : '提交记录已保存，将使用原参数和原幂等键恢复。' }}</span>
+          </div>
           <div v-if="(data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask) && data.status !== 'running'" class="reference-warning">
             <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询上次任务</button>
             <span>任务已保存，不会重新提交生成。</span>
@@ -880,6 +885,7 @@ interface Props {
     luociFrames?: number
     piapiTask?: import('@/stores/node').NodeData['piapiTask']
     piapiImageTask?: import('@/stores/node').NodeData['piapiImageTask']
+    luociImageTask?: import('@/stores/node').NodeData['luociImageTask']
     imageOutputFormat?: 'jpeg' | 'png'
     sunburst26?: import('@/services/geeknowSunburst26').Sunburst26Options
     geeknowImageResult?: import('@/services/geeknowSunburst26').GeekNowImageResult
@@ -2628,7 +2634,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.luociTask || props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
+  if (props.data.luociImageTask || props.data.luociTask || props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
     nodeStore.executeNode(props.id)
     return
   }
@@ -2639,6 +2645,11 @@ function handleGenerateClick() {
 function discardLuociTask() {
   if (window.confirm('清除洛辞任务记录？请先在洛辞核对上次任务，清除后再次生成会创建新任务。')) {
     nodeStore.updateNodeData(props.id, { luociTask: undefined, taskId: undefined, status: 'idle', error: undefined })
+  }
+}
+function discardLuociImageTask() {
+  if (window.confirm('请先在洛辞核对上次图片任务。清除记录后再次生成会创建新任务并可能再次计费，确定清除？')) {
+    nodeStore.updateNodeData(props.id, { luociImageTask: undefined, status: 'idle', error: undefined })
   }
 }
 function discardGeekNowResult() {

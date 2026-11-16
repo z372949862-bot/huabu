@@ -72,6 +72,7 @@ export interface NodeData {
   ideagatesResult?: Record<string, any>
   luociFrames?: number
   luociTask?: import('@/services/providers/luociVideo').LuociPending
+  luociImageTask?: import('@/services/providers/luoci55').LuociImagePending
   luociEstimate?: number
   luociCharge?: number
   piapiTask?: { taskId: string; providerId: string; body: Record<string, any> }
@@ -228,8 +229,8 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
+              data: { ...data, status: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.luociImageTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.luociImageTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
                 taskId: data.ideagatesTask?.taskId || data.dmxTask?.taskId || data.aiideTask?.taskId || data.luociTask?.taskId || data.piapiTask?.taskId },
             }
           })
@@ -427,11 +428,11 @@ export const useNodeStore = defineStore('node', () => {
       cancelledImageNodes.add(nodeId)
       ctrl.abort()
     }
-    // PiAPI's synchronous POST may still be returning a billed task after local cancellation.
+    // A desktop POST may still return a billed task after local cancellation.
     const aiStore = useAIStore()
     const data = nodes.value.find(n => n.id === nodeId)?.data as NodeData | undefined
-    const config = aiStore.getProviderConfig(data?.piapiImageTask?.providerId || data?.providerId || aiStore.defaultImageProviderId)
-    if (config?.kind !== 'piapi' && data?.model !== SUNBURST26_MODEL) imageAborts.delete(nodeId)
+    const config = aiStore.getProviderConfig(data?.luociImageTask?.providerId || data?.piapiImageTask?.providerId || data?.providerId || aiStore.defaultImageProviderId)
+    if (config?.kind !== 'piapi' && !(config?.kind === 'luoci' && (data?.model === 'seedream-5-5' || data?.luociImageTask)) && data?.model !== SUNBURST26_MODEL) imageAborts.delete(nodeId)
     const t = imageTimers.get(nodeId)
     if (t) {
       window.clearInterval(t)
@@ -996,7 +997,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const originalData = node.data as NodeData
-    const data = { ...originalData, ...(originalData.piapiImageTask || {}), ...(originalData.geeknowImageResult || {}) } as NodeData
+    const data = { ...originalData, ...(originalData.piapiImageTask || {}), ...(originalData.luociImageTask || {}), ...(originalData.geeknowImageResult || {}) } as NodeData
     const projectId = currentProjectId.value
     const isCurrentImage = () => currentProjectId.value === projectId && nodes.value.some(item => item.id === nodeId)
     const providerId = data.providerId || aiStore.defaultImageProviderId
@@ -1039,7 +1040,7 @@ export const useNodeStore = defineStore('node', () => {
 
     // 清理 prompt 里的 @[name](id) 标记，避免 AI 按文字生成而非按参考图
     const promptText = (data.prompt || '').replace(/@\[[^\]]*\]\([^)]*\)/g, '').trim()
-    if (!promptText && !data.piapiImageTask && !data.geeknowImageResult) {
+    if (!promptText && !data.piapiImageTask && !data.luociImageTask && !data.geeknowImageResult) {
       failNode(nodeId, '请输入提示词（不含 @ 标记的有效文字）')
       return
     }
@@ -1099,6 +1100,21 @@ export const useNodeStore = defineStore('node', () => {
           }
         } : undefined,
         resumeTaskId: data.piapiImageTask?.taskId,
+        luociImageTask: data.luociImageTask,
+        onLuociImageTask: providerConfig.kind === 'luoci' && imageModelId === 'seedream-5-5' ? async state => {
+          const luociImageTask = state ? { ...state, providerId, model: imageModelId, prompt: state.body.prompt, ratio: state.body.aspectRatio, resolution: state.body.imageSize } : undefined
+          if (!projectId) throw new Error('请先保存项目，以便记录洛辞图片任务')
+          if (isCurrentImage()) { updateNodeData(nodeId, { luociImageTask }); await flushPersist(true) }
+          else if (projectId && window.electronAPI?.store) {
+            const key = PROJECT_PERSIST_PREFIX + projectId
+            const saved = await window.electronAPI.store.get(key)
+            if (!saved) throw new Error('原项目不存在，无法保存洛辞任务记录')
+            const parsed = JSON.parse(saved), oldNode = parsed.nodes?.find(item => item.id === nodeId)
+            if (!oldNode) throw new Error('原节点不存在，无法保存洛辞任务记录')
+            oldNode.data.luociImageTask = luociImageTask
+            await window.electronAPI.store.set(key, JSON.stringify(parsed))
+          } else throw new Error('无法保存洛辞任务记录，未继续提交')
+        } : undefined,
         onTask: providerConfig.kind === 'piapi' ? async taskId => {
           const piapiImageTask = taskId ? { taskId, providerId, model: imageModelId, prompt: promptText, ratio: data.ratio, resolution: data.resolution, imageOutputFormat: data.imageOutputFormat } : undefined
           if (isCurrentImage()) { updateNodeData(nodeId, { piapiImageTask }); await flushPersist() }
@@ -1141,9 +1157,10 @@ export const useNodeStore = defineStore('node', () => {
         outputImage: primary,
         output: { url: primary, timestamp: Date.now() },
         piapiImageTask: undefined,
+        luociImageTask: undefined,
         geeknowImageResult: undefined,
       })
-      if (providerConfig.kind === 'piapi' || imageModelId === SUNBURST26_MODEL) await flushPersist()
+      if (providerConfig.kind === 'piapi' || imageModelId === 'seedream-5-5' || imageModelId === SUNBURST26_MODEL) await flushPersist()
       // 全部候选都进资产库（用户后续翻历史时都能看见）
       const modelMetaForAsset = providerConfig.models.find((m) => m.id === data.model)
       const assetStore = useAssetStore()

@@ -155,6 +155,17 @@ export const CHUHAIYING_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
 /** 洛辞 API 默认图片模型。洛辞直接接收 aspectRatio/imageSize。 */
 export const LUOCI_IMAGE_MODEL_TEMPLATES: ImageModelTemplate[] = [
   {
+    id: 'seedream-5-5',
+    name: 'Seedream 5.5',
+    description: '洛辞 Seedream 5.5 · 1K / 1.5K / 2K · 最多 10 张参考图',
+    capabilities: {
+      ratios: ['auto', '1:1', '9:16', '16:9', '3:4', '4:3', '2:3', '3:2', '1:2', '2:1', '21:9'],
+      resolutions: ['1K', '1.5K', '2K'], maxImages: 10,
+    },
+    endpointStyle: 'openai', supportsReferenceImage: true, supportsImageSize2K: true,
+    asyncEndpoint: true, supportsSeed: false, supportsNegativePrompt: false,
+  },
+  {
     id: 'seedream-5-pro',
     name: 'Seedream 5 Pro Uncensored',
     description: '洛辞 Seedream 5 Pro（1K / 1.5K / 2K）',

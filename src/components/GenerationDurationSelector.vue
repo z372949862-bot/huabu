@@ -93,7 +93,11 @@ const normalizedDuration = computed(() => {
   const rounded = Number.isFinite(candidate) ? Math.round(candidate) : fallbackDuration.value
   return Math.min(normalizedRange.value.max, Math.max(normalizedRange.value.min, rounded))
 })
-const isFixed = computed(() => normalizedRange.value?.min === normalizedRange.value?.max || availableOptions.value.length === 1)
+const isFixed = computed(() => {
+  if (availableOptions.value.length) return availableOptions.value.length === 1
+  const range = normalizedRange.value
+  return !!range && range.min === range.max
+})
 const displayValue = computed(() => formatDuration(normalizedDuration.value))
 
 function formatDuration(value: number) { return value === -1 ? '自动' : value + ' 秒' }

@@ -19,6 +19,8 @@ import { fetchWithTimeout, classifyHttpError } from './_httpUtils'
 import { SUNBURST26_MODEL, sunburst26Size, sunburst26Fields, resolveSunburst26Gifs, type Sunburst26Options, type GeekNowImageResult } from '../geeknowSunburst26'
 
 export interface GenerateImageParams {
+  luociImageTask?: import('./luoci55').LuociImagePending
+  onLuociImageTask?: (state: import('./luoci55').LuociImagePending | undefined) => Promise<void> | void
   sunburst26?: Sunburst26Options
   geeknowImageResult?: GeekNowImageResult
   onGeekNowImageResult?: (result: GeekNowImageResult) => Promise<void> | void

@@ -1,6 +1,7 @@
 import type { GenerateImageParams, ImageGenerationResult, ImageProvider } from './geeknow'
 import { fetchWithTimeout } from './_httpUtils'
 import { prepareReferenceImage } from '../imageProviderUtils'
+import { Luoci55Client } from './luoci55'
 
 const DEFAULT_BASE_URL = 'https://luocisheng.cn'
 const POLL_INTERVAL_MS = 4000
@@ -30,6 +31,7 @@ export class LuociImageProvider implements ImageProvider {
   private apiKey = ''
   private baseUrl = DEFAULT_BASE_URL
   private pendingKeys = new Map<string, string>()
+  private seedream55 = new Luoci55Client()
 
   constructor(apiKey?: string, baseUrl?: string) {
     if (apiKey) this.apiKey = apiKey
@@ -57,6 +59,7 @@ export class LuociImageProvider implements ImageProvider {
 
   async generateImage(params: GenerateImageParams): Promise<ImageGenerationResult> {
     if (!this.apiKey) throw new Error('未配置 API Key')
+    if (params.model === 'seedream-5-5' || params.luociImageTask) return this.seedream55.generate(params, this.apiKey, this.baseUrl)
     if (!params.prompt?.trim()) throw new Error('提示词不能为空')
     const imageSize = params.imageSize === '1.5K' || params.imageSize === '2K' ? params.imageSize : '1K'
     const aspectRatio = params.aspectRatio || '1:1'
