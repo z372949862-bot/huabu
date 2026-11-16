@@ -13,34 +13,32 @@ import { AIMI_MODELS, adaptAimiCreateBody, buildAimiBody, mapAimiTask } from '..
 import { getModelTemplatesByKind } from '../modelTemplates'
 
 describe('AIMI Seedance 2.5 adapter', () => {
-  it('registers the four supported models and translates references and JL audio', () => {
-    expect(AIMI_MODELS.map(model => model.id)).toEqual(['JL-seedance-2.5-480p', 'JL-seedance-2.5-720p', 'sd2.5-n-480p', 'sd2.5-n-720p'])
+  it.each([
+    ['seedance-2.5-720p-c5', '720p', 5, '7 元/条'],
+    ['H-seedance-2.5-2-720p', '720p', 4, '0.35 元/秒'],
+    ['H-seedance-2.5-2-480p', '480p', 4, '0.26 元/秒'],
+    ['seedance-2.5-slow', '720p', 4, '0.35 元/秒'],
+  ] as const)('builds %s with its displayed price and duration limits', (model, resolution, min, price) => {
+    const refs = { images: ['https://example.com/a.png'], videos: ['https://example.com/b.mp4'], audios: ['https://example.com/c.mp3'] }
     expect(getModelTemplatesByKind('aimi')).toEqual(AIMI_MODELS)
-    const body = buildAimiBody({ model: 'JL-seedance-2.5-480p', prompt: 'scene', duration: 5, resolution: '480p' }, {
-      images: ['https://example.com/a.png'], videos: ['https://example.com/b.mp4'], audios: ['https://example.com/c.mp3'],
+    expect(AIMI_MODELS).toHaveLength(4)
+    expect(AIMI_MODELS.find(m => m.id === model)?.name).toContain(price)
+    const data = { model, prompt: 'scene', resolution, duration: min }
+    expect(adaptAimiCreateBody(buildAimiBody(data, refs))).toEqual({
+      model, prompt: 'scene', seconds: min, resolution, aspect_ratio: '16:9',
+      reference_image_urls: refs.images, reference_video_urls: refs.videos, reference_audio_urls: refs.audios,
     })
-    expect(adaptAimiCreateBody(body)).toEqual({
-      model: 'JL-seedance-2.5-480p', prompt: 'scene', seconds: 5, resolution: '480p', aspect_ratio: '16:9',
-      reference_image_urls: ['https://example.com/a.png'], reference_video_urls: ['https://example.com/b.mp4'],
-      reference_audio_urls: ['https://example.com/c.mp3'], enable_audio: true,
-    })
+    expect(() => buildAimiBody({ ...data, duration: min - 1 }, refs)).toThrow()
+    expect(() => buildAimiBody({ ...data, duration: 31 }, refs)).toThrow()
+    expect(() => buildAimiBody({ ...data, resolution: '1080p' }, refs)).toThrow()
   })
 
-  it('validates each model contract and keeps sd2.5-n audio as reference-only input', () => {
-    expect(() => buildAimiBody({ model: 'JL-seedance-2.5-480p', prompt: 'scene', duration: 4 }, { images: [], videos: [], audios: [] })).toThrow('5–30')
-    expect(() => buildAimiBody({ model: 'sd2.5-n-480p', prompt: 'scene', duration: 5, resolution: '720p' }, { images: [], videos: [], audios: [] })).toThrow('仅支持 480p')
-    expect(() => buildAimiBody({ model: 'sd2.5-n-480p', prompt: 'scene', duration: 5 }, { images: [], videos: [], audios: ['https://example.com/a.mp3'] })).toThrow('必须搭配')
-    const sd = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4 }, { images: [], videos: [], audios: [] })
-    expect(adaptAimiCreateBody(sd)).not.toHaveProperty('enable_audio')
-    expect(adaptAimiCreateBody({ ...sd, generate_audio: true })).not.toHaveProperty('enable_audio')
-    const sdWithReferenceAudio = buildAimiBody({ model: 'sd2.5-n-720p', prompt: 'scene', duration: 4 }, {
-      images: ['https://example.com/a.png'], videos: [], audios: ['https://example.com/a.mp3'],
-    })
-    expect(adaptAimiCreateBody(sdWithReferenceAudio)).toMatchObject({
-      reference_image_urls: ['https://example.com/a.png'],
-      reference_audio_urls: ['https://example.com/a.mp3'],
-    })
-    expect(adaptAimiCreateBody(sdWithReferenceAudio)).not.toHaveProperty('enable_audio')
+  it('rejects retired IDs and local Slow reference videos before uploading', () => {
+    const refs = { videos: ['local-upload:///clip.mp4'] }
+    for (const model of ['JL-seedance-2.5-480p', 'JL-seedance-2.5-720p', 'sd2.5-n-480p', 'sd2.5-n-720p']) {
+      expect(() => buildAimiBody({ model, prompt: 'scene' }, refs)).toThrow('型号')
+    }
+    expect(() => buildAimiBody({ model: 'seedance-2.5-slow', prompt: 'scene' }, refs)).toThrow('公网')
   })
 
   it('normalizes async task states and result URLs', () => {

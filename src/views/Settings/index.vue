@@ -51,19 +51,7 @@
           class="kind-select"
           title="选择要添加的中转站类型"
         >
-          <option value="seedance">Seedance (火山方舟)</option>
-          <option value="chuhaiying">出海营 (Sora 兼容)</option>
-          <option value="unmau">New API · Seedance 2.5 (newapis.unmau.com)</option>
-          <option value="yu25">YU25 · Seedance (api.yu25.xyz)</option>
-          <option value="xinshuju">心数据 · Seedance 2.5 (xinshuju.net)</option>
-          <option value="dmxapi">DMXAPI · Seedance 2.5 (dmxapi.cn)</option>
-          <option value="qiling">器灵 (api.qilingze.com)</option>
-          <option value="fmgo">FMGO API · Feimiao 2.5 (api.fmgo.top)</option>
-          <option value="aiide">AIIDE · Seedance 2.5 HC</option>
-          <option value="aimi">AIMI · Seedance 2.5 (aimiapi.com)</option>
-          <option value="piapi">PiAPI · Seedance 2.5 (api.piapi.ai)</option>
-          <option value="ideagates">IDEA Gates · Seedance NSFW 可溯源 · 2.5 / 720P</option>
-          <option value="ideagates-overseas">IDEA Gates · 海外-NSFW 视频 8.5 折 · 2.5 / 720P</option>
+          <option v-for="(choice, kind) in videoChoices" :key="kind" :value="kind">{{ choice.label }}</option>
         </select>
         <select
           v-else-if="activeTab === 'text'"
@@ -163,6 +151,7 @@
                   <div class="model-meta">
                     <span class="model-name">{{ model.name || model.id }}</span>
                     <span v-if="model.name" class="model-id">{{ model.id }}</span>
+                    <span v-if="provider.kind === 'aimi' || provider.kind === 'luoci'" class="model-id">{{ model.description }}</span>
                   </div>
                   <button class="btn-icon" @click="aiStore.removeModel(provider.id, model.id)" title="删除">
                     🗑
@@ -192,7 +181,7 @@
                   </button>
                 </div>
 
-                <div v-if="!isIdeaGatesKind(provider.kind)" class="add-model-row">
+                <div v-if="provider.kind !== 'luoci' && provider.kind !== 'aimi' && !isIdeaGatesKind(provider.kind)" class="add-model-row">
                   <input
                     v-model="customModelId[provider.id]"
                     placeholder="或填自定义模型 ID"
@@ -272,8 +261,17 @@ const activeTab = ref<'video' | 'image' | 'text'>('video')
 const newImageKind = ref<'geeknow' | 'chuhaiying' | 'luoci'>('chuhaiying')
 // 添加文本中转站时选哪种 kind
 const newTextKind = ref<'deepseek' | 'openaichat'>('deepseek')
-// 添加视频中转站时选哪种 kind；默认 seedance（最常用）
-const newVideoKind = ref<VideoProviderKind>('seedance')
+const videoChoices = {
+  dmxapi: { name: 'DMXAPI · Seedance 2.5', label: 'DMXAPI · Seedance 2.5 (dmxapi.cn)' },
+  qiling: { name: '器灵', label: '器灵 (api.qilingze.com)' },
+  aiide: { name: 'AIIDE · Seedance 2.5 HC', label: 'AIIDE · Seedance 2.5 HC' },
+  luoci: { name: '洛辞 · Seedance 2.5', label: '洛辞 · Seedance 2.5 Uncensored' },
+  aimi: { name: 'AIMI · Seedance 2.5', label: 'AIMI · Seedance 2.5 (aimiapi.com)' },
+  piapi: { name: 'PiAPI · Seedance 2.5', label: 'PiAPI · Seedance 2.5 (api.piapi.ai)' },
+  ideagates: { name: IDEAGATES_GROUPS.ideagates.name, label: 'IDEA Gates · Seedance NSFW 可溯源 · 2.5 / 720P' },
+  'ideagates-overseas': { name: IDEAGATES_GROUPS['ideagates-overseas'].name, label: 'IDEA Gates · 海外-NSFW 视频 8.5 折 · 2.5 / 720P' },
+} satisfies Partial<Record<VideoProviderKind, { name: string; label: string }>>
+const newVideoKind = ref<keyof typeof videoChoices>('dmxapi')
 
 const visibleProviders = computed(() =>
   activeTab.value === 'video' ? aiStore.videoProviders
@@ -363,27 +361,7 @@ const addProviderClick = () => {
     })
   } else {
     const kind = newVideoKind.value
-    const baseName = isIdeaGatesKind(kind) ? IDEAGATES_GROUPS[kind].name : kind === 'aiide'
-      ? 'AIIDE · Seedance 2.5 HC'
-      : kind === 'piapi'
-        ? 'PiAPI · Seedance 2.5'
-      : kind === 'aimi'
-      ? 'AIMI · Seedance 2.5'
-      : kind === 'unmau'
-      ? 'New API · Seedance 2.5'
-      : kind === 'fmgo'
-        ? 'FMGO API · Feimiao 2.5'
-      : kind === 'xinshuju'
-        ? '心数据 · Seedance 2.5'
-      : kind === 'dmxapi'
-        ? 'DMXAPI · Seedance 2.5'
-      : kind === 'yu25'
-        ? 'YU25 · Seedance'
-        : kind === 'chuhaiying'
-          ? '出海营视频'
-          : kind === 'qiling'
-            ? '器灵'
-            : 'Seedance'
+    const baseName = videoChoices[kind].name
     const existingCount = aiStore.videoProviders.filter((p) => (p.kind || 'seedance') === kind).length
     aiStore.addProvider({
       name: `${baseName}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`,

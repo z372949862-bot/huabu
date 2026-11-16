@@ -2,16 +2,15 @@ type MediaType = 'image' | 'video' | 'audio'
 interface CanvasNode { id: string; type?: string; data?: Record<string, any> }
 
 /** Keep mention identities and media order together until remote uploads finish. */
-export function prepareQilingReferences(nodeId: string, nodes: CanvasNode[], edges: { source: string; target: string }[]) {
+export function prepareQilingReferences(nodeId: string, nodes: CanvasNode[], edges: { source: string; target: string }[], labels = { image: '@图片%n', video: '@视频%n', audio: '@音频%n' }) {
   const images: string[] = [], videos: string[] = [], audios: string[] = []
   const lists = { image: images, video: videos, audio: audios }
   const bindings = new Map<string, string>()
-  const labels = { image: '@图片', video: '@视频', audio: '@音频' }
   const add = (type: MediaType, url: unknown, id?: string) => {
     if (typeof url !== 'string' || !url) return
     const list = lists[type]
     if (!list.includes(url)) list.push(url)
-    if (id) bindings.set(id, `${labels[type]}${list.indexOf(url) + 1}`)
+    if (id) bindings.set(id, labels[type].replace('%n', String(list.indexOf(url) + 1)))
   }
   for (const edge of edges.filter(item => item.target === nodeId)) {
     const source = nodes.find(item => item.id === edge.source)

@@ -5,7 +5,7 @@ const { Readable } = require('stream')
 const { pipeline } = require('stream/promises')
 
 const BASE = 'https://aimiapi.com'
-const MODELS = new Set(['JL-seedance-2.5-480p', 'JL-seedance-2.5-720p', 'sd2.5-n-480p', 'sd2.5-n-720p'])
+const MODELS = new Set(require('./aimi-models.json').map(model => model.id))
 const UPLOAD_PATHS = { image: '/pg/reference-images', audio: '/pg/reference-audios', video: '/v1/reference-videos' }
 
 module.exports = function registerAimi({ ipcMain, net, app }) {
@@ -54,7 +54,7 @@ module.exports = function registerAimi({ ipcMain, net, app }) {
     const creating = route === '/v1/videos' && !!body
     const polling = /^\/v1\/videos\/[A-Za-z0-9_%.-]+$/.test(route || '')
     if (!creating && route !== '/v1/models' && !polling) throw new Error('不支持的 AIMI 请求')
-    if (creating && !MODELS.has(body.model)) throw new Error('AIMI 当前仅接入 JL Seedance 2.5 480p/720p 与 sd2.5-n 480p/720p')
+    if (creating && !MODELS.has(body.model)) throw new Error('该 AIMI 型号已停用或不受支持，请重新选择模型')
     return request(apiKey, route, creating ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { method: 'GET' }, creating ? 300000 : 60000, undefined, creating ? 'create' : 'poll')
   }))
 

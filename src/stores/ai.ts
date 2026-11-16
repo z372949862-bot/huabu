@@ -8,6 +8,7 @@ import { XinshujuProvider } from '@/services/providers/xinshuju'
 import { DmxApiProvider } from '@/services/providers/dmxapi'
 import { FmgoProvider, FMGO_BASE } from '@/services/providers/fmgo'
 import { AiideSeedanceProvider, AIIDE_BASE } from '@/services/providers/aiide'
+import { LuociVideoProvider, LUOCI_BASE } from '@/services/providers/luociVideo'
 import { AimiProvider, AIMI_BASE } from '@/services/providers/aimi'
 import { PiapiProvider, PIAPI_BASE } from '@/services/providers/piapi'
 import { IdeaGatesProvider, IDEAGATES_BASE, IDEAGATES_GROUPS, isIdeaGatesKind, ideaGatesModels } from '@/services/providers/ideagates'
@@ -33,7 +34,7 @@ import {
 } from '@/services/chatModelTemplates'
 import type { VideoModelCapabilities } from '@/services/videoModelService'
 
-type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | AimiProvider | PiapiProvider | IdeaGatesProvider
+type RuntimeVideoProvider = SeedanceProvider | ChuhaiyingVideoProvider | UnmauProvider | Yu25Provider | XinshujuProvider | DmxApiProvider | FmgoProvider | AiideSeedanceProvider | LuociVideoProvider | AimiProvider | PiapiProvider | IdeaGatesProvider
 
 export type ProviderStatus = 'connected' | 'disconnected' | 'error' | 'unconfigured'
 export type ProviderType = 'video' | 'image' | 'text'
@@ -98,10 +99,11 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   dmxapi: 'https://www.dmxapi.cn',
   fmgo: FMGO_BASE,
   aiide: AIIDE_BASE,
+  luoci: LUOCI_BASE,
   aimi: AIMI_BASE,
   piapi: PIAPI_BASE,
 }
-const CURRENT_MIGRATION = 18
+const CURRENT_MIGRATION = 20
 
 declare global {
   interface Window {
@@ -170,6 +172,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'dmxapi') return 'dmxapi'
   if (conf.kind === 'fmgo') return 'fmgo'
   if (conf.kind === 'aiide') return 'aiide'
+  if (conf.kind === 'luoci') return 'luoci'
   if (conf.kind === 'aimi') return 'aimi'
   if (conf.kind === 'piapi') return 'piapi'
   return 'seedance'
@@ -226,6 +229,8 @@ export const useAIStore = defineStore('ai', () => {
         ? new XinshujuProvider(conf.apiKey, conf.baseUrl)
         : kind === 'aiide'
           ? new AiideSeedanceProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'luoci'
+          ? new LuociVideoProvider(conf.apiKey, conf.baseUrl)
         : kind === 'aimi'
           ? new AimiProvider(conf.apiKey, conf.baseUrl)
         : kind === 'fmgo'
@@ -333,7 +338,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (isIdeaGatesKind(input.kind) || input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'aimi' || input.kind === 'piapi')
+        (isIdeaGatesKind(input.kind) || input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'luoci' || input.kind === 'aimi' || input.kind === 'piapi')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -345,6 +350,7 @@ export const useAIStore = defineStore('ai', () => {
         ? 'New API · Seedance 2.5'
         : vidKind === 'aiide'
           ? 'AIIDE · Seedance 2.5 HC'
+        : vidKind === 'luoci' ? '洛辞 · Seedance 2.5'
         : vidKind === 'aimi'
           ? 'AIMI · Seedance 2.5'
         : vidKind === 'fmgo'
@@ -634,6 +640,11 @@ export const useAIStore = defineStore('ai', () => {
       addProvider({ name: 'PiAPI · Seedream 5 Pro', type: 'image', kind: 'piapi', apiKey: existing?.apiKey || '' })
     }
 
+    if (migrationVersion.value < 19 && !providers.value.some(p => p.type === 'video' && p.kind === 'luoci')) {
+      const image = providers.value.find(p => p.type === 'image' && p.kind === 'luoci' && p.baseUrl.replace(/\/+$/, '') === LUOCI_BASE && p.apiKey)
+      addProvider({ name: '洛辞 · Seedance 2.5', type: 'video', kind: 'luoci', apiKey: image?.apiKey || '' })
+    }
+
     if (migrationVersion.value < 18) {
       for (const kind of ['ideagates', 'ideagates-overseas'] as const) {
         if (!providers.value.some(p => p.type === 'video' && p.kind === kind)) {
@@ -675,10 +686,11 @@ export const useAIStore = defineStore('ai', () => {
       }
     }
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'aimi' && provider.kind !== 'piapi')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'luoci' && provider.kind !== 'aimi' && provider.kind !== 'piapi')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const storedModels = provider.models || []
       const current = storedModels.filter((model) => {
+        if (provider.kind === 'aimi') return false // AIMI accepts only the current built-in catalog.
         if (provider.kind !== 'qiling') return true
         if (/^(?:sd2-|SD2\.0-|doubao-seedance-2-0)/i.test(model.id)) return false
         return !/^Seedance\s*2(?:\.0)?(?:\s|·|$)/i.test(model.name || '')

@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     request: (payload) => ipcRenderer.invoke('fmgo:request', payload),
     download: (payload) => ipcRenderer.invoke('fmgo:download', payload),
   },
+  luociVideo: {
+    request: (payload) => ipcRenderer.invoke('luoci-video:request', payload),
+    download: (payload) => ipcRenderer.invoke('luoci-video:download', payload),
+  },
   aimi: {
     request: (payload) => ipcRenderer.invoke('aimi:request', payload),
     upload: (payload) => ipcRenderer.invoke('aimi:upload', payload),

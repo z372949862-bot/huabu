@@ -1,17 +1,16 @@
 // AIMI Seedance 2.5 video adapter. Model-specific fields are translated here.
 // @ts-nocheck
+import catalog from '../../../electron/aimi-models.json'
 import { UnmauProvider } from './unmau'
 
 export const AIMI_BASE = 'https://aimiapi.com'
 const ratios = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
 const shared = { ratios, maxImages: 30, maxVideos: 10, maxAudios: 10 }
 
-export const AIMI_MODELS = [
-  { id: 'JL-seedance-2.5-480p', name: 'JL Seedance 2.5 · 480P', description: '5–30 秒，参考素材 30 图 / 10 视频 / 10 音频，¥0.25/秒', capabilities: { ...shared, resolutions: ['480p'], durationRange: { min: 5, max: 30 }, audioGeneration: true, audioGenerationDefault: true } },
-  { id: 'JL-seedance-2.5-720p', name: 'JL Seedance 2.5 · 720P', description: '4–30 秒，参考素材 30 图 / 10 视频 / 10 音频，¥0.40/秒', capabilities: { ...shared, resolutions: ['720p'], durationRange: { min: 4, max: 30 }, audioGeneration: true, audioGenerationDefault: true } },
-  { id: 'sd2.5-n-480p', name: 'Seedance 2.5 N · 480P', description: '4–30 秒；支持参考音频，须搭配参考图', capabilities: { ...shared, resolutions: ['480p'], durationRange: { min: 4, max: 30 } } },
-  { id: 'sd2.5-n-720p', name: 'Seedance 2.5 N · 720P', description: '4–30 秒；支持参考音频，须搭配参考图', capabilities: { ...shared, resolutions: ['720p'], durationRange: { min: 4, max: 30 } } },
-]
+export const AIMI_MODELS = catalog.map(({ id, name, description, resolution, minSeconds }) => ({
+  id, name, description,
+  capabilities: { ...shared, resolutions: [resolution], durationRange: { min: minSeconds, max: 30 } },
+}))
 
 const modelById = new Map(AIMI_MODELS.map(model => [model.id, model]))
 const unique = values => [...new Set((values || []).filter(value => typeof value === 'string' && value.trim()))]
@@ -22,7 +21,7 @@ export function buildAimiBody(data, refs) {
   if (!model) throw new Error('请选择 AIMI 支持的 Seedance 2.5 型号')
   const prompt = String(data.prompt || '').replace(/@\[([^\]]*)\]\([^)]*\)/g, '$1').trim()
   if (!prompt) throw new Error('请输入视频提示词')
-  const duration = Number(data.duration ?? model.capabilities.durationRange.min)
+  const duration = Number(data.duration ?? (model.id === 'seedance-2.5-slow' ? 15 : model.capabilities.durationRange.min))
   const { min, max } = model.capabilities.durationRange
   if (!Number.isInteger(duration) || duration < min || duration > max) throw new Error(`${model.name} 时长须为 ${min}–${max} 秒的整数`)
   const resolution = String(data.resolution || model.capabilities.resolutions[0]).toLowerCase()
@@ -33,25 +32,24 @@ export function buildAimiBody(data, refs) {
   for (const [items, limit, label] of [[images, 30, '参考图'], [videos, 10, '参考视频'], [audios, 10, '参考音频']]) {
     if (items.length > limit) throw new Error(`${model.name} 最多支持 ${limit} 个${label}，当前 ${items.length} 个`)
   }
-  if (model.id.startsWith('sd2.5-n') && audios.length && !images.length) throw new Error('sd2.5-n 参考音频必须搭配至少一张参考图')
+  if (model.id === 'seedance-2.5-slow' && videos.some(url => !/^https:\/\//i.test(url))) {
+    throw new Error('AIMI Slow 的参考视频须使用公网 HTTPS MP4 链接，每段最多 64 MiB，不支持本地视频直传')
+  }
   return {
     model: model.id, prompt, seconds: duration, resolution, aspect_ratio: aspectRatio,
     ...(images.length ? { images } : {}),
     ...(videos.length ? { videos } : {}),
     ...(audios.length ? { audios } : {}),
-    ...(model.capabilities.audioGeneration ? { generate_audio: data.generateAudio !== false } : {}),
   }
 }
 
 export function adaptAimiCreateBody(body) {
-  const supportsAudioGeneration = /^JL-seedance-2\.5-/i.test(String(body.model || ''))
   return {
     model: body.model, prompt: body.prompt, seconds: body.seconds,
     resolution: body.resolution, aspect_ratio: body.aspect_ratio,
     ...(body.images ? { reference_image_urls: body.images } : {}),
     ...(body.videos ? { reference_video_urls: body.videos } : {}),
     ...(body.audios ? { reference_audio_urls: body.audios } : {}),
-    ...(supportsAudioGeneration && body.generate_audio !== undefined ? { enable_audio: body.generate_audio } : {}),
   }
 }
 

@@ -44,19 +44,20 @@ export function Qiling1080Body(input: CreateTaskParams): Record<string, any> {
   for (const kind of Object.keys(refs)) if (refs[kind].length) body[kind]=refs[kind];
   return body;
 }
+export async function validateQilingGfMediaDuration(videos: string[], audios: string[]) {
+  for (const [kind, urls, label] of [['videos', videos, '视频'], ['audios', audios, '音频']] as const) {
+    let total = 0
+    for (const url of urls) {
+      const duration = Number(await readMediaDuration(url, kind, undefined))
+      if (!Number.isFinite(duration) || duration <= 0) throw new Error('无法读取参考' + label + '时长')
+      total += duration
+    }
+    if (total > 15.000001) throw new Error('器灵 GF 参考' + label + '总时长不能超过15秒，当前 ' + total.toFixed(2) + ' 秒。请缩短参考素材，成片时长可单独设置。')
+  }
+}
 export async function Qiling1080Create(request: (path: string, init: RequestInit, legacy: boolean) => Promise<any>, input: CreateTaskParams) {
   const body=Qiling1080Body(input);
-  if(input.model===Qiling1080GF) {
-    for(const kind of ['videos','audios']) {
-      let total=0;
-      for(const url of body[kind]||[]) {
-        const seconds=await readMediaDuration(url,kind,undefined);
-        if(!Number.isFinite(seconds)||seconds<=0) throw new Error('无法读取参考素材时长');
-        total+=seconds;
-      }
-      if(total>15.05) throw new Error('GF参考'+(kind==='videos'?'视频':'音频')+'总时长不能超过15秒');
-    }
-  }
+  if (input.model === Qiling1080GF) await validateQilingGfMediaDuration(body.videos || [], body.audios || [])
   const response=await request('/v1/videos',{method:'POST',body:JSON.stringify(body)},input.model===Qiling1080JS);
   const id=response?.id||response?.task_id||response?.request_id||response?.data?.id||response?.data?.task_id||response?.data?.request_id;
   if(!id) throw new Error('器灵未返回任务ID，请先到平台核对任务，避免重复生成');

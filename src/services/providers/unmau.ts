@@ -185,7 +185,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
     update({status:'running',progress:resumeTaskId ? 10 : 0,error:undefined,referenceWarning:undefined,outputVideo:undefined,taskId:resumeTaskId || undefined});
     let taskId = resumeTaskId, directVideoUrl;
     if (!taskId) {
-      if (provider.prepareAssets) await provider.prepareAssets(body,readFile,signal,{
+      if (provider.prepareAssets && !savedBody) await provider.prepareAssets(body,readFile,signal,{
         update: patch => { check(); update(patch); },
         savePrivateReferences: async bindings => { check(); update({piapiPrivateReferences:{...(data.piapiPrivateReferences||{}),...bindings}}); if(persist) await persist(); }
       });
@@ -196,7 +196,27 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
       }
       check();
       // Creation is never automatically retried: a lost response may still represent a billed task.
-      const created = await provider.createTask(body);
+      if (provider.quote && !savedBody) {
+        const points = await provider.quote(body)
+        check()
+        update({ luociEstimate: points, luociCharge: undefined })
+        if (!window.confirm('洛辞预计使用 ' + points + ' API 积分（1 积分 = 1 美元）。确认生成？')) {
+          update({ status: 'idle', progress: undefined })
+          return
+        }
+        update(provider.pendingTask(undefined, body, data))
+        await persist()
+        check()
+      }
+      let created
+      try { created = await provider.createTask(body) }
+      catch (error) {
+        if (provider.quote && [400, 401, 402, 403, 422].includes(error.status) && current()) {
+          update(provider.clearPendingTask())
+          await persist()
+        }
+        throw error
+      }
       taskId = created.taskId; directVideoUrl = created.videoUrl;
       check(); update({taskId});
       if (provider.pendingTask) update(provider.pendingTask(taskId,body,data));
@@ -211,6 +231,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
       try { state = directVideoUrl && !taskId ? {status:"completed",videoUrl:directVideoUrl} : await provider.getTaskStatus(taskId); transientErrors = 0; }
       catch (error) { if (error.retryable) {transientErrors=Math.min(transientErrors+1,3);continue;} throw error; }
       check();
+      if (state.chargedPoints !== undefined) update({ luociCharge: state.chargedPoints })
       if (state.status === 'failed') {
         update({taskId:undefined});
         if(provider.clearPendingTask) update(provider.clearPendingTask());

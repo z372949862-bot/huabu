@@ -259,6 +259,12 @@
           </div>
 
           <PiapiAssetReferences v-if="isPiapi25" :provider-id="selectedProviderId" :assets="allAssets" :bindings="data.piapiPrivateReferences" :video-mode="activeDmxMode" :disabled="data.status === 'running' || !!data.piapiTask" @update:bindings="value => nodeStore.updateNodeData(id, { piapiPrivateReferences: value })" @add-asset="addPiapiPrivateAsset" />
+          <div v-if="isLuociVideo && data.luociEstimate != null" class="reference-warning" role="status">上次预计 {{ data.luociEstimate }} API 积分<span v-if="data.luociCharge != null"> · 实际扣费 {{ data.luociCharge }} API 积分</span></div>
+          <div v-if="data.luociTask && data.status !== 'running'" class="reference-warning">
+            <button class="option-btn" @click.stop="nodeStore.executeNode(id)">{{ data.luociTask.taskId ? '继续查询洛辞任务' : '使用原参数恢复提交' }}</button>
+            <button class="option-btn" @click.stop="discardLuociTask">清除任务记录</button>
+          </div>
+          <IdeaGatesReferences v-if="isLuociVideo" luoci :disabled="data.status === 'running' || !!data.luociTask" @add="addIdeaGatesReference" />
           <IdeaGatesReferences v-if="isIdeaGates25" :disabled="data.status === 'running' || !!data.ideagatesTask" @add="addIdeaGatesReference" />
           <div v-if="data.ideagatesTask?.submissionUncertain && !data.ideagatesTask?.taskId && data.status !== 'running'" class="reference-warning">
             <span>上次提交结果未确认，请先联系平台核对。</span>
@@ -868,6 +874,10 @@ interface Props {
     dmxTask?: import('@/services/dmxapiTask').DmxPendingTask
     aiideTask?: import('@/services/aiideTask').AiidePendingTask
     ideagatesTask?: import('@/services/ideagatesTask').IdeaGatesPendingTask
+    luociTask?: import('@/services/providers/luociVideo').LuociPending
+    luociEstimate?: number
+    luociCharge?: number
+    luociFrames?: number
     piapiTask?: import('@/stores/node').NodeData['piapiTask']
     piapiImageTask?: import('@/stores/node').NodeData['piapiImageTask']
     imageOutputFormat?: 'jpeg' | 'png'
@@ -958,6 +968,7 @@ watch(isSelected, (selected, wasSelected) => {
 })
 const currentTab = ref(props.data.videoMode === 'edit' ? 'video-edit'
   : props.data.videoMode === 'extend' ? 'video-extend'
+  : props.data.luociFrames === 1 ? 'image-to-video' : props.data.luociFrames === 2 ? 'first-last-frame'
   : (props.data.qilingFrameMode || props.data.dmxFrameMode) === 'first_frame' ? 'image-to-video'
   : (props.data.qilingFrameMode || props.data.dmxFrameMode) === 'first_last_frame' ? 'first-last-frame' : 'text-to-video')
 // 比例从节点 data.ratio 恢复（没有才用默认 16:9）；否则切走再切回会丢失用户选择
@@ -2003,6 +2014,7 @@ const isAiideSeedance25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'aiide' && selectedModel.value === 'dreamina-seedance-2-5-hc'
 })
+const isLuociVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'luoci')
 const isPiapi25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'piapi' && selectedModel.value === 'seedance-2.5-less-restriction'
@@ -2218,7 +2230,7 @@ const shouldShowUploadPrompt = computed(() => {
 const videoTabs = computed(() => [
   { label: '文生视频', value: 'text-to-video', disabled: hasAnyInput.value },
   { label: '全能参考', value: 'universal-ref', disabled: !hasAnyInput.value },
-  ...(isDmxApi25.value || isAiideSeedance25.value || isQilingGf1080.value || isIdeaGates25.value ? [
+  ...(isDmxApi25.value || isAiideSeedance25.value || isQilingGf1080.value || isLuociVideo.value || isIdeaGates25.value ? [
     { label: '图生视频', value: 'image-to-video', disabled: !hasImageInput.value },
     { label: '首尾帧', value: 'first-last-frame', disabled: !hasImageInput.value },
   ] : []),
@@ -2616,7 +2628,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
+  if (props.data.luociTask || props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
     nodeStore.executeNode(props.id)
     return
   }
@@ -2624,6 +2636,11 @@ function handleGenerateClick() {
 }
 
 // 视频/图片节点参考素材：blob:/data: URL 直接传给 store，store 调用前会上传图床转公网 URL
+function discardLuociTask() {
+  if (window.confirm('清除洛辞任务记录？请先在洛辞核对上次任务，清除后再次生成会创建新任务。')) {
+    nodeStore.updateNodeData(props.id, { luociTask: undefined, taskId: undefined, status: 'idle', error: undefined })
+  }
+}
 function discardGeekNowResult() {
   if (window.confirm('放弃已返回的 GIF 结果？之后点击生成将提交新请求并可能再次计费。')) {
     nodeStore.updateNodeData(props.id, { geeknowImageResult: undefined, status: 'idle', error: undefined })
@@ -2660,6 +2677,7 @@ const executeNode = async () => {
       inputVideos: refVideos,
       inputAudios: refAudios,
       videoMode: activeDmxMode.value,
+      luociFrames: isLuociVideo.value ? (currentTab.value === 'image-to-video' ? 1 : currentTab.value === 'first-last-frame' ? 2 : undefined) : undefined,
       qilingFrameMode: isQilingGf1080.value && currentTab.value === 'image-to-video' ? 'first_frame'
         : isQilingGf1080.value && currentTab.value === 'first-last-frame' ? 'first_last_frame' : undefined,
       dmxFrameMode: (isDmxApi25.value || isIdeaGates25.value) && currentTab.value === 'image-to-video' ? 'first_frame'

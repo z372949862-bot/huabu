@@ -274,8 +274,8 @@ export class ChuhaiyingVideoProvider implements AIProvider {
       const isGf = isQilingGfModel(model)
       if (isGf) {
         const requestedRatio = params.ratio && params.ratio !== 'auto' ? params.ratio : '16:9'
-        if (!['16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'].includes(requestedRatio)) {
-          throw new Error('器灵 GF 线路只支持 16:9、4:3、1:1、3:4、9:16、adaptive 画幅')
+        if (!['16:9', '4:3', '1:1', '3:4', '9:16'].includes(requestedRatio)) {
+          throw new Error('器灵 GF 线路只支持 16:9、4:3、1:1、3:4、9:16 画幅')
         }
         const requested = Number(params.duration)
         body.seconds = Number.isInteger(requested) && requested >= 4 && requested <= 30 ? requested : 5
@@ -537,12 +537,18 @@ export class ChuhaiyingVideoProvider implements AIProvider {
     clearTimeout(timer)
 
     if (!res.ok) {
-      let detail = ''
-      try {
-        const body = await res.json()
-        detail = body?.error?.message || body?.message || JSON.stringify(body)
-      } catch {
-        detail = res.statusText
+      let body: any
+      try { body = await res.json() } catch { /* Some gateways return HTML. */ }
+      const detail = body?.error?.message || body?.message || (body ? JSON.stringify(body) : res.statusText)
+      if (new URL(this.baseUrl).hostname === 'api.qilingze.com' && res.status >= 500) {
+        const trace = body?.request_id || body?.error?.request_id || body?.data?.request_id
+          || res.headers.get('x-request-id') || res.headers.get('x-oneapi-request-id')
+        const task = body?.task_id || body?.data?.task_id || body?.error?.task_id
+          || (init.method === 'GET' && path.startsWith('/v1/videos/') ? decodeURIComponent(path.slice('/v1/videos/'.length)) : '')
+        const phase = init.method === 'POST' ? '提交' : '查询'
+        const ids = [trace && 'Request ID：' + trace, task && '任务 ID：' + task].filter(Boolean)
+        throw new Error('器灵' + phase + '返回 HTTP ' + res.status + '：' + detail + '。' +
+          (ids.length ? ids.join('，') : '未取得可显示的请求编号') + '。请在器灵任务记录中核对后再决定是否重新提交。')
       }
       if (res.status === 401) throw new Error('API Key 无效或已过期')
       if (res.status === 429) throw new Error('已限流，请稍后重试')

@@ -1,9 +1,9 @@
 import { urlToFile } from './imageHost'
 
 /** AIIDE documents HTTP(S) / asset IDs. Local media first needs a public URL. */
-export async function ensureAiideMediaUrl(url: string): Promise<string> {
+export async function ensureAiideMediaUrl(url: string, preparedFile?: File): Promise<string> {
   if (/^(https?:\/\/|asset:\/\/)/i.test(url) || /^mat_[\w-]+$/.test(url)) return url
-  const file = await urlToFile(url)
+  const file = preparedFile ?? await urlToFile(url)
   if (file.size > 100 * 1024 * 1024) throw new Error('参考素材超过本地上传上限 100 MB，请压缩后重试')
   if (window.electronAPI?.aiide?.upload) {
     const dataUrl = await new Promise<string>((resolve, reject) => {

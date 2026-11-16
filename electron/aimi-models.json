@@ -1,0 +1,30 @@
+[
+  {
+    "id": "seedance-2.5-720p-c5",
+    "name": "Seedance 2.5 C5 · 720P · 7 元/条",
+    "resolution": "720p",
+    "minSeconds": 5,
+    "description": "5–30 秒，最多 30 图 / 10 视频 / 10 音频。按条计费，支持文生、图生和参考生视频。"
+  },
+  {
+    "id": "H-seedance-2.5-2-720p",
+    "name": "Seedance 2.5 H · 720P · 0.35 元/秒",
+    "resolution": "720p",
+    "minSeconds": 4,
+    "description": "4–30 秒，最多 30 图 / 10 视频 / 10 音频。按生成时长计费。"
+  },
+  {
+    "id": "H-seedance-2.5-2-480p",
+    "name": "Seedance 2.5 H · 480P · 0.26 元/秒",
+    "resolution": "480p",
+    "minSeconds": 4,
+    "description": "4–30 秒，最多 30 图 / 10 视频 / 10 音频。按生成时长计费。"
+  },
+  {
+    "id": "seedance-2.5-slow",
+    "name": "Seedance 2.5 Slow · 720P · 0.35 元/秒",
+    "resolution": "720p",
+    "minSeconds": 4,
+    "description": "4–30 秒，最多 30 图 / 10 视频 / 10 音频。按生成时长与参考视频总时长之和计费。参考视频须为公网 MP4，每段最多 64 MiB，总时长不能超过生成时长。"
+  }
+]

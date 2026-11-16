@@ -9,7 +9,7 @@ import { persistImage } from '@/services/imageStorage'
 import { SUNBURST26_MODEL, type Sunburst26Options, type GeekNowImageResult } from '@/services/geeknowSunburst26'
 import { prepareQilingReferences } from '@/services/qilingReferences'
 import { ensureQilingImageUrl } from '@/services/qilingImageHost'
-import { Qiling1080GF, Qiling1080Supported } from '@/services/qiling1080'
+import { Qiling1080GF, Qiling1080Supported, validateQilingGfMediaDuration } from '@/services/qiling1080'
 import { ChuhaiyingVideoProvider } from '@/services/providers/chuhaiyingVideo'
 import { isQilingCb480Model, isQilingCbFullModel, isQilingCbModel, isQilingGfModel } from '@/services/providers/chuhaiyingVideo'
 import { findImageTemplate, type ImageProviderKind } from '@/services/imageModelTemplates'
@@ -70,6 +70,10 @@ export interface NodeData {
   aiideTask?: AiidePendingTask
   ideagatesTask?: IdeaGatesPendingTask
   ideagatesResult?: Record<string, any>
+  luociFrames?: number
+  luociTask?: import('@/services/providers/luociVideo').LuociPending
+  luociEstimate?: number
+  luociCharge?: number
   piapiTask?: { taskId: string; providerId: string; body: Record<string, any> }
   piapiImageTask?: { taskId: string; providerId: string; model: string; prompt: string; ratio?: string; resolution?: string; imageOutputFormat?: 'jpeg' | 'png' }
   imageOutputFormat?: 'jpeg' | 'png'
@@ -224,9 +228,9 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.ideagatesTask || data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.ideagatesTask || data.dmxTask || data.aiideTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
-                taskId: data.ideagatesTask?.taskId || data.dmxTask?.taskId || data.aiideTask?.taskId || data.piapiTask?.taskId },
+              data: { ...data, status: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
+                taskId: data.ideagatesTask?.taskId || data.dmxTask?.taskId || data.aiideTask?.taskId || data.luociTask?.taskId || data.piapiTask?.taskId },
             }
           })
         : []
@@ -399,7 +403,7 @@ export const useNodeStore = defineStore('node', () => {
     cancelIdeaGatesNode(nodeId)
     cancelAiideNode(nodeId)
     cancelDmxApiNode(nodeId)
-    cancelUnmauNode(nodeId)
+    if (cancelUnmauNode(nodeId)) updateNodeData(nodeId, { status: 'idle', progress: undefined })
     const t = runningTasks.get(nodeId)
     if (t) {
       clearInterval(t.intervalId)
@@ -483,7 +487,7 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
-    const providerId = data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
+    const providerId = data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.luociTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
       failNode(nodeId, '请先在「设置」中添加中转站')
       return
@@ -551,13 +555,14 @@ export const useNodeStore = defineStore('node', () => {
       const projectId = currentProjectId.value
       return runUnmauNode({
         id: nodeId,
-        data: { ...data, providerId, taskId: data.piapiTask?.taskId || data.taskId, model: data.model || providerConfig.models[0]?.id },
+        data: { ...data, providerId, taskId: providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: data.model || providerConfig.models[0]?.id },
         nodes: nodes.value,
         edges: edges.value,
         provider,
         readFile: urlToFile,
         update: (patch: Partial<NodeData>) => updateNodeData(nodeId, patch),
-        persist: flushPersist,
+        persist: () => flushPersist(providerConfig.kind === 'luoci'),
+        pollMs: providerConfig.kind === 'luoci' ? 4000 : 10000,
         isCurrent: () => currentProjectId.value === projectId && nodes.value.some((item) => item.id === nodeId),
         fail: (message: string) => failNode(nodeId, message),
         complete: (url: string, body: any) => useAssetStore().addAsset({
@@ -620,7 +625,7 @@ export const useNodeStore = defineStore('node', () => {
     const isOmni = modelId === 'gemini-omni'
     const isQilingSeedance25 = providerConfig.kind === 'qiling' && /^SD2\.5-/i.test(modelId)
     const isAiideSeedance25 = providerConfig.kind === 'aiide' && modelId === 'dreamina-seedance-2-5-hc'
-    const isAimiSeedance25 = providerConfig.kind === 'aimi' && /^JL-seedance-2\.5-|^sd2\.5-n-/i.test(modelId)
+    const isAimiSeedance25 = providerConfig.kind === 'aimi'
     let qilingMedia: { images: string[]; videos: string[]; audios: string[]; prompt?: string }
     try {
       qilingMedia = isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25
@@ -655,11 +660,6 @@ export const useNodeStore = defineStore('node', () => {
         return
       }
     }
-    if (isAimiSeedance25 && modelId.startsWith('sd2.5-n') && refAudios.length && !refImages.length) {
-      failNode(nodeId, 'sd2.5-n 参考音频必须搭配至少一张参考图')
-      return
-    }
-
     if (isQilingSeedance25 && Qiling1080Supported(modelId)) {
       const limits = modelId === Qiling1080GF ? [10, 5, 5] : [30, 10, 10]
       if (refImages.length > limits[0] || refVideos.length > limits[1] || refAudios.length > limits[2]) {
@@ -762,13 +762,17 @@ export const useNodeStore = defineStore('node', () => {
         const u = refs[i]
         if (!u || (!qilingImages && /^(https?:|asset:)/i.test(u))) continue
         try {
-          refs[i] = qilingImages ? await ensureQilingImageUrl(u, apiKey) : await ensureRemoteAssetUrl(u, apiKey)
+          refs[i] = qilingImages ? await ensureQilingImageUrl(u, apiKey) : await ensureRemoteAssetUrl(u, isQilingSeedance25 ? undefined : apiKey)
         } catch (err) {
           throw new Error(`${label}${i + 1}上传失败：${err instanceof Error ? err.message : ''}`)
         }
       }
     }
     try {
+      if (isQilingSeedance25 && isQilingGfModel(modelId)) {
+        await validateQilingGfMediaDuration(refVideos, refAudios)
+        if (!active()) return
+      }
       await uploadRefs(refImages, '参考图第 ', isQilingSeedance25)
       if (!active()) return
       await uploadRefs(refVideos, '参考视频第 ')
@@ -785,6 +789,7 @@ export const useNodeStore = defineStore('node', () => {
       return
     }
     imageUrl = refImages[0]
+    if ((isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25) && refVideos.length) videoUrl = refVideos[0]
     if (videoUrl && !/^(https?:|asset:)/i.test(videoUrl)) {
       try {
         videoUrl = await ensureRemoteAssetUrl(videoUrl, apiKey)
@@ -799,7 +804,6 @@ export const useNodeStore = defineStore('node', () => {
         return
       }
     }
-    if ((isQilingSeedance25 || isAiideSeedance25 || isAimiSeedance25) && refVideos.length) videoUrl = refVideos[0]
 
     // 构造 content 数组。器灵 SD2.5 需要把三类参考素材全部放入请求，
     // 旧协议仍保持原来的单源视频 / 多图结构。

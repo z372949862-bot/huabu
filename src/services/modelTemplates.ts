@@ -14,10 +14,11 @@ import { UNMAU_MODELS } from './providers/unmau'
 import { YU25_MODELS } from './providers/yu25'
 import { XINSHUJU_MODELS } from './providers/xinshuju'
 import { FMGO_MODELS } from './providers/fmgo'
+import { LUOCI_VIDEO_MODELS } from './providers/luociVideo'
 import { AIMI_MODELS } from './providers/aimi'
 import { PIAPI_MODELS } from './providers/piapi'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'aimi' | 'piapi' | 'ideagates' | 'ideagates-overseas'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'luoci' | 'aimi' | 'piapi' | 'ideagates' | 'ideagates-overseas'
 import { ideaGatesModels } from './providers/ideagates'
 
 export interface ModelTemplate {
@@ -112,9 +113,9 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
   {
     id: 'SD2.5-满血-GF-480P',
     name: 'SD2.5 满血 GF · 480P',
-    description: '器灵 GF 线路，4–30 秒，最多 10 图 / 5 视频 / 5 音频参考，支持本地素材上传',
+    description: '器灵 GF 线路，4–30 秒，最多 10 图 / 5 视频 / 5 音频，参考视频和音频各自合计最多 15 秒',
     capabilities: {
-      ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'],
+      ratios: ['16:9', '4:3', '1:1', '3:4', '9:16'],
       resolutions: ['480p'],
       durationRange: { min: 4, max: 30 },
       durationOptions: Array.from({ length: 27 }, (_, index) => index + 4),
@@ -127,9 +128,9 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
   {
     id: 'SD2.5-满血-GF-720P',
     name: 'SD2.5 满血 GF · 720P',
-    description: '器灵 GF 线路，4–30 秒，最多 10 图 / 5 视频 / 5 音频参考，支持本地素材上传',
+    description: '器灵 GF 线路，4–30 秒，最多 10 图 / 5 视频 / 5 音频，参考视频和音频各自合计最多 15 秒',
     capabilities: {
-      ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'],
+      ratios: ['16:9', '4:3', '1:1', '3:4', '9:16'],
       resolutions: ['720p'],
       durationRange: { min: 4, max: 30 },
       durationOptions: Array.from({ length: 27 }, (_, index) => index + 4),
@@ -280,6 +281,7 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   dmxapi: DMXAPI_VIDEO_MODEL_TEMPLATES,
   fmgo: FMGO_VIDEO_MODEL_TEMPLATES,
   aiide: AIIDE_VIDEO_MODEL_TEMPLATES,
+  luoci: LUOCI_VIDEO_MODELS,
   aimi: AIMI_VIDEO_MODEL_TEMPLATES,
   piapi: PIAPI_MODELS,
 }
@@ -288,7 +290,7 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...PIAPI_MODELS]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...LUOCI_VIDEO_MODELS, ...PIAPI_MODELS]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

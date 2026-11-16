@@ -26,6 +26,10 @@ interface Window {
       upload: (payload: any) => Promise<any>
       download: (payload: any) => Promise<any>
     }
+    luociVideo?: {
+      request: (payload: any) => Promise<any>
+      download: (payload: any) => Promise<any>
+    }
     aimi?: {
       request: (payload: any) => Promise<any>
       upload: (payload: any) => Promise<any>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Qiling1080JS as JS, Qiling1080GF as GF, Qiling1080Body, Qiling1080Models } from '../qiling1080'
+import { Qiling1080JS as JS, Qiling1080GF as GF, Qiling1080Body, Qiling1080Models, validateQilingGfMediaDuration } from '../qiling1080'
 import { ChuhaiyingVideoProvider } from '../providers/chuhaiyingVideo'
 import { readMediaDuration } from '../providers/piapi'
 import type { CreateTaskParams } from '../ai-provider'
@@ -73,6 +73,22 @@ describe('Qiling JS/GF 1080P integration', () => {
       { type: 'video_url', video_url: 'https://example.com/b.mp4' },
     ] }))).rejects.toThrow('15秒')
     expect(fetch).not.toHaveBeenCalled()
+  })
+  it('checks the 15-second budget separately for GF video and audio references', async () => {
+    vi.mocked(readMediaDuration).mockResolvedValueOnce(30)
+    await expect(validateQilingGfMediaDuration(['local-upload:///clip.mp4'], [])).rejects.toThrow('30.00')
+    vi.mocked(readMediaDuration).mockResolvedValue(15)
+    await expect(validateQilingGfMediaDuration(['video'], ['audio'])).resolves.toBeUndefined()
+    vi.mocked(readMediaDuration).mockResolvedValue(8)
+    await expect(validateQilingGfMediaDuration([], ['a', 'b'])).rejects.toThrow('16.00')
+  })
+  it('shows Qiling trace IDs on a 500 without retrying creation', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: {message: 'video_request_failed'}, task_id: 'task-fixture'
+    }), {status: 500, headers: {'X-Oneapi-Request-Id': 'req-fixture'}}))
+    vi.stubGlobal('fetch', fetch)
+    await expect(provider().createTask(input('SD2.5-满血-GF-480P'))).rejects.toThrow(/500.*video_request_failed.*req-fixture.*task-fixture/)
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
   it('does not resubmit a paid task after gateway timeout', async () => {
     const fetch = vi.fn().mockResolvedValue(response({ error: { message: 'timeout' } }, 524)); vi.stubGlobal('fetch', fetch)

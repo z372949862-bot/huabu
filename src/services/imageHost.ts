@@ -49,10 +49,10 @@ export async function urlToFile(url: string, fallbackBase = 'asset'): Promise<Fi
 }
 
 /** 上传到图床，返回公网 URL；公网 URL 原样透传 */
-export async function ensureRemoteAssetUrl(url: string, apiKey: string): Promise<string> {
+export async function ensureRemoteAssetUrl(url: string, apiKey: string | undefined): Promise<string> {
   if (!url) return url
   if (url.startsWith('http://') || url.startsWith('https://')) return url
-  if (!apiKey) throw new Error('未配置 API Key，无法上传素材')
+  if (apiKey === '') throw new Error('未配置 API Key，无法上传素材')
 
   const file = await urlToFile(url)
   const form = new FormData()
@@ -62,7 +62,7 @@ export async function ensureRemoteAssetUrl(url: string, apiKey: string): Promise
   try {
     res = await fetch(UPLOAD_URL, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
       body: form,
     })
   } catch (err) {
