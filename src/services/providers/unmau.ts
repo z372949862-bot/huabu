@@ -209,7 +209,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
         check()
       }
       let created
-      try { created = await provider.createTask(body) }
+      try { created = await provider.createTask(body, signal) }
       catch (error) {
         if (provider.quote && [400, 401, 402, 403, 422].includes(error.status) && current()) {
           update(provider.clearPendingTask())

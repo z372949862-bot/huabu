@@ -84,7 +84,7 @@
               ></span>
             </div>
             <span class="sr-only">正在生成，请稍候</span>
-            <div v-if="(isPiapi25 || isAiideSeedance25) && data.referenceWarning" class="piapi-preparation-status" role="status">{{ data.referenceWarning }}</div>
+            <div v-if="(isPiapi25 || isAiideSeedance25 || isFlyapiVideo) && data.referenceWarning" class="piapi-preparation-status" role="status">{{ data.referenceWarning }}</div>
           </div>
           <!-- 已完成 - 显示视频首帧，单击展开生成卡片，双击播放大图 -->
           <div
@@ -199,7 +199,11 @@
             :class="{ 'refs-blocked': refImageBlocked }">
             <div class="asset-item" v-for="asset in filteredAssetsForNode" :key="asset.id" @mouseenter="showReferencePreview(asset, $event)" @mouseleave="hideReferencePreview">
               <!-- 图片缩略图 -->
-              <div v-if="isIdeaGates25 && asset.url.startsWith('asset://')" class="asset-thumbnail audio" :title="asset.name + '（已登记素材）'">
+              <div v-if="!asset.url" class="asset-thumbnail audio" :title="asset.name">
+                <span class="pending-asset">{{ readingAssetIds.has(asset.id) ? '读取中…' : '请重新添加' }}</span>
+                <button class="asset-remove" @click.stop="removeAsset(asset.id)" aria-label="移除素材">×</button>
+              </div>
+              <div v-else-if="(isIdeaGates25 && asset.url.startsWith('asset://')) || (isFlyapiVideo && /^assetId:\/\//i.test(asset.url))" class="asset-thumbnail audio" :title="asset.name + '（已登记素材）'">
                 <span style="font-size:12px;padding:8px">已登记{{ asset.type === 'image' ? '图片' : asset.type === 'video' ? '视频' : '音频' }}</span>
                 <button class="asset-remove" @click.stop="asset.fromNode ? removeConnectedAsset(asset.id) : removeAsset(asset.id)">×</button>
               </div>
@@ -259,10 +263,26 @@
           </div>
 
           <PiapiAssetReferences v-if="isPiapi25" :provider-id="selectedProviderId" :assets="allAssets" :bindings="data.piapiPrivateReferences" :video-mode="activeDmxMode" :disabled="data.status === 'running' || !!data.piapiTask" @update:bindings="value => nodeStore.updateNodeData(id, { piapiPrivateReferences: value })" @add-asset="addPiapiPrivateAsset" />
+          <p v-if="isFmgoVideo && hasLocalFmgoMedia" class="reference-warning">生成时，本地视频和音频会上传到素材服务 imageproxy.zhongzhuan.chat，飞喵通过返回的链接读取素材。</p>
+          <div v-if="lastReferenceSubmission" class="aimi-submission" role="status">
+            上次提交给 {{ isFlyapiVideo ? 'FlyAPI' : isFmgoVideo ? '飞喵' : 'AIMI' }}：图片 {{ lastReferenceSubmission.images }} 张 · 视频 {{ lastReferenceSubmission.videos }} 段 · 音频 {{ lastReferenceSubmission.audios }} 段<br>
+            <span>任务 ID：{{ lastReferenceSubmission.taskId }}</span>
+          </div>
           <div v-if="isLuociVideo && data.luociEstimate != null" class="reference-warning" role="status">上次预计 {{ data.luociEstimate }} API 积分<span v-if="data.luociCharge != null"> · 实际扣费 {{ data.luociCharge }} API 积分</span></div>
           <div v-if="data.luociTask && data.status !== 'running'" class="reference-warning">
             <button class="option-btn" @click.stop="nodeStore.executeNode(id)">{{ data.luociTask.taskId ? '继续查询洛辞任务' : '使用原参数恢复提交' }}</button>
             <button class="option-btn" @click.stop="discardLuociTask">清除任务记录</button>
+          </div>
+          <IdeaGatesReferences v-if="isFlyapiVideo" flyapi :disabled="data.status === 'running' || !!data.flyapiTask" @add="addIdeaGatesReference" />
+          <div v-if="data.flyapiTask && !data.flyapiTask.taskId && data.status !== 'running'" class="reference-warning">
+            <span>上次提交未取得任务号。请在 FlyAPI 任务记录中核对，再继续。</span>
+            <input v-model.trim="flyapiRecoveryId" class="nodrag" aria-label="FlyAPI 原任务 ID" placeholder="粘贴平台上的原任务 ID" @mousedown.stop />
+            <button class="option-btn" :disabled="!isFlyapiTaskId(flyapiRecoveryId)" @click.stop="recoverFlyapiTask">继续查询</button>
+            <button class="option-btn" @click.stop="clearFlyapiAttempt">已核对未创建</button>
+          </div>
+          <div v-else-if="data.flyapiTask?.taskId && data.status !== 'running'" class="reference-warning">
+            <button class="option-btn" @click.stop="nodeStore.executeNode(id)">继续查询 FlyAPI 任务</button>
+            <span>{{ data.flyapiTask.taskId }}</span>
           </div>
           <IdeaGatesReferences v-if="isLuociVideo" luoci :disabled="data.status === 'running' || !!data.luociTask" @add="addIdeaGatesReference" />
           <IdeaGatesReferences v-if="isIdeaGates25" :disabled="data.status === 'running' || !!data.ideagatesTask" @add="addIdeaGatesReference" />
@@ -481,6 +501,8 @@
 
             <button
               class="generate-btn"
+              :disabled="!!unreadyUpload && (isAimiVideo || isFmgoVideo || isFlyapiVideo) && !data.taskId && data.status !== 'running'"
+              :title="unreadyUpload ? `参考素材「${unreadyUpload.name}」尚未就绪` : undefined"
               @click.stop="handleGenerateClick"
             >
               <svg v-if="data.status !== 'running'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -825,6 +847,7 @@
 </style>
 
 <script setup lang="ts">
+import { isFlyapiTaskId } from '@/services/providers/flyapi'
 import { Qiling1080GF, Qiling1080Supported } from '@/services/qiling1080'
 import { ref, computed, watch, provide, inject, onMounted, nextTick } from 'vue'
 import { hoverVideo as vHoverVideo, stopHoverVideo } from '@/utils/hoverVideo'
@@ -857,6 +880,7 @@ import { applyPreset, type StylePreset } from '@/services/stylePresets'
 import { persistImage } from '@/services/imageStorage'
 import { countPromptCharacters, formatStructuredPrompt } from '@/utils/promptFormatting'
 import { mediaFrameSize } from '@/utils/mediaFrame'
+import { canvasMediaUrl, connectedCanvasMedia, inferCanvasMediaKind, legacyCanvasUploads, type CanvasMedia } from '@/utils/canvasMedia'
 
 interface Props {
   id: string
@@ -870,9 +894,15 @@ interface Props {
     assetWidth?: number
     assetHeight?: number
     status?: string
+    taskId?: string
     prompt?: string
     progress?: number
     referenceWarning?: string
+    _uploads?: CanvasMedia[]
+    aimiSubmission?: import('@/stores/node').NodeData['aimiSubmission']
+    fmgoSubmission?: import('@/stores/node').NodeData['fmgoSubmission']
+    flyapiSubmission?: import('@/stores/node').NodeData['flyapiSubmission']
+    flyapiTask?: import('@/stores/node').NodeData['flyapiTask']
     videoMode?: 'reference' | 'edit' | 'extend'
     dmxFrameMode?: 'first_frame' | 'first_last_frame'
     qilingFrameMode?: 'first_frame' | 'first_last_frame'
@@ -1181,7 +1211,16 @@ async function copyTextToClipboard(text: string | undefined) {
   try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
 }
 
-const uploadedAssets = ref<Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }>>([])
+const uploadedAssets = computed<CanvasMedia[]>({
+  get: () => {
+    const data = nodeStore.nodes.find(node => node.id === props.id)?.data ?? props.data
+    const saved = data._uploads ?? (isFmgoVideo.value || isFlyapiVideo.value ? legacyCanvasUploads(data, connectedAssets.value) : [])
+    return saved.map((asset: CanvasMedia) => ({ ...asset, url: canvasMediaUrl(asset.url) }))
+  },
+  set: assets => nodeStore.updateNodeData(props.id, { _uploads: assets }),
+})
+const readingAssetIds = ref(new Set<string>())
+const unreadyUpload = computed(() => uploadedAssets.value.find(asset => !asset.url))
 
 // @ 提及功能
 const showAssetMention = ref(false)
@@ -1239,7 +1278,7 @@ const updateReferencePreviewPosition = (target: HTMLElement) => {
 
 const showReferencePreviewElement = (asset: any, target: HTMLElement) => {
   if (!asset?.url) return
-  if (asset.url.startsWith('asset://')) return
+  if (/^asset(?:Id)?:\/\//i.test(asset.url)) return
   cancelReferencePreviewHide()
   const ratio = Math.max(0.45, Math.min(2.2, assetAspectRatio(asset)))
   hoveredReferenceRatio.value = ratio
@@ -1761,24 +1800,11 @@ function promptTextToHtml(text: string): string {
 
 // 初始化
 onMounted(async () => {
-  // 先从持久化数据恢复本地上传的素材（必须在 promptTextToHtml 之前，否则查不到资产）
-  const saved = (props.data as any)._uploads as Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }> | undefined
-  if (saved?.length) {
-    uploadedAssets.value = saved.map(a => ({
-      ...a,
-      url: filePathToUrl(a.url),
-    }))
-    for (const asset of uploadedAssets.value) {
-      const localPath = asset.url.startsWith('local-upload:///')
-        ? asset.url.slice('local-upload:///'.length).replace(/\//g, '\\')
-        : undefined
-      materialStore.addMaterial({
-        type: asset.type,
-        name: asset.name,
-        url: asset.url,
-        localPath,
-      })
-    }
+  for (const asset of uploadedAssets.value) {
+    if (!asset.url) continue
+    const localPath = asset.url.startsWith('local-upload:///')
+      ? asset.url.slice('local-upload:///'.length).replace(/\//g, '\\') : undefined
+    materialStore.addMaterial({ type: asset.type, name: asset.name, url: asset.url, localPath })
   }
   // 旧项目中的单行长提示词也按结构恢复成易读格式。
   const formattedPrompt = formatStructuredPrompt(localPrompt.value)
@@ -1875,32 +1901,25 @@ const referencedAssets = computed(() => {
   return references
 })
 
-/** Windows 绝对路径 → local-upload:/// 自定义协议 URL（三斜杠标准格式） */
-function filePathToUrl(filePath: string): string {
-  if (!filePath) return filePath
-  // 已是 data: / http: / blob: / local-upload: → 原样返回
-  if (/^(data|https?|blob|local-upload):/i.test(filePath)) return filePath
-  // file:/// 旧格式 → 转为 local-upload:///
-  if (/^file:\/\/\//i.test(filePath)) {
-    return filePath.replace(/^file:\/\/\//i, 'local-upload:///')
-  }
-  // Windows 绝对路径 C:\... → local-upload:///C:/...
-  const normalized = filePath.replace(/\\/g, '/')
-  if (/^[A-Za-z]:\//.test(normalized)) {
-    return 'local-upload:///' + normalized
-  }
-  return filePath
-}
-
-// 把本地上传的素材同步到节点 data 里持久化（存文件路径，不存 data URL）
-function persistUploadedAssets() {
-  nodeStore.updateNodeData(props.id, {
-    _uploads: uploadedAssets.value.map(a => ({ id: a.id, type: a.type, url: a.url, name: a.name }))
-  })
-}
 function addIdeaGatesReference(asset: { id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }) {
-  if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value.push(asset)
-  persistUploadedAssets()
+  if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value = [...uploadedAssets.value, asset]
+}
+const flyapiRecoveryId = ref('')
+async function recoverFlyapiTask() {
+  const task = props.data.flyapiTask, taskId = flyapiRecoveryId.value
+  if (!task || task.taskId || !isFlyapiTaskId(taskId)) return
+  nodeStore.updateNodeData(props.id, { flyapiTask: { ...task, taskId }, taskId, error: undefined,
+    ...(task.counts && task.params ? { flyapiSubmission: { ...task.counts, model: task.params.model, providerId: task.providerId, taskId } } : {}),
+  })
+  flyapiRecoveryId.value = ''
+  await nodeStore.flushPersist()
+  await nodeStore.executeNode(props.id)
+}
+function clearFlyapiAttempt() {
+  if (window.confirm('确认 FlyAPI 没有创建上次的任务？清除记录后再次生成会提交新任务。')) {
+    nodeStore.updateNodeData(props.id, { flyapiTask: undefined, taskId: undefined, error: undefined, status: 'idle' })
+    void nodeStore.flushPersist()
+  }
 }
 function recoverIdeaGatesTask() {
   const task = props.data.ideagatesTask
@@ -1915,65 +1934,47 @@ function clearIdeaGatesUncertainty() {
   }
 }
 function addPiapiPrivateAsset(asset: { id: string; type: 'image' | 'video' | 'audio'; url: string; name: string }, binding: any) {
-  if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value.push(asset)
-  persistUploadedAssets()
+  if (!allAssets.value.some(existing => existing.url === asset.url)) uploadedAssets.value = [...uploadedAssets.value, asset]
   nodeStore.updateNodeData(props.id, { piapiPrivateReferences: { ...props.data.piapiPrivateReferences, [asset.url]: binding } })
 }
 
 // 处理文件上传
 const handleFileUpload = async (event: Event) => {
-  console.log('[upload] handleFileUpload FIRED', event)
   const input = event.target as HTMLInputElement
-  const files = input.files
-  console.log('[upload] files count:', files?.length)
-  if (!files) return
-
-  for (const file of Array.from(files)) {
-    const type = file.type.startsWith('image/') ? 'image'
-                : file.type.startsWith('video/') ? 'video'
-                : 'audio'
-    if (props.type === 'ai-image' && type !== 'image') continue
-
-    const reader = new FileReader()
-    const dataUrl = await new Promise<string>((resolve) => {
-      reader.onload = () => resolve(reader.result as string)
-      reader.readAsDataURL(file)
-    })
-
-    // 落盘存储（data URL → 磁盘文件），持久化为文件路径而非 base64 巨串
-    let displayUrl = dataUrl
-    let localPath: string | undefined
-    const base64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl
-    if (window.electronAPI?.upload?.save) {
-      try {
-        const savedPath = await window.electronAPI.upload.save(base64, file.name)
-        if (savedPath) {
-          localPath = savedPath
-          displayUrl = filePathToUrl(savedPath)
-          console.log('[upload] saved to disk:', savedPath, '→', displayUrl)
-        } else {
-          console.warn('[upload] save returned null, falling back to data URL')
-        }
-      } catch (err) {
-        console.warn('[upload] save failed:', err, '- falling back to data URL')
-      }
-    } else {
-      console.warn('[upload] electronAPI.upload.save not available')
+  const entries = Array.from(input.files || []).flatMap(file => {
+    const type = inferCanvasMediaKind(file)
+    if (!type || (props.type === 'ai-image' && type !== 'image')) {
+      ElMessage.error(`未添加「${file.name}」：不支持此素材类型`)
+      return []
     }
-
-    uploadedAssets.value.push({
-      id: `asset_${Date.now()}_${Math.random()}`,
-      type,
-      url: displayUrl,
-      name: file.name
-    })
-    materialStore.addMaterial({
-      type,
-      name: file.name,
-      url: displayUrl,
-      localPath,
-    })
-    persistUploadedAssets()
+    return [{ file, asset: { id: crypto.randomUUID(), type, name: file.name, url: '' } }]
+  })
+  input.value = ''
+  if (!entries.length) return
+  const projectId = nodeStore.currentProjectId
+  const stillSelected = (id: string) => nodeStore.currentProjectId === projectId && uploadedAssets.value.some(a => a.id === id)
+  // Register the entire selection before the first asynchronous read. Every entry point sees pending files.
+  for (const { asset } of entries) readingAssetIds.value.add(asset.id)
+  uploadedAssets.value = [...uploadedAssets.value, ...entries.map(entry => entry.asset)]
+  for (const { file, asset } of entries) {
+    try {
+      if (!stillSelected(asset.id)) continue
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => typeof reader.result === 'string' && file.size ? resolve(reader.result) : reject(new Error('文件为空'))
+        reader.onerror = reader.onabort = () => reject(new Error('读取文件失败'))
+        reader.readAsDataURL(file)
+      })
+      let localPath: string | undefined
+      try { localPath = await window.electronAPI?.upload?.save?.(dataUrl.split(',')[1], file.name) || undefined }
+      catch { /* The verified data URL is still available for this selection. */ }
+      if (!stillSelected(asset.id)) continue
+      const url = localPath ? canvasMediaUrl(localPath) : dataUrl
+      uploadedAssets.value = uploadedAssets.value.map(a => a.id === asset.id ? { ...a, url } : a)
+      materialStore.addMaterial({ type: asset.type, name: file.name, url, localPath })
+    } catch {
+      if (stillSelected(asset.id)) ElMessage.error(`无法读取参考素材「${file.name}」，请移除后重新添加`)
+    } finally { readingAssetIds.value.delete(asset.id) }
   }
 }
 
@@ -1981,7 +1982,7 @@ const handleFileUpload = async (event: Event) => {
 const removeAsset = (assetId: string) => {
   const asset = uploadedAssets.value.find(a => a.id === assetId)
   // 清理磁盘文件（从 local-upload:/// 或 file:/// URL 反推文件路径）
-  if (asset && window.electronAPI?.upload?.delete) {
+  if (asset && !asset.id.startsWith('legacy_') && window.electronAPI?.upload?.delete) {
     let filePath = ''
     if (asset.url.startsWith('local-upload:///')) {
       filePath = asset.url.replace('local-upload:///', '')
@@ -1993,7 +1994,6 @@ const removeAsset = (assetId: string) => {
     }
   }
   uploadedAssets.value = uploadedAssets.value.filter(a => a.id !== assetId)
-  persistUploadedAssets()
 }
 
 // 删除连接的素材（断开边连接）
@@ -2020,6 +2020,13 @@ const isAiideSeedance25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'aiide' && selectedModel.value === 'dreamina-seedance-2-5-hc'
 })
+const isFlyapiVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'flyapi')
+const isFmgoVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'fmgo')
+const lastReferenceSubmission = computed(() => {
+  const receipt = isFlyapiVideo.value ? props.data.flyapiSubmission : isFmgoVideo.value ? props.data.fmgoSubmission : props.data.aimiSubmission
+  return receipt && receipt.providerId === selectedProviderId.value && receipt.model === selectedModel.value ? receipt : undefined
+})
+const isAimiVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'aimi')
 const isLuociVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'luoci')
 const isPiapi25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
@@ -2138,62 +2145,19 @@ const hasAnyInput = computed(() => {
   return nodeStore.edges.some(edge => edge.target === props.id) || allAssets.value.length > 0
 })
 
-// 获取连接的源节点的输出图片
-const connectedAssets = computed(() => {
-  const incomingEdges = nodeStore.edges.filter(edge => edge.target === props.id)
-  const assets: Array<{ id: string; type: 'image' | 'video' | 'audio'; url: string; name: string; fromNode: boolean }> = []
-
-  incomingEdges.forEach(edge => {
-    const sourceNode = nodeStore.nodes.find(n => n.id === edge.source)
-
-    // 检查asset-ref节点（上传的素材）
-    if (sourceNode?.type === 'asset-ref' && sourceNode.data?.assetUrl) {
-      assets.push({
-        id: `node_${sourceNode.id}`,
-        type: sourceNode.data.assetType || 'image',
-        url: sourceNode.data.assetUrl,
-        name: sourceNode.data.assetName || sourceNode.data.label || '上传素材',
-        fromNode: true
-      })
-    }
-    // 检查AI节点的输出
-    else if (sourceNode?.data?.outputImage) {
-      // 如果源节点有输出图片
-      assets.push({
-        id: `node_${sourceNode.id}`,
-        type: 'image',
-        url: sourceNode.data.outputImage,
-        name: sourceNode.data.label || '节点输出',
-        fromNode: true // 标记为来自节点的素材
-      })
-    } else if (sourceNode?.data?.outputVideo) {
-      // 如果源节点有输出视频
-      assets.push({
-        id: `node_${sourceNode.id}`,
-        type: 'video',
-        url: sourceNode.data.outputVideo,
-        name: sourceNode.data.label || '节点输出',
-        fromNode: true
-      })
-    } else if (sourceNode?.data?.outputAudio) {
-      assets.push({
-        id: `node_${sourceNode.id}`,
-        type: 'audio',
-        url: sourceNode.data.outputAudio,
-        name: sourceNode.data.label || '节点输出',
-        fromNode: true
-      })
-    }
-  })
-
-  return assets
-})
+const connectedAssets = computed(() => connectedCanvasMedia(props.id, nodeStore.nodes, nodeStore.edges))
 
 // 合并上传的素材和连接的素材
 const allAssets = computed(() => {
   return [...connectedAssets.value, ...uploadedAssets.value]
 })
 
+// Upgrade an old reference list once, while its connections can still be distinguished from local uploads.
+watch(() => isFmgoVideo.value || isFlyapiVideo.value, active => {
+  const data = nodeStore.nodes.find(node => node.id === props.id)?.data
+  if (active && data && !Array.isArray(data._uploads)) uploadedAssets.value = legacyCanvasUploads(data, connectedAssets.value)
+}, { immediate: true })
+const hasLocalFmgoMedia = computed(() => allAssets.value.some(a => (a.type === 'video' || a.type === 'audio') && a.url && !/^https?:\/\//i.test(a.url)))
 const hasVideoInput = computed(() => allAssets.value.some(asset => asset.type === 'video' && asset.url))
 const referenceCapacityHint = computed(() => {
   if (!['ai-video','ai-image'].includes(props.type) || !currentModelCapabilities.value) return ''
@@ -2263,7 +2227,7 @@ const videoModeOptions = computed<GenerationModeOption[]>(() =>
 )
 
 // 当输入变化时，自动切换到可用的选项卡
-watch([hasAnyInput, hasImageInput], ([anyInput, imageInput]) => {
+watch([hasAnyInput, hasImageInput], () => {
   const currentTabObj = videoTabs.value.find(t => t.value === currentTab.value)
   if (currentTabObj?.disabled) {
     // 当前选中的选项卡被禁用，切换到第一个可用的
@@ -2272,7 +2236,7 @@ watch([hasAnyInput, hasImageInput], ([anyInput, imageInput]) => {
       currentTab.value = firstAvailable.value
     }
   }
-})
+}, { immediate: true })
 
 watch([isDmxApi25, isAiideSeedance25, isPiapi25, isIdeaGates25], ([dmxEnabled, aiideEnabled, piapiEnabled, ideaEnabled]) => {
   if (!dmxEnabled && !aiideEnabled && !piapiEnabled && !ideaEnabled && (currentTab.value === 'video-edit' || currentTab.value === 'video-extend')) {
@@ -2634,7 +2598,7 @@ function handleGenerateClick() {
     else if (props.type === 'ai-video') nodeStore.cancelExecution(props.id)
     return
   }
-  if (props.data.luociImageTask || props.data.luociTask || props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
+  if (props.data.flyapiTask || props.data.luociImageTask || props.data.luociTask || props.data.ideagatesTask || props.data.dmxTask || props.data.aiideTask || props.data.piapiTask || props.data.piapiImageTask || props.data.geeknowImageResult) {
     nodeStore.executeNode(props.id)
     return
   }
@@ -3836,6 +3800,10 @@ const nodeCaption = computed(() => {
   color: rgba(255,255,255,.58);
   font-size: 12px;
 }
+.generate-btn:disabled { opacity: .45; cursor: wait; }
+.pending-asset { font-size: 11px; }
+.aimi-submission { margin: 6px 0; color: #cac8d1; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; user-select: text; }
+.aimi-submission span { font-size: 11px; }
 .reference-capacity { color: rgba(255,255,255,.34); font-size: 10px; }
 
 .assets-preview {

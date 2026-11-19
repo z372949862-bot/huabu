@@ -50,14 +50,7 @@ describe('Qiling Seedance 2.5 models', () => {
 
   it('exposes only the current Qiling Seedance 2.5 catalog', () => {
     const ids = QILING_VIDEO_MODEL_TEMPLATES.map((model) => model.id)
-    expect(ids).toContain('SD2.5-满血-CB-720P')
-    expect(ids).toContain('SD2.5-满血-GF-480P')
-    expect(ids).toContain('SD2.5-满血-GF-720P')
-    expect(ids).toContain('SD2.5-满血-CB-480P')
-    expect(ids).toContain('SD2.5-满血-CB-720P-满参')
-    expect(ids).toContain('SD2.5-满血-HN-720P')
-    expect(ids).toContain('SD2.5-满血-CB-720P-备用')
-    expect(ids.some((id) => /^(?:sd2-|SD2\.0-)/i.test(id))).toBe(false)
+    expect(ids).toEqual(['SD2.5-满血-GF-480P', 'SD2.5-满血-GF-720P'])
   })
 
   it('sends images, videos and audios to the XG model', async () => {

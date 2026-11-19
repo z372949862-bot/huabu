@@ -16,6 +16,22 @@ interface Window {
       openUpdate: () => Promise<void>
       onChanged: (callback: (state: any) => void) => () => void
     }
+    suanliai?: {
+      request: (payload: any) => Promise<any>
+      uploadImage: (payload: any) => Promise<any>
+      upload: (payload: any) => Promise<any>
+      download: (payload: any) => Promise<any>
+    }
+    flyapi?: {
+      request: (payload: { apiKey: string; path: string; body?: unknown }) => Promise<{ ok: boolean; data?: any; error?: string; retryable?: boolean; status?: number }>
+      upload: (payload: { dataUrl: string }) => Promise<{ ok: boolean; data?: { url: string }; error?: string }>
+      download: (payload: { apiKey: string; taskId: string }) => Promise<{ ok: boolean; data?: { path: string }; error?: string; retryable?: boolean }>
+    }
+    fmgo?: {
+      request: (payload: { apiKey: string; path: string; body?: unknown }) => Promise<{ ok: boolean; data?: any; error?: string; retryable?: boolean }>
+      upload: (payload: { dataUrl: string }) => Promise<{ ok: boolean; data?: { url: string }; error?: string }>
+      download: (payload: { apiKey: string; taskId: string; videoUrl: string }) => Promise<{ ok: boolean; data?: { path: string }; error?: string; retryable?: boolean }>
+    }
     unmau?: {
       request: (payload: any) => Promise<any>
       upload: (payload: any) => Promise<any>
@@ -63,7 +79,7 @@ interface Window {
     upload: {
       save: (base64Data: string, fileName: string) => Promise<string | null>
       delete: (filePath: string) => Promise<boolean>
-      read: (filePath: string) => Promise<{ data: string; size: number } | null>
+      read: (filePath: string, maxBytes?: number) => Promise<{ data: string; size: number } | null>
     }
     shell?: {
       showItem: (filePath: string) => Promise<void>

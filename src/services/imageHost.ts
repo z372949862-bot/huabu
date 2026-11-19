@@ -10,6 +10,16 @@
 
 const UPLOAD_URL = 'https://imageproxy.zhongzhuan.chat/api/upload'
 
+const localMimeTypes: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/x-m4v', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
+}
+export function localMediaMime(path: string) {
+  return localMimeTypes[path.split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream'
+}
+
 /** 把 blob:/data: URL 拉成 File，文件名按 MIME 自动选后缀，方便 form 上传 */
 export async function urlToFile(url: string, fallbackBase = 'asset'): Promise<File> {
   console.log('[imageHost] fetching asset:', url)
@@ -21,13 +31,7 @@ export async function urlToFile(url: string, fallbackBase = 'asset'): Promise<Fi
     if (!result) throw new Error('读取本地文件失败：文件不存在或无法访问')
     const binary = Uint8Array.from(atob(result.data), c => c.charCodeAt(0))
     const ext = (filePath.split('.').pop() || 'bin').toLowerCase()
-    const mimeMap: Record<string, string> = {
-      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-      gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
-      mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
-      mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
-    }
-    const mime = mimeMap[ext] || 'application/octet-stream'
+    const mime = localMediaMime(filePath)
     const name = `${fallbackBase}.${ext}`
     return new File([binary], name, { type: mime })
   }

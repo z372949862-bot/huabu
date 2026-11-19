@@ -14,7 +14,7 @@ it('offers the selected video providers and adds the chosen kind', async () => {
   app.mount(host)
   try {
     const select = host.querySelector<HTMLSelectElement>('.kind-select')!
-    const kinds = ['dmxapi', 'qiling', 'aiide', 'luoci', 'aimi', 'piapi', 'ideagates', 'ideagates-overseas']
+    const kinds = ['dmxapi', 'qiling', 'aiide', 'luoci', 'aimi', 'fmgo', 'flyapi', 'piapi', 'suanliai', 'ideagates', 'ideagates-overseas']
     expect(Array.from(select.options, option => option.value)).toEqual(kinds)
     expect(select.value).toBe('dmxapi')
     for (const kind of kinds) {

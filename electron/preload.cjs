@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openUpdate: () => ipcRenderer.invoke('license:open-update'),
     onChanged: callback => { const handler = (_event, state) => callback(state); ipcRenderer.on('license:changed', handler); return () => ipcRenderer.removeListener('license:changed', handler) },
   },
+  suanliai: {
+    request: (payload) => ipcRenderer.invoke('suanliai:request', payload),
+    uploadImage: (payload) => ipcRenderer.invoke('suanliai:upload-image', payload),
+    upload: (payload) => ipcRenderer.invoke('suanliai:upload', payload),
+    download: (payload) => ipcRenderer.invoke('suanliai:download', payload),
+  },
   unmau: {
     request: (payload) => ipcRenderer.invoke('unmau:request', payload),
     upload: (payload) => ipcRenderer.invoke('unmau:upload', payload),
@@ -29,7 +35,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (payload) => ipcRenderer.invoke('yu25:upload', payload),
     download: (payload) => ipcRenderer.invoke('yu25:download', payload),
   },
+  flyapi: {
+    upload: ({ dataUrl }) => ipcRenderer.invoke('flyapi:upload', { dataUrl }),
+    request: (payload) => ipcRenderer.invoke('flyapi:request', payload),
+    download: (payload) => ipcRenderer.invoke('flyapi:download', payload),
+  },
   fmgo: {
+    upload: ({ dataUrl }) => ipcRenderer.invoke('fmgo:upload', { dataUrl }),
     request: (payload) => ipcRenderer.invoke('fmgo:request', payload),
     download: (payload) => ipcRenderer.invoke('fmgo:download', payload),
   },
@@ -74,7 +86,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   upload: {
     save: (base64Data, fileName) => ipcRenderer.invoke('upload:save', base64Data, fileName),
     delete: (filePath) => ipcRenderer.invoke('upload:delete', filePath),
-    read: (filePath) => ipcRenderer.invoke('upload:read', filePath),
+    read: (filePath, maxBytes) => ipcRenderer.invoke('upload:read', filePath, maxBytes),
   },
   image: {
     downloadResult: (payload) => ipcRenderer.invoke('image:download-result', payload),

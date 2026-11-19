@@ -2,8 +2,10 @@
 // @ts-nocheck
 import catalog from '../../../electron/aimi-models.json'
 import { UnmauProvider } from './unmau'
+import { bindCanvasReferences, connectedCanvasMedia } from '@/utils/canvasMedia'
 
 export const AIMI_BASE = 'https://aimiapi.com'
+const AIMI_C5 = 'seedance-2.5-720p-c5'
 const ratios = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
 const shared = { ratios, maxImages: 30, maxVideos: 10, maxAudios: 10 }
 
@@ -13,13 +15,31 @@ export const AIMI_MODELS = catalog.map(({ id, name, description, resolution, min
 }))
 
 const modelById = new Map(AIMI_MODELS.map(model => [model.id, model]))
-const unique = values => [...new Set((values || []).filter(value => typeof value === 'string' && value.trim()))]
 const first = (raw, paths) => paths.map(path => path.split('.').reduce((value, key) => value?.[key], raw)).find(value => (typeof value === 'string' || typeof value === 'number') && String(value).trim())
+
+const mediaLabels = { image: '图片', video: '视频', audio: '音频' } as const
+
+function prepareAimiReferences(data, nodes, edges, id) {
+  const selected = connectedCanvasMedia(id, nodes, edges, true)
+  if (Array.isArray(data._uploads)) {
+    // Even an empty list is authoritative: deleted media must not reappear from the last run.
+    selected.push(...data._uploads)
+  } else if (!selected.length) {
+    // Older canvases can contain only the input fields written by the node button.
+    for (const type of ['image', 'video', 'audio'] as const) {
+      const key = 'input' + type[0].toUpperCase() + type.slice(1)
+      const urls = [...(data[key + 's'] || [])]
+      if (data[key] && !urls.includes(data[key])) urls.push(data[key])
+      for (const url of urls) selected.push({ id: '', type, url, name: mediaLabels[type] })
+    }
+  }
+  return bindCanvasReferences(data.prompt, selected)
+}
 
 export function buildAimiBody(data, refs) {
   const model = modelById.get(data.model)
   if (!model) throw new Error('请选择 AIMI 支持的 Seedance 2.5 型号')
-  const prompt = String(data.prompt || '').replace(/@\[([^\]]*)\]\([^)]*\)/g, '$1').trim()
+  const prompt = String(refs.prompt ?? data.prompt ?? '').trim()
   if (!prompt) throw new Error('请输入视频提示词')
   const duration = Number(data.duration ?? (model.id === 'seedance-2.5-slow' ? 15 : model.capabilities.durationRange.min))
   const { min, max } = model.capabilities.durationRange
@@ -28,7 +48,15 @@ export function buildAimiBody(data, refs) {
   if (!model.capabilities.resolutions.includes(resolution)) throw new Error(`${model.name} 仅支持 ${model.capabilities.resolutions[0]}`)
   const aspectRatio = data.ratio && data.ratio !== 'auto' ? data.ratio : '16:9'
   if (!ratios.includes(aspectRatio)) throw new Error('AIMI Seedance 2.5 支持 21:9、16:9、4:3、1:1、3:4、9:16')
-  const images = unique(refs.images), videos = unique(refs.videos), audios = unique(refs.audios)
+  const { images = [], videos = [], audios = [] } = refs
+  if (model.id === AIMI_C5) {
+    const counts = { 图片: images.length, 视频: videos.length, 音频: audios.length }
+    for (const [mention, kind, index] of prompt.matchAll(/@(图片|视频|音频)([0-9]+)/g)) {
+      if (Number(index) < 1 || Number(index) > counts[kind]) {
+        throw new Error('提示词中的 ' + mention + ' 没有对应素材。请在节点添加该素材，或重新选择引用。')
+      }
+    }
+  }
   for (const [items, limit, label] of [[images, 30, '参考图'], [videos, 10, '参考视频'], [audios, 10, '参考音频']]) {
     if (items.length > limit) throw new Error(`${model.name} 最多支持 ${limit} 个${label}，当前 ${items.length} 个`)
   }
@@ -44,12 +72,16 @@ export function buildAimiBody(data, refs) {
 }
 
 export function adaptAimiCreateBody(body) {
+  // Jing's published examples use images/audios; the video upload guide specifies reference_video_urls.
+  const jing = body.model === 'jing-seedance2.5-V-720p' || body.model === 'jing-seedance2.5-M-480p'
+  // C5's live missing-image response names image_refs; keep a single, ordered image field.
+  const imageField = body.model === AIMI_C5 ? 'image_refs' : jing ? 'images' : 'reference_image_urls'
   return {
     model: body.model, prompt: body.prompt, seconds: body.seconds,
     resolution: body.resolution, aspect_ratio: body.aspect_ratio,
-    ...(body.images ? { reference_image_urls: body.images } : {}),
+    ...(body.images?.length ? { [imageField]: body.images } : {}),
     ...(body.videos ? { reference_video_urls: body.videos } : {}),
-    ...(body.audios ? { reference_audio_urls: body.audios } : {}),
+    ...(body.audios ? { [jing ? 'audios' : 'reference_audio_urls']: body.audios } : {}),
   }
 }
 
@@ -82,7 +114,7 @@ function bridge() {
   return window.electronAPI.aimi
 }
 function unpack(result) {
-  if (!result?.ok) throw Object.assign(new Error(result?.error || 'AIMI 请求失败'), { retryable: !!result?.retryable })
+  if (!result?.ok) throw Object.assign(new Error(result?.error || 'AIMI 请求失败'), { retryable: !!result?.retryable, status: result?.status })
   return result.data
 }
 
@@ -93,7 +125,18 @@ export class AimiProvider extends UnmauProvider {
     if (this.baseUrl !== AIMI_BASE) throw new Error(`AIMI API 地址应为 ${AIMI_BASE}`)
     if (!this.apiKey.trim()) throw new Error('请在 AIMI 设置中填写 API Key')
   }
+  prepareReferences(data, nodes, edges, id) { return prepareAimiReferences(data, nodes, edges, id) }
   buildBody(data, refs) { return buildAimiBody(data, refs) }
+  resumeBody(data) {
+    // Poll the already accepted job; its references may since have changed or been removed.
+    if (!data.taskId) return undefined
+    return { model: data.aimiSubmission?.taskId === data.taskId ? data.aimiSubmission.model : data.model,
+      prompt: data.prompt, seconds: data.duration, resolution: data.resolution, aspect_ratio: data.ratio }
+  }
+  pendingTask(taskId, body, data) {
+    return { aimiSubmission: { taskId, providerId: data.providerId, model: body.model,
+      images: body.images?.length || 0, videos: body.videos?.length || 0, audios: body.audios?.length || 0 } }
+  }
   assetMeta(body) { return { model: body.model, prompt: body.prompt, ratio: body.aspect_ratio, resolution: body.resolution, duration: body.seconds } }
   async request(path, body) { this.validate(); return unpack(await bridge().request({ apiKey: this.apiKey, path, ...(body ? { body } : {}) })) }
   async testAuth(key) {
@@ -130,7 +173,15 @@ export class AimiProvider extends UnmauProvider {
     return hosted.href
   }
   async createTask(body) {
-    const result = await this.request('/v1/videos', adaptAimiCreateBody(body))
+    const payload = adaptAimiCreateBody(body)
+    let result
+    try { result = await this.request('/v1/videos', payload) }
+    catch (error) {
+      if (payload.model !== AIMI_C5 || error.status !== 400 || !/prompt references an image,\s*but no image material was received/i.test(error.message)) throw error
+      const images = payload.image_refs?.length || 0, videos = payload.reference_video_urls?.length || 0
+      const advice = images ? '请让 AIMI 核对转发给 C5 的参考图片。' : '请在当前节点添加提示词引用的图片。'
+      throw new Error('AIMI 提交失败（HTTP 400）：C5 未识别到参考图片。本次请求包含 ' + images + ' 张图片、' + videos + ' 段视频。' + advice + '软件未自动重试。')
+    }
     const taskId = first(result, ['task_id', 'id', 'data.task_id', 'data.id'])
     if (!taskId) throw new Error('AIMI 未返回任务 ID，请先到平台确认任务是否已创建，避免重复提交')
     return { taskId: String(taskId) }

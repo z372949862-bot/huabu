@@ -1,0 +1,14 @@
+[
+  {
+    "id": "feimiao-v2.5-720p-30s", "name": "Feimiao 2.5 · 720P · 30秒", "description": "固定 30 秒，最多 30 张参考图",
+    "wireModels": { "720p": "feimiao-v2.5-720p-30s" }, "minSeconds": 30, "maxSeconds": 30, "maxImages": 30, "maxVideos": 3, "audioGeneration": true
+  },
+  {
+    "id": "s2.5-pro", "name": "飞喵 Seedance 2.5 Pro", "description": "480P / 720P · 4～30 秒 · 30 图、10 视频、10 音频参考",
+    "wireModels": { "480p": "s2.5-pro", "720p": "s2.5-pro" }, "minSeconds": 4, "maxSeconds": 30, "maxImages": 30, "maxVideos": 10, "maxAudios": 10
+  },
+  {
+    "id": "s2.5-max", "name": "飞喵 Seedance 2.5 Max", "description": "720P / 1080P · 固定 30 秒 · 30 图、10 视频、10 音频参考",
+    "wireModels": { "720p": "s2.5-max-720p", "1080p": "s2.5-max-1080p" }, "minSeconds": 30, "maxSeconds": 30, "maxImages": 30, "maxVideos": 10, "maxAudios": 10
+  }
+]

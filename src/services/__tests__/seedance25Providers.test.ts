@@ -18,16 +18,25 @@ describe('AIMI Seedance 2.5 adapter', () => {
     ['H-seedance-2.5-2-720p', '720p', 4, '0.35 元/秒'],
     ['H-seedance-2.5-2-480p', '480p', 4, '0.26 元/秒'],
     ['seedance-2.5-slow', '720p', 4, '0.35 元/秒'],
+    ['jing-seedance2.5-V-720p', '720p', 5, '6 元/条'],
+    ['jing-seedance2.5-M-480p', '480p', 5, '5 元/条'],
   ] as const)('builds %s with its displayed price and duration limits', (model, resolution, min, price) => {
     const refs = { images: ['https://example.com/a.png'], videos: ['https://example.com/b.mp4'], audios: ['https://example.com/c.mp3'] }
     expect(getModelTemplatesByKind('aimi')).toEqual(AIMI_MODELS)
-    expect(AIMI_MODELS).toHaveLength(4)
-    expect(AIMI_MODELS.find(m => m.id === model)?.name).toContain(price)
-    const data = { model, prompt: 'scene', resolution, duration: min }
+    const listed = AIMI_MODELS.find(m => m.id === model)
+    expect(listed?.name).toContain(price)
+    expect(listed?.capabilities).toMatchObject({ resolutions: [resolution], durationRange: { min, max: 30 } })
+    const data = { model, prompt: 'scene', resolution, duration: 18 }
     expect(adaptAimiCreateBody(buildAimiBody(data, refs))).toEqual({
-      model, prompt: 'scene', seconds: min, resolution, aspect_ratio: '16:9',
-      reference_image_urls: refs.images, reference_video_urls: refs.videos, reference_audio_urls: refs.audios,
+      model, prompt: 'scene', seconds: 18, resolution, aspect_ratio: '16:9',
+      ...(model.startsWith('jing-') ? { images: refs.images, audios: refs.audios }
+        : model === 'seedance-2.5-720p-c5' ? { image_refs: refs.images, reference_audio_urls: refs.audios }
+        : { reference_image_urls: refs.images, reference_audio_urls: refs.audios }),
+      reference_video_urls: refs.videos,
     })
+    for (const seconds of [min, 30]) {
+      expect(buildAimiBody({ ...data, duration: seconds }, refs).seconds).toBe(seconds)
+    }
     expect(() => buildAimiBody({ ...data, duration: min - 1 }, refs)).toThrow()
     expect(() => buildAimiBody({ ...data, duration: 31 }, refs)).toThrow()
     expect(() => buildAimiBody({ ...data, resolution: '1080p' }, refs)).toThrow()
@@ -49,8 +58,8 @@ describe('AIMI Seedance 2.5 adapter', () => {
 })
 
 describe('FMGO Feimiao 2.5 adapter', () => {
-  it('registers the fixed 720p 30-second model with a 30-image cap', () => {
-    expect(FMGO_MODELS.map(model => model.id)).toEqual(['feimiao-v2.5-720p-30s'])
+  it('offers Pro and Max without removing the original model', () => {
+    expect(FMGO_MODELS.map(model => model.id)).toEqual(['feimiao-v2.5-720p-30s', 's2.5-pro', 's2.5-max'])
     expect(FMGO_MODELS[0].capabilities.maxImages).toBe(30)
     expect(getModelTemplatesByKind('fmgo')).toEqual(FMGO_MODELS)
   })
@@ -88,6 +97,23 @@ describe('FMGO Feimiao 2.5 adapter', () => {
     expect(() => buildFmgoBody(base, {
       images: [], videos: [], audios: ['https://example.com/music.mp3'],
     })).toThrow('不能只传参考音频')
+  })
+
+  it.each(['s2.5-pro', 's2.5-max'])('enforces all three reference limits without silently truncating %s', model => {
+    const list = (n: number, ext: string) => Array.from({ length: n }, (_, i) => `https://cdn.example.test/${i}.${ext}`)
+    const refs = { images: list(30, 'png'), videos: list(10, 'mp4'), audios: list(10, 'wav') }
+    const build = (refs: any) => buildFmgoBody({ model, prompt: '镜头', duration: 30, resolution: '720p' }, refs)
+    expect(build(refs)).toMatchObject({ images: refs.images, reference_videos: refs.videos, reference_audios: refs.audios })
+    for (const field of ['images', 'videos', 'audios'] as const) {
+      expect(() => build({ ...refs, [field]: [...refs[field], 'https://cdn.example.test/extra'] })).toThrow(field === 'images' ? /30/ : /10/)
+    }
+  })
+  it('sends the selected whole seconds and resolution for Pro, rejects out-of-range choices', () => {
+    const build = (duration: number, resolution: string) => buildFmgoBody({ model: 's2.5-pro', prompt: '场景', duration, resolution }, {})
+    expect(build(4, '720p')).toMatchObject({ model: 's2.5-pro', seconds: '4', resolution: '720p' })
+    expect(build(30, '480p')).toMatchObject({ model: 's2.5-pro', seconds: '30', resolution: '480p' })
+    for (const n of [3, 30.5, 31]) expect(() => build(n, '720p')).toThrow(/秒/)
+    expect(() => build(12, '1080p')).toThrow(/480p.*720p/)
   })
 
   it('maps task IDs and completion URLs from the documented response envelope', () => {

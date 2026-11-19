@@ -1,16 +1,16 @@
 const crypto = require('crypto')
 
-// AIIDE accepts public media URLs, not multipart local files. Keep the existing
+// Providers needing public media links share this uploader. Keep the existing
 // staging host, but upload outside renderer CORS and never send provider keys.
-function createMediaUploader({ fetch, retryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+function createMediaUploader({ fetch, serviceName = 'AIIDE', extraFormats = {}, retryDelay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const cache = new Map()
   const inflight = new Map()
   return async ({ dataUrl } = {}) => {
     try {
       const match = typeof dataUrl === 'string' && dataUrl.match(/^data:((?:image|video|audio)\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/i)
-      const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/tiff': 'tiff', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav' }
+      const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/tiff': 'tiff', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', ...extraFormats }
       const ext = match && extensions[match[1].toLowerCase()]
-      if (!ext) throw new Error('AIIDE 不支持该参考素材格式，请使用图片、MP4/MOV 视频或 MP3/WAV 音频')
+      if (!ext) throw new Error(`${serviceName} 无法上传该参考素材格式，请使用 MP4/MOV 视频、MP3/WAV 音频或提供公网直链`)
       const bytes = Buffer.from(match[2], 'base64')
       if (!bytes.length || bytes.length > 100 * 1024 * 1024) throw new Error('参考素材为空或超过本地上传上限 100 MB，请压缩后重试')
       // Video references can take several minutes on an ordinary uplink. Budget
@@ -54,7 +54,7 @@ function createMediaUploader({ fetch, retryDelay = ms => new Promise(resolve => 
                 ? `素材上传超时（等待 ${Math.round(timeoutMs / 1000)} 秒，文件 ${(bytes.length / 1024 / 1024).toFixed(1)} MB），请压缩素材或检查网络、代理连接`
                 : error.name === 'AbortError' ? '素材上传连接被中断，请检查网络或代理连接'
                   : error instanceof TypeError ? '无法连接素材上传服务，请检查网络或代理连接' : error.message
-              if (!transient || attempt === 2) throw new Error('AIIDE 参考素材上传失败：' + reason + '。视频任务尚未提交，请稍后重试或使用可公开访问的素材链接')
+              if (!transient || attempt === 2) throw new Error(serviceName + ' 参考素材上传失败：' + reason + '。视频任务尚未提交，请稍后重试或使用可公开访问的素材链接')
               await retryDelay(1000 * 2 ** attempt)
             } finally { clearTimeout(timer) }
           }
@@ -63,7 +63,7 @@ function createMediaUploader({ fetch, retryDelay = ms => new Promise(resolve => 
         void job.finally(() => inflight.delete(hash)).catch(() => {})
       }
       return { ok: true, data: await inflight.get(hash) }
-    } catch (error) { return { ok: false, error: error.message || 'AIIDE 素材上传失败' } }
+    } catch (error) { return { ok: false, error: error.message || serviceName + ' 素材上传失败' } }
   }
 }
 module.exports = function registerAiide({ ipcMain, ...options }) {

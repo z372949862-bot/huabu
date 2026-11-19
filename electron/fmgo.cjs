@@ -4,14 +4,19 @@ const path = require('path')
 const { Readable } = require('stream')
 const { pipeline } = require('stream/promises')
 
-const BASE = 'https://api.fmgo.top'
-const MODELS = new Set(['feimiao-v2.5-720p-30s'])
+const BASE = 'https://api.feimiaoapi.com'
+const MODELS = new Set(require('./fmgo-models.json').flatMap(model => Object.values(model.wireModels)))
 function assertAsciiApiKey(apiKey) {
   if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new Error('请填写有效的 FMGO API Key')
   if (/[^\x00-\x7F]/.test(apiKey)) throw new Error('FMGO API Key 只能包含英文、数字和符号，请检查是否误粘贴了中文内容')
 }
 
-module.exports = function registerFmgo({ ipcMain, net, app }) {
+module.exports = function registerFmgo({ ipcMain, net, app, stagingFetch }) {
+  const upload = require('./aiide.cjs').createMediaUploader({
+    fetch: stagingFetch || ((...args) => net.fetch(...args)), serviceName: '飞喵',
+    extraFormats: { 'video/webm': 'webm', 'video/x-m4v': 'm4v', 'video/x-matroska': 'mkv', 'video/x-msvideo': 'avi', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/webm': 'webm' },
+  })
+  ipcMain.handle('fmgo:upload', (_event, { dataUrl } = {}) => upload({ dataUrl }))
   const downloads = new Map()
   const wrap = fn => async (_event, args) => {
     try { return { ok: true, data: await fn(args || {}) } }
@@ -57,7 +62,7 @@ module.exports = function registerFmgo({ ipcMain, net, app }) {
     const creating = route === '/v1/videos' && !!body
     const polling = /^\/v1\/videos\/[A-Za-z0-9_%.-]+$/.test(route || '')
     if (!creating && route !== '/v1/models' && !polling) throw new Error('不支持的 FMGO 请求')
-    if (creating && !MODELS.has(body.model)) throw new Error('FMGO 当前仅接入 feimiao-v2.5-720p-30s')
+    if (creating && !MODELS.has(body.model)) throw new Error('飞喵不支持所选型号或分辨率')
     return request(apiKey, route, creating ? {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -97,8 +102,8 @@ module.exports = function registerFmgo({ ipcMain, net, app }) {
 
   ipcMain.handle('fmgo:download', wrap(async ({ apiKey, taskId, videoUrl }) => {
     assertAsciiApiKey(apiKey)
-    if (typeof videoUrl !== 'string' || !videoUrl || videoUrl.length > 8192) throw Object.assign(new Error('FMGO 尚未返回可下载的视频地址'), { retryable: true })
-    const parsed = new URL(videoUrl)
+    if (typeof videoUrl !== 'string' || !videoUrl.trim() || videoUrl.length > 8192) throw Object.assign(new Error('FMGO 尚未返回可下载的视频地址'), { retryable: true })
+    const parsed = new URL(videoUrl, BASE)
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('FMGO 返回的视频地址无效')
     const identity = String(taskId || videoUrl)
     if (identity.length > 8192) throw new Error('FMGO 视频任务信息无效')

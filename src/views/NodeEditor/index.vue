@@ -100,6 +100,7 @@ import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
 import type { Node, Edge } from '@vue-flow/core'
 import { useRoute, useRouter } from 'vue-router'
+import { inferCanvasMediaKind } from '@/utils/canvasMedia'
 import ContextMenu from '@/components/ContextMenu.vue'
 import type { CanvasMenuItem } from '@/utils/canvasMenu'
 import CustomNode from '@/components/CustomNode.vue'
@@ -893,19 +894,6 @@ const onContextMenuSelect = (action: string) => {
 
 type CanvasAssetType = 'image' | 'video' | 'audio'
 
-const inferCanvasAssetType = (file: File): CanvasAssetType | null => {
-  const mime = file.type.toLowerCase()
-  if (mime.startsWith('image/')) return 'image'
-  if (mime.startsWith('video/')) return 'video'
-  if (mime.startsWith('audio/')) return 'audio'
-
-  const extension = file.name.toLowerCase().split('.').pop() || ''
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'tif', 'tiff'].includes(extension)) return 'image'
-  if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(extension)) return 'video'
-  if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(extension)) return 'audio'
-  return null
-}
-
 const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader()
   reader.onload = () => resolve(reader.result as string)
@@ -959,7 +947,7 @@ const readMediaDimensions = (url: string, type: CanvasAssetType) => new Promise<
 })
 
 const addFilesToCanvas = async (files: File[], clientX: number, clientY: number) => {
-  const supportedFiles = files.filter((file) => inferCanvasAssetType(file))
+  const supportedFiles = files.filter((file) => inferCanvasMediaKind(file))
   if (supportedFiles.length === 0) return
 
   const basePosition = screenToFlowCoordinate({
@@ -968,7 +956,7 @@ const addFilesToCanvas = async (files: File[], clientX: number, clientY: number)
   })
 
   for (const [index, file] of supportedFiles.entries()) {
-    const type = inferCanvasAssetType(file)
+    const type = inferCanvasMediaKind(file)
     if (!type) continue
 
     try {
@@ -1073,6 +1061,7 @@ const addNodeByType = (type: string, placement = contextMenu.data) => {
       size: '1024x1024',
       style: 'realistic',
       mode: 'text-to-video',
+      ...(type === 'ai-video' ? { _uploads: [] } : {}),
       duration: 5,
       fps: 24,
     },

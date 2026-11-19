@@ -8,7 +8,10 @@ const { autoUpdater } = require('electron-updater')
 const log = require('electron-log')
 const licenseConfig = require('./license-config.cjs')
 const licensePreview = !!(licenseConfig.trial || licenseConfig.preview)
-const applicationTitle = licenseConfig.trial ? '芜湖AI · 授权试用' : licenseConfig.preview ? '芜湖AI · 云端授权验证' : '芜湖AI'
+// Set only in independently packaged feature previews; production builds keep their existing profile.
+const featurePreview = require('../package.json').canvasFeaturePreview === true
+const enableUpdater = app.isPackaged && !licensePreview && !featurePreview
+const applicationTitle = featurePreview ? '芜湖AI · 功能预览' : licenseConfig.trial ? '芜湖AI · 授权试用' : licenseConfig.preview ? '芜湖AI · 云端授权验证' : '芜湖AI'
 const { createLicenseClient } = require('./license-client.cjs')
 let mainWindow = null
 const license = createLicenseClient({ app, safeStorage, net, config: licenseConfig, notify: state => {
@@ -19,7 +22,10 @@ license.register(rawIpcMain)
 rawIpcMain.handle('license:open-update', () => shell.openExternal(require('./update-policy.cjs').RELEASE_URL))
 
 // 更名后继续使用旧数据目录，保留已有项目、素材和中转站配置。
-app.setPath('userData', path.join(app.getPath('appData'), licenseConfig.trial ? 'WuhuAI License Trial' : licenseConfig.preview ? 'WuhuAI Cloud License Preview' : app.isPackaged ? 'AI Video Canvas' : 'ai-video-canvas'))
+const profileDir = path.join(app.getPath('appData'), featurePreview ? 'WuhuAI Feature Preview' : licenseConfig.trial ? 'WuhuAI License Trial' : licenseConfig.preview ? 'WuhuAI Cloud License Preview' : app.isPackaged ? 'AI Video Canvas' : 'ai-video-canvas')
+fs.mkdirSync(profileDir, { recursive: true })
+app.setPath('userData', profileDir)
+if (featurePreview) app.setPath('sessionData', profileDir)
 app.setName(applicationTitle)
 if (!app.requestSingleInstanceLock()) app.quit()
 app.on('second-instance', () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.restore(); mainWindow.focus() } })
@@ -30,8 +36,8 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 const jianying = require('./jianyingDraft.cjs')
 require('./unmau.cjs')({ ipcMain, net, app })
+require('./suanliai.cjs')({ ipcMain, net, app })
 require('./yu25.cjs')({ ipcMain, net, app })
-require('./fmgo.cjs')({ ipcMain, net, app })
 require('./luoci-video.cjs')({ ipcMain, net, app })
 require('./luoci-image.cjs')({ ipcMain, net })
 require('./aimi.cjs')({ ipcMain, net, app })
@@ -39,6 +45,8 @@ require('./piapi.cjs')({ ipcMain, net, app })
 require('./xinshuju.cjs')({ ipcMain, net, app })
 require('./qiling.cjs')({ ipcMain, net, app })
 const mediaFetch = require('./mediaFetch.cjs').createMediaFetch(net)
+require('./fmgo.cjs')({ ipcMain, net, app, stagingFetch: mediaFetch })
+require('./flyapi.cjs')({ ipcMain, net, app, stagingFetch: mediaFetch })
 require('./ideagates.cjs')({ ipcMain, net, app, stagingFetch: mediaFetch })
 require('./geeknow.cjs')({ ipcMain, fetch: mediaFetch })
 const fetchImageResult = require('./imageResultFetch.cjs').createImageResultFetch({ fetch: mediaFetch })
@@ -93,8 +101,12 @@ ipcMain.handle('upload:delete', (_event, filePath) => {
   } catch { return false }
 })
 
-ipcMain.handle('upload:read', (_event, filePath) => {
+ipcMain.handle('upload:read', (_event, filePath, maxBytes) => {
   try {
+    if (Number.isSafeInteger(maxBytes) && maxBytes >= 0) {
+      const { size } = fs.statSync(filePath)
+      if (size > maxBytes) return { data: '', size }
+    }
     const buf = fs.readFileSync(filePath)
     return { data: buf.toString('base64'), size: buf.length }
   } catch (err) {
@@ -457,7 +469,7 @@ function createWindow() {
       contextIsolation: true,
     },
   })
-  mainWindow.webContents.on('page-title-updated', event => { if (licensePreview) { event.preventDefault(); mainWindow.setTitle(applicationTitle) } })
+  mainWindow.webContents.on('page-title-updated', event => { if (licensePreview || featurePreview) { event.preventDefault(); mainWindow.setTitle(applicationTitle) } })
   // Also protect direct renderer HTTP calls used by several older providers.
   mainWindow.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
     const fromRenderer = details.webContentsId === mainWindow?.webContents.id
@@ -496,7 +508,7 @@ app.whenReady().then(async () => {
 
   // 自动更新（仅在打包后的 app 中生效，dev 模式跳过）
   // 可见式更新：不自动下载，把事件推给渲染端由用户确认
-  if (app.isPackaged && !licensePreview) {
+  if (enableUpdater) {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
 
@@ -519,7 +531,7 @@ app.whenReady().then(async () => {
 
   // 渲染端触发的更新操作
   ipcMain.handle('updater:check', async () => {
-    if (!app.isPackaged || licensePreview) return { ok: false, reason: 'dev-mode' }
+    if (!enableUpdater) return { ok: false, reason: 'dev-mode' }
     try {
       const r = await autoUpdater.checkForUpdates()
       return { ok: true, version: r && r.updateInfo && r.updateInfo.version }
@@ -528,10 +540,12 @@ app.whenReady().then(async () => {
     }
   })
   ipcMain.handle('updater:download', async () => {
+    if (!enableUpdater) return { ok: false, reason: 'dev-mode' }
     try { await autoUpdater.downloadUpdate(); return { ok: true } }
     catch (err) { return { ok: false, reason: (err && err.message) || String(err) } }
   })
   ipcMain.handle('updater:install', () => {
+    if (!enableUpdater) return
     // 退出并安装；isSilent=false 显示安装界面，isForceRunAfter=true 装完自动重开
     autoUpdater.quitAndInstall(false, true)
   })

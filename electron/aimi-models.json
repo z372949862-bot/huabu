@@ -4,7 +4,7 @@
     "name": "Seedance 2.5 C5 · 720P · 7 元/条",
     "resolution": "720p",
     "minSeconds": 5,
-    "description": "5–30 秒，最多 30 图 / 10 视频 / 10 音频。按条计费，支持文生、图生和参考生视频。"
+    "description": "5–30 秒，按条计费。平台标称最多 30 图 / 10 视频 / 10 音频；AIMI 转交参考素材，C5 上游使用效果尚待平台核验。"
   },
   {
     "id": "H-seedance-2.5-2-720p",
@@ -26,5 +26,19 @@
     "resolution": "720p",
     "minSeconds": 4,
     "description": "4–30 秒，最多 30 图 / 10 视频 / 10 音频。按生成时长与参考视频总时长之和计费。参考视频须为公网 MP4，每段最多 64 MiB，总时长不能超过生成时长。"
+  },
+  {
+    "id": "jing-seedance2.5-V-720p",
+    "name": "Seedance 2.5 Jing V · 720P · 6 元/条",
+    "resolution": "720p",
+    "minSeconds": 5,
+    "description": "5–30 秒，最多 30 图 / 10 视频 / 10 音频。按条计费。"
+  },
+  {
+    "id": "jing-seedance2.5-M-480p",
+    "name": "Seedance 2.5 Jing M · 480P · 5 元/条",
+    "resolution": "480p",
+    "minSeconds": 5,
+    "description": "5–30 秒，最多 30 图 / 10 视频 / 10 音频。按条计费。"
   }
 ]

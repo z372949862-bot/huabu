@@ -8,7 +8,7 @@
  * 模型 ID 来自 api.aiid.edu.kg 各自的 OpenAPI 文档。
  */
 
-import { Qiling1080Models } from './qiling1080'
+import { FLYAPI_MODELS } from './providers/flyapi'
 import type { VideoModelCapabilities } from './videoModelService'
 import { UNMAU_MODELS } from './providers/unmau'
 import { YU25_MODELS } from './providers/yu25'
@@ -17,8 +17,9 @@ import { FMGO_MODELS } from './providers/fmgo'
 import { LUOCI_VIDEO_MODELS } from './providers/luociVideo'
 import { AIMI_MODELS } from './providers/aimi'
 import { PIAPI_MODELS } from './providers/piapi'
+import { SUANLIAI_MODELS } from './providers/suanliai'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'luoci' | 'aimi' | 'piapi' | 'ideagates' | 'ideagates-overseas'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'luoci' | 'aimi' | 'piapi' | 'suanliai' | 'flyapi' | 'ideagates' | 'ideagates-overseas'
 import { ideaGatesModels } from './providers/ideagates'
 
 export interface ModelTemplate {
@@ -109,7 +110,6 @@ export const AIMI_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = AIMI_MODELS
 
 /** 器灵中转站默认模型（仅 Seedance 系列） */
 export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
-  ...Qiling1080Models,
   {
     id: 'SD2.5-满血-GF-480P',
     name: 'SD2.5 满血 GF · 480P',
@@ -138,107 +138,6 @@ export const QILING_VIDEO_MODEL_TEMPLATES: ModelTemplate[] = [
       maxImages: 10,
       maxVideos: 5,
       maxAudios: 5,
-    },
-  },
-  {
-    id: 'SD2.5-满血-XG-720P',
-    name: 'SD2.5 满血 XG · 720P',
-    description: '器灵 XG 线路，4–30 秒，最多 30 图 / 10 视频 / 10 音频参考',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
-      resolutions: ['720p'],
-      durationRange: { min: 4, max: 30 },
-      audioGeneration: true,
-      maxImages: 30,
-      maxVideos: 10,
-      maxAudios: 10,
-    },
-  },
-  {
-    id: 'SD2.5-满血-CB-720P',
-    name: 'SD2.5 满血 CB · 720P',
-    description: '器灵 CB 主线路，固定 30 秒，最多 9 张公网 HTTPS 参考图',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
-      resolutions: ['720p'],
-      durationRange: { min: 30, max: 30 },
-      audioGeneration: false,
-      maxImages: 9,
-      maxVideos: 0,
-      maxAudios: 0,
-    },
-  },
-  {
-    id: 'SD2.5-满血-CB-480P',
-    name: 'SD2.5 满血 CB · 480P',
-    description: '器灵 CB 480P 线路，4–30 秒，最多 30 图 / 10 视频 / 10 音频，合计 50 项',
-    capabilities: {
-      ratios: ['16:9', '9:16'],
-      resolutions: ['480p'],
-      durationRange: { min: 4, max: 30 },
-      audioGeneration: false,
-      maxImages: 30,
-      maxVideos: 10,
-      maxAudios: 10,
-    },
-  },
-  {
-    id: 'SD2.5-满血-CB-720P-满参',
-    name: 'SD2.5 满血 CB 满参 · 720P',
-    description: '器灵 CB 满参线路，5–30 秒，最多 30 图 / 10 视频 / 10 音频，合计 50 项；支持本地素材上传',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1'],
-      resolutions: ['720p'],
-      durationRange: { min: 5, max: 30 },
-      durationOptions: Array.from({ length: 26 }, (_, index) => index + 5),
-      audioGeneration: false,
-      maxImages: 30,
-      maxVideos: 10,
-      maxAudios: 10,
-    },
-  },
-  {
-    id: 'SD2.5-满血-CB-720P-备用',
-    name: 'SD2.5 满血 CB 备用 · 720P',
-    description: '器灵 CB 备用线路，5 / 10 / 15 / 30 秒，最多 9 张公网 HTTPS 参考图',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1'],
-      resolutions: ['720p'],
-      durationRange: { min: 5, max: 30 },
-      durationOptions: [5, 10, 15, 30],
-      audioGeneration: false,
-      maxImages: 9,
-      maxVideos: 0,
-      maxAudios: 0,
-    },
-  },
-  {
-    id: 'SD2.5-满血-HN-720P',
-    name: 'SD2.5 满血 HN · 720P',
-    description: '器灵 HN 线路，5 / 10 / 20 / 30 秒，最多 30 张公网参考图',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
-      resolutions: ['720p'],
-      durationRange: { min: 5, max: 30 },
-      durationOptions: [5, 10, 20, 30],
-      audioGeneration: false,
-      maxImages: 30,
-      maxVideos: 0,
-      maxAudios: 0,
-    },
-  },
-  {
-    id: 'SD2.5-满血-JL-720P',
-    name: 'SD2.5 满血 JL · 720P',
-    description: '器灵 JL 线路，固定 30 秒，支持文生、首帧、首尾帧和多媒体参考',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
-      resolutions: ['720p'],
-      durationRange: { min: 30, max: 30 },
-      audioGeneration: true,
-      maxImages: 30,
-      maxVideos: 10,
-      maxAudios: 10,
     },
   },
 ]
@@ -280,17 +179,19 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   xinshuju: XINSHUJU_MODELS,
   dmxapi: DMXAPI_VIDEO_MODEL_TEMPLATES,
   fmgo: FMGO_VIDEO_MODEL_TEMPLATES,
+  flyapi: FLYAPI_MODELS,
   aiide: AIIDE_VIDEO_MODEL_TEMPLATES,
   luoci: LUOCI_VIDEO_MODELS,
   aimi: AIMI_VIDEO_MODEL_TEMPLATES,
   piapi: PIAPI_MODELS,
+  suanliai: SUANLIAI_MODELS,
 }
 
 /** 兼容旧代码：返回全部去重模板（按 id）。新代码用 getModelTemplatesByKind。 */
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...LUOCI_VIDEO_MODELS, ...PIAPI_MODELS]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...LUOCI_VIDEO_MODELS, ...PIAPI_MODELS, ...SUANLIAI_MODELS, ...FLYAPI_MODELS]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

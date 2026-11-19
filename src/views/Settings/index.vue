@@ -90,6 +90,12 @@
           </div>
 
           <div class="provider-body">
+            <p v-if="provider.kind === 'flyapi'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
+              填写 FlyAPI 自己的 API Key；测试连接只查询 seedance2.5 的使用权限。支持 4–30 秒、480p / 720p / 1080p。本地素材会先上传至 imageproxy.zhongzhuan.chat，再登记到 FlyAPI；已有 FlyAPI 素材 ID 可以直接添加。
+            </p>
+            <p v-if="provider.kind === 'fmgo' && provider.type === 'video'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
+              飞喵可直接读取公网 HTTPS 素材链接。本地视频、音频会先上传至 imageproxy.zhongzhuan.chat 获取链接，上传时不携带飞喵 API Key。
+            </p>
             <p v-if="isIdeaGatesKind(provider.kind)" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
               请填写此分组专用的 API Key。仅接入 Seedance 2.5 / 720P；实际分组由 Key 决定，选择名称不会改变 Key 的分组。测试连接只查询模型权限。本地素材会先临时上传，再登记到官方素材库后生成；也支持 HTTPS 链接和已有素材 ID。海外组的素材库以实际返回为准。续接时长为成片总时长。
             </p>
@@ -153,7 +159,7 @@
                     <span v-if="model.name" class="model-id">{{ model.id }}</span>
                     <span v-if="provider.kind === 'aimi' || provider.kind === 'luoci'" class="model-id">{{ model.description }}</span>
                   </div>
-                  <button class="btn-icon" @click="aiStore.removeModel(provider.id, model.id)" title="删除">
+                  <button v-if="!hasFixedVideoModels(provider)" class="btn-icon" @click="aiStore.removeModel(provider.id, model.id)" title="删除">
                     🗑
                   </button>
                 </div>
@@ -161,7 +167,7 @@
                   这个中转站还没添加任何模型
                 </div>
 
-                <div class="add-model-row">
+                <div v-if="!hasFixedVideoModels(provider)" class="add-model-row">
                   <select v-model="addModelChoice[provider.id]" class="model-select">
                     <option value="">— 从模板添加 —</option>
                     <option
@@ -181,7 +187,7 @@
                   </button>
                 </div>
 
-                <div v-if="provider.kind !== 'luoci' && provider.kind !== 'aimi' && !isIdeaGatesKind(provider.kind)" class="add-model-row">
+                <div v-if="!hasFixedVideoModels(provider) && provider.kind !== 'luoci' && provider.kind !== 'aimi' && !isIdeaGatesKind(provider.kind)" class="add-model-row">
                   <input
                     v-model="customModelId[provider.id]"
                     placeholder="或填自定义模型 ID"
@@ -267,7 +273,10 @@ const videoChoices = {
   aiide: { name: 'AIIDE · Seedance 2.5 HC', label: 'AIIDE · Seedance 2.5 HC' },
   luoci: { name: '洛辞 · Seedance 2.5', label: '洛辞 · Seedance 2.5 Uncensored' },
   aimi: { name: 'AIMI · Seedance 2.5', label: 'AIMI · Seedance 2.5 (aimiapi.com)' },
+  fmgo: { name: '飞喵 FMGO · Seedance 2.5', label: '飞喵 FMGO · Seedance 2.5 Pro / Max (api.feimiaoapi.com)' },
+  flyapi: { name: 'FlyAPI · Seedance 2.5', label: 'FlyAPI · Seedance 2.5 (flyapi.vip)' },
   piapi: { name: 'PiAPI · Seedance 2.5', label: 'PiAPI · Seedance 2.5 (api.piapi.ai)' },
+  suanliai: { name: '算力 AI · 008 系列', label: '算力 AI · 008 系列 · 480P / 720P (suanliai.top)' },
   ideagates: { name: IDEAGATES_GROUPS.ideagates.name, label: 'IDEA Gates · Seedance NSFW 可溯源 · 2.5 / 720P' },
   'ideagates-overseas': { name: IDEAGATES_GROUPS['ideagates-overseas'].name, label: 'IDEA Gates · 海外-NSFW 视频 8.5 折 · 2.5 / 720P' },
 } satisfies Partial<Record<VideoProviderKind, { name: string; label: string }>>
@@ -279,6 +288,7 @@ const visibleProviders = computed(() =>
   : aiStore.textProviders
 )
 
+const hasFixedVideoModels = (p: Provider) => p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi')
 const isDefault = (p: Provider) =>
   (p.type === 'image' ? aiStore.defaultImageProviderId : p.type === 'text' ? aiStore.defaultTextProviderId : aiStore.defaultProviderId) === p.id
 

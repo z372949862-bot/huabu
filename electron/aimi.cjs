@@ -15,7 +15,7 @@ module.exports = function registerAimi({ ipcMain, net, app }) {
     catch (error) {
       let message = error.message || 'AIMI 请求失败'
       if (args?.apiKey) message = message.split(args.apiKey).join('[API Key]')
-      return { ok: false, error: message, retryable: !!error.retryable }
+      return { ok: false, error: message, retryable: !!error.retryable, ...(Number.isInteger(error.status) ? { status: error.status } : {}) }
     }
   }
 
@@ -35,6 +35,7 @@ module.exports = function registerAimi({ ipcMain, net, app }) {
         let detail = response.statusText
         try { const body = await response.json(); detail = body.error?.message || body.error || body.message || body.detail || detail } catch {}
         const error = new Error(`AIMI ${phase === 'create' ? '提交' : '请求'}失败（HTTP ${response.status}）：${String(detail)}`)
+        error.status = response.status
         error.retryable = phase !== 'create' && (response.status === 429 || response.status >= 500)
         if (phase === 'create') error.message += '；请先到平台确认任务是否已创建，避免重复提交'
         throw error

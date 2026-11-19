@@ -1,75 +1,52 @@
 // FMGO video adapter, implemented against the supplied Tencent Docs API guide.
 // @ts-nocheck
 import { UnmauProvider } from './unmau'
+import { localMediaMime } from '../imageHost'
 import { compressImageToDataUrl } from '../imageProviderUtils'
+import catalog from '../../../electron/fmgo-models.json'
+import { bindCanvasReferences, connectedCanvasMedia, legacyCanvasUploads } from '@/utils/canvasMedia'
+import type { ModelTemplate } from '../modelTemplates'
 
-export const FMGO_BASE = 'https://api.fmgo.top'
-interface FmgoModel {
-  id: string
-  name: string
-  description: string
-  capabilities: {
-    ratios: string[]
-    resolutions: string[]
-    durationRange: { min: number; max: number }
-    durationOptions: number[]
-    audioGeneration: boolean
-    maxImages: number
-    maxVideos: number
-  }
-}
-
-export const FMGO_MODELS: FmgoModel[] = [
-  {
-    id: 'feimiao-v2.5-720p-30s',
-    name: 'Feimiao 2.5 · 720P · 30秒',
-    description: '固定 30 秒，最多 30 张参考图',
-    capabilities: {
-      ratios: ['16:9', '9:16', '1:1'],
-      resolutions: ['720p'],
-      durationRange: { min: 30, max: 30 },
-      durationOptions: [30],
-      audioGeneration: true,
-      maxImages: 30,
-      maxVideos: 3,
-    },
+export const FMGO_BASE = 'https://api.feimiaoapi.com'
+const ratios = ['16:9', '9:16', '1:1']
+const classic = 'feimiao-v2.5-720p-30s'
+export const FMGO_MODELS: ModelTemplate[] = catalog.map(spec => ({
+  id: spec.id, name: spec.name, description: spec.description,
+  capabilities: { ratios, resolutions: Object.keys(spec.wireModels), durationRange: { min: spec.minSeconds, max: spec.maxSeconds },
+    ...(spec.minSeconds === spec.maxSeconds ? { durationOptions: [spec.maxSeconds] } : {}),
+    ...(spec.audioGeneration ? { audioGeneration: true } : {}), maxImages: spec.maxImages, maxVideos: spec.maxVideos,
+    ...(spec.maxAudios ? { maxAudios: spec.maxAudios } : {}),
   },
-]
+}))
 
-const MODEL_IDS = new Set(FMGO_MODELS.map(model => model.id))
-const unique = values => [...new Set((values || []).filter(value => typeof value === 'string' && value.trim()))]
-const isAbort = signal => signal?.aborted
-
-export function buildFmgoBody(data, refs) {
-  const model = FMGO_MODELS.find(item => item.id === data.model)
-  if (!model) throw new Error('请选择 FMGO 支持的视频模型')
-  const prompt = String(data.prompt || '').replace(/@\[([^\]]*)\]\([^)]*\)/g, '$1').trim()
+export function buildFmgoBody(data, refs = {}) {
+  const spec = catalog.find(s => s.id === data.model || Object.values(s.wireModels).includes(data.model))
+  if (!spec) throw new Error('请选择飞喵支持的视频模型')
+  const prompt = (refs.prompt ?? String(data.prompt || '').replace(/@\[([^\]]*)\]\([^)]*\)/g, '$1')).trim()
   if (!prompt) throw new Error('请输入视频提示词')
-
-  const requestedRatio = data.ratio && data.ratio !== 'auto' ? data.ratio : '16:9'
-  const ratio = model.capabilities.ratios.includes(requestedRatio) ? requestedRatio : '16:9'
-
-  const images = unique(refs.images)
-  const videos = unique(refs.videos)
-  const audios = unique(refs.audios)
-  if (images.length > 30) throw new Error(`Feimiao 2.5 最多支持 30 张参考图，当前 ${images.length} 张`)
-  if (videos.length > 3) throw new Error(`Feimiao 2.5 参考视频最多支持 3 个，当前 ${videos.length} 个`)
-  if (audios.length && !images.length && !videos.length) {
-    throw new Error('Feimiao 2.5 不能只传参考音频，需同时提供参考图片或参考视频')
+  const legacy = spec.id === classic
+  const aliasRes = spec.id !== data.model && Object.entries(spec.wireModels).find(([, wire]) => wire === data.model)?.[0]
+  const resolution = legacy ? '720p' : String(data.resolution || aliasRes || '720p').toLowerCase()
+  if (!Object.hasOwn(spec.wireModels, resolution) || (aliasRes && aliasRes !== resolution)) {
+    throw new Error(`${spec.name} 的分辨率须为 ${aliasRes || Object.keys(spec.wireModels).join(' / ')}`)
   }
-
-  const body = {
-    model: model.id,
-    prompt,
-    aspect_ratio: ratio,
-    resolution: '720p',
-    seconds: '30',
+  const seconds = spec.minSeconds === spec.maxSeconds ? spec.maxSeconds : Number(data.duration ?? spec.minSeconds)
+  if (!Number.isInteger(seconds) || seconds < spec.minSeconds || seconds > spec.maxSeconds) throw new Error(`${spec.name} 时长须为 ${spec.minSeconds}～${spec.maxSeconds} 秒的整数`)
+  const ratio = !data.ratio || data.ratio === 'auto' || (legacy && !ratios.includes(data.ratio)) ? '16:9' : data.ratio
+  if (!ratios.includes(ratio)) throw new Error(`飞喵支持的画面比例：${ratios.join(' / ')}`)
+  const { images = [], videos = [], audios = [] } = refs
+  if (images.length > spec.maxImages) throw new Error(`${spec.name} 最多支持 ${spec.maxImages} 张参考图，当前 ${images.length} 张`)
+  if (videos.length > spec.maxVideos) throw new Error(`${spec.name} 最多支持 ${spec.maxVideos} 段参考视频，当前 ${videos.length} 段`)
+  if (spec.maxAudios && audios.length > spec.maxAudios) throw new Error(`${spec.name} 最多支持 ${spec.maxAudios} 段参考音频，当前 ${audios.length} 段`)
+  if (audios.length && !images.length && !videos.length) throw new Error('飞喵不能只传参考音频，需同时提供参考图片或参考视频')
+  const counts = { 图片: images.length, 视频: videos.length, 音频: audios.length }
+  for (const [mention, kind, index] of prompt.matchAll(/@(图片|视频|音频)(\d+)/g)) {
+    if (+index < 1 || +index > counts[kind]) throw new Error(`提示词中的 ${mention} 没有对应的参考素材，请重新选择`)
   }
-  if (images.length) body.images = images
-  if (videos.length) body.reference_videos = videos
-  if (audios.length) body.reference_audios = audios
-  body.motion_has_audio = !!data.generateAudio
-  return body
+  return { model: spec.wireModels[resolution], prompt, aspect_ratio: ratio, resolution, seconds: String(seconds),
+    ...(images.length ? { images } : {}), ...(videos.length ? { reference_videos: videos } : {}), ...(audios.length ? { reference_audios: audios } : {}),
+    ...(legacy ? { motion_has_audio: !!data.generateAudio } : {}),
+  }
 }
 
 function first(envelopes, fields) {
@@ -106,6 +83,14 @@ function unpack(response) {
   return response.data
 }
 
+function publicHttps(value, label) {
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'https:' && !url.username && !url.password && !/^(localhost|127\.|0\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])|\.local$/i.test(url.hostname)) return url.href
+  } catch { /* report an unusable reference before generation */ }
+  throw new Error(`参考${label}没有可供飞喵读取的公网 HTTPS 直链，尚未提交生成`)
+}
+
 function bridge() {
   if (!window.electronAPI?.fmgo) throw new Error('FMGO 接口组件未加载，请完全退出并重新打开软件')
   return window.electronAPI.fmgo
@@ -120,7 +105,7 @@ export class FmgoProvider extends UnmauProvider {
   setBaseUrl(url) { this.baseUrl = (url || FMGO_BASE).trim().replace(/\/+$/, '').replace(/\/v1$/, '') }
 
   validate() {
-    if (this.baseUrl !== FMGO_BASE) throw new Error('FMGO API 地址应为 https://api.fmgo.top')
+    if (this.baseUrl !== FMGO_BASE) throw new Error(`FMGO API 地址应为 ${FMGO_BASE}`)
     if (!this.apiKey.trim()) throw new Error('请在 FMGO API 设置中填写 API Key')
   }
 
@@ -129,6 +114,20 @@ export class FmgoProvider extends UnmauProvider {
     return { success: true }
   }
 
+  prepareReferences(data, nodes, edges, id) {
+    const connected = connectedCanvasMedia(id, nodes, edges, true)
+    return bindCanvasReferences(data.prompt, [...connected, ...(data._uploads ?? legacyCanvasUploads(data, connected))])
+  }
+  resumeBody(data) {
+    if (data.taskId) return data.fmgoSubmission?.taskId === data.taskId ? data.fmgoSubmission.params :
+      { model: data.model, prompt: data.prompt, aspect_ratio: data.ratio, resolution: data.resolution, seconds: data.duration }
+  }
+  pendingTask(taskId, body, data) {
+    if (!taskId) return {}
+    const { model, prompt, seconds, resolution, aspect_ratio } = body
+    return { fmgoSubmission: { taskId, providerId: data.providerId, model: data.model, params: { model, prompt, seconds, resolution, aspect_ratio },
+      images: body.images?.length || 0, videos: body.reference_videos?.length || 0, audios: body.reference_audios?.length || 0 } }
+  }
   buildBody(data, refs) { return buildFmgoBody(data, refs) }
 
   async request(path, body) {
@@ -136,24 +135,61 @@ export class FmgoProvider extends UnmauProvider {
     return unpack(await bridge().request({ apiKey: this.apiKey, path, ...(body ? { body } : {}) }))
   }
 
-  async uploadAsset(url, readFile, signal, field = 'images') {
-    this.validate()
-    if (isAbort(signal)) throw new DOMException('已取消', 'AbortError')
-    if (/^https:\/\//i.test(url) || /^data:image\//i.test(url)) return url
-    if (/^http:\/\//i.test(url)) throw new Error('FMGO 参考素材请使用 HTTPS 地址')
-    if (field !== 'images') throw new Error('FMGO 的参考视频和音频需要使用公网 HTTPS 链接')
+  async prepareAssets(body, readFile, signal, { update }) {
+    try {
+      for (const [field, kind, label] of [['images', 'image', '图片'], ['reference_videos', 'video', '视频'], ['reference_audios', 'audio', '音频']]) {
+        if (!body[field]) continue
+        const ready = []
+        for (const [index, url] of body[field].entries()) {
+          signal.throwIfAborted()
+          update({ referenceWarning: `正在准备参考${label} ${index + 1}/${body[field].length}，尚未提交生成…` })
+          ready.push(await this.prepareMedia(url, readFile, signal, kind, label, body.model === classic))
+        }
+        body[field] = ready
+      }
+    } finally {
+      if (!signal.aborted) update({ referenceWarning: undefined })
+    }
+  }
 
-    const file = await readFile(url)
-    if (isAbort(signal)) throw new DOMException('已取消', 'AbortError')
-    if (!file?.size) throw new Error('参考图片为空或无法读取')
-    if (file.size > 20 * 1024 * 1024) throw new Error('单张参考图片不能超过 20 MB')
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    let binary = ''
-    for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768))
-    const mimeType = file.type || 'image/png'
-    const dataUrl = await compressImageToDataUrl(btoa(binary), mimeType)
-    if (isAbort(signal)) throw new DOMException('已取消', 'AbortError')
-    return dataUrl
+  async prepareMedia(url, readFile, signal, kind, label, legacy) {
+    if (/^https?:\/\//i.test(url)) return publicHttps(url, label)
+    const limit = (kind === 'image' ? 20 : 100) * 1024 * 1024
+    const sizeError = () => new Error(`参考${label}为空或超过本地上限 ${limit / 1024 / 1024} MB`)
+    let dataUrl = url
+    if (url.startsWith('local-upload:///')) {
+      // Disk IPC already returns base64. Don't decode and re-encode entire video files in the renderer.
+      const path = url.slice('local-upload:///'.length)
+      const local = await window.electronAPI?.upload?.read(path, limit)
+      signal.throwIfAborted()
+      if (!local) throw new Error(`无法读取本地参考${label}，请重新添加文件`)
+      if (!local.data || local.size > limit) throw sizeError()
+      const mime = localMediaMime(path)
+      if (!mime.startsWith(kind + '/')) throw new Error(`参考${label}与文件格式不符，请重新添加`)
+      dataUrl = kind === 'image' && legacy ? await compressImageToDataUrl(local.data, mime) : `data:${mime};base64,${local.data}`
+    } else if (url.startsWith('blob:')) {
+      const file = await readFile(url)
+      signal.throwIfAborted()
+      if (!file?.size || file.size > limit) throw sizeError()
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(new Error(`读取参考${label}失败`))
+        reader.readAsDataURL(file)
+      })
+    }
+    const comma = dataUrl.indexOf(',')
+    if (comma < 0 || !new RegExp(`^data:${kind}/[\\w.+-]+;base64$`, 'i').test(dataUrl.slice(0, comma))) throw new Error(`参考${label}不是对应类型的本地素材或公网 HTTPS 直链`)
+    const encoded = dataUrl.slice(comma + 1)
+    const byteCount = (encoded.length / 4) * 3 - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0)
+    if (!byteCount || byteCount > limit) throw sizeError()
+    if (encoded.length % 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error(`参考${label}的数据不完整，请重新添加`)
+    signal.throwIfAborted()
+    if (kind === 'image') return dataUrl
+    // Audio/video data URLs aren't documented for Max/Pro. Stage the bytes without credentials and send only the returned HTTPS link.
+    const result = unpack(await bridge().upload({ dataUrl }))
+    signal.throwIfAborted()
+    return publicHttps(result?.url, label)
   }
 
   async createTask(body) {
@@ -163,6 +199,7 @@ export class FmgoProvider extends UnmauProvider {
     if (taskId) return { taskId }
     const state = mapFmgoTask(raw)
     if (state.status === 'completed' && state.videoUrl) return { taskId: '', videoUrl: state.videoUrl }
+    if (state.status === 'failed') throw new Error(state.error)
     throw new Error('FMGO 创建任务未返回任务 ID；请先在平台确认任务状态，避免重复提交')
   }
 

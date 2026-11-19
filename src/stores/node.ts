@@ -17,8 +17,11 @@ import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/provide
 import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
 import { runAiideNode, cancelAiideNode, type AiidePendingTask } from '@/services/aiideTask'
 import { ensureAiideMediaUrl } from '@/services/aiideMedia'
+import { FlyapiProvider, type FlyapiPending } from '@/services/providers/flyapi'
 import { IdeaGatesProvider, isIdeaGatesKind } from '@/services/providers/ideagates'
 import { runIdeaGatesNode, cancelIdeaGatesNode, type IdeaGatesPendingTask } from '@/services/ideagatesTask'
+
+interface ReferenceSubmission { taskId: string; providerId: string; model: string; images: number; videos: number; audios: number }
 
 export interface NodeData {
   label: string
@@ -34,6 +37,10 @@ export interface NodeData {
   output?: any
   error?: string
   referenceWarning?: string
+  flyapiSubmission?: ReferenceSubmission
+  flyapiTask?: FlyapiPending
+  aimiSubmission?: ReferenceSubmission
+  fmgoSubmission?: ReferenceSubmission & { params: { model: string; prompt: string; seconds: string; resolution: string; aspect_ratio: string } }
   // 节点输出
   outputImage?: string
   outputVideo?: string
@@ -229,9 +236,9 @@ export const useNodeStore = defineStore('node', () => {
             const hasOutput = Boolean(data.outputImage || data.outputVideo || data.outputAudio || data.outputText)
             return {
               ...n,
-              data: { ...data, status: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.luociImageTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
-                progress: data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.luociImageTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
-                taskId: data.ideagatesTask?.taskId || data.dmxTask?.taskId || data.aiideTask?.taskId || data.luociTask?.taskId || data.piapiTask?.taskId },
+              data: { ...data, status: data.flyapiTask || data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.luociImageTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? 'idle' : hasOutput ? 'completed' : 'idle',
+                progress: data.flyapiTask || data.ideagatesTask || data.dmxTask || data.aiideTask || data.luociTask || data.luociImageTask || data.piapiTask || data.piapiImageTask || data.geeknowImageResult ? undefined : hasOutput ? 100 : 0,
+                taskId: data.flyapiTask?.taskId || data.ideagatesTask?.taskId || data.dmxTask?.taskId || data.aiideTask?.taskId || data.luociTask?.taskId || data.piapiTask?.taskId },
             }
           })
         : []
@@ -471,6 +478,14 @@ export const useNodeStore = defineStore('node', () => {
     const node = nodes.value.find((n) => n.id === nodeId)
     if (!node) return
 
+    const selection = node.data
+    const unready = selection?._uploads?.find((asset: { url?: string }) => !asset?.url?.trim())
+    // Recovering a previously submitted job doesn't consume the current selection.
+    if (unready && !(selection.flyapiTask || selection.taskId || selection.luociTask || selection.luociImageTask || selection.dmxTask || selection.ideagatesTask || selection.aiideTask || selection.piapiTask || selection.piapiImageTask || selection.geeknowImageResult)) {
+      failNode(nodeId, `参考素材「${unready.name || '未命名'}」尚未就绪，本次未提交生成。请等待读取完成或移除后重新添加。`)
+      return
+    }
+
     console.log('[executeNode] 触发', { nodeId, type: node.type, providerId: node.data?.providerId, model: node.data?.model })
 
     if (node.type === 'ai-image') {
@@ -488,7 +503,8 @@ export const useNodeStore = defineStore('node', () => {
 
     const aiStore = useAIStore()
     const data = node.data as NodeData
-    const providerId = data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.luociTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
+    const fmgoResumeProvider = data.taskId && data.fmgoSubmission?.taskId === data.taskId ? data.fmgoSubmission.providerId : undefined
+    const providerId = data.flyapiTask?.providerId || fmgoResumeProvider || data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.luociTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
       failNode(nodeId, '请先在「设置」中添加中转站')
       return
@@ -505,6 +521,10 @@ export const useNodeStore = defineStore('node', () => {
       return
     }
 
+    if (providerConfig.kind === 'qiling' && data.model && !providerConfig.models.some(m => m.id === data.model)) {
+      failNode(nodeId, '器灵已移除此模型，请在节点选择 GF-480P 或 GF-720P 后生成')
+      return
+    }
     cancelExecution(nodeId)
 
     if (isIdeaGatesKind(providerConfig.kind)) {
@@ -554,12 +574,32 @@ export const useNodeStore = defineStore('node', () => {
 
     if (provider instanceof UnmauProvider) {
       const projectId = currentProjectId.value
+      const flyapiRun = providerConfig.kind === 'flyapi' ? new FlyapiProvider(apiKey, providerConfig.baseUrl, {
+        providerId,
+        save: async (submissionId, pending, receipt) => {
+          const patch = { flyapiTask: pending, taskId: pending?.taskId, ...(receipt ? { flyapiSubmission: receipt } : {}) }
+          if (currentProjectId.value === projectId) {
+            const original = nodes.value.find(n => n.id === nodeId)
+            if (!original || (original !== node && original.data?.flyapiTask?.submissionId !== submissionId)) return
+            if (original.data?.flyapiTask && original.data.flyapiTask.submissionId !== submissionId) return
+            updateNodeData(nodeId, patch)
+            await flushPersist(!!window.electronAPI?.store)
+          } else if (projectId && window.electronAPI?.store) {
+            const storage = window.electronAPI.store, key = PROJECT_PERSIST_PREFIX + projectId
+            const raw = await storage.get(key)
+            if (!raw) return
+            const saved = JSON.parse(raw)
+            const original = saved.nodes?.find((n: any) => n.id === nodeId && n.data?.flyapiTask?.submissionId === submissionId)
+            if (original) { Object.assign(original.data, patch); await storage.set(key, JSON.stringify(saved)) }
+          }
+        },
+      }) : undefined
       return runUnmauNode({
         id: nodeId,
-        data: { ...data, providerId, taskId: providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: data.model || providerConfig.models[0]?.id },
+        data: { ...data, providerId, taskId: providerConfig.kind === 'flyapi' ? data.flyapiTask?.taskId : providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: data.model || providerConfig.models[0]?.id },
         nodes: nodes.value,
         edges: edges.value,
-        provider,
+        provider: flyapiRun ?? provider,
         readFile: urlToFile,
         update: (patch: Partial<NodeData>) => updateNodeData(nodeId, patch),
         persist: () => flushPersist(providerConfig.kind === 'luoci'),
