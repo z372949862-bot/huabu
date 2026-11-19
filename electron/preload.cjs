@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     download: (payload) => ipcRenderer.invoke('yu25:download', payload),
   },
   flyapi: {
+    checkDepthSource: ({ source }) => ipcRenderer.invoke('flyapi:depth-source', { source }),
+    downloadDepth: ({ taskId, url }) => ipcRenderer.invoke('flyapi:depth-result', { taskId, url }),
     upload: ({ dataUrl }) => ipcRenderer.invoke('flyapi:upload', { dataUrl }),
     request: (payload) => ipcRenderer.invoke('flyapi:request', payload),
     download: (payload) => ipcRenderer.invoke('flyapi:download', payload),

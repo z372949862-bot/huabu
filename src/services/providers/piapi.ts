@@ -143,7 +143,7 @@ export function readImageSize(source, signal) {
     image.src = objectUrl || source
   })
 }
-export function readMediaDuration(source, kind, signal) {
+export function readMediaDuration(source, kind, signal, requireVideoTrack = false) {
   return new Promise((resolve, reject) => {
     abort(signal)
     const element = document.createElement(kind === 'videos' ? 'video' : 'audio')
@@ -154,7 +154,8 @@ export function readMediaDuration(source, kind, signal) {
     const timer = setTimeout(() => done(new Error('参考媒体时长读取超时，请确认文件可播放、直链可访问后重试')), 20000)
     signal?.addEventListener('abort', cancelled, { once: true })
     element.preload = 'metadata'
-    element.onloadedmetadata = () => done(null, element.duration)
+    element.onloadedmetadata = () => requireVideoTrack && !(element.videoWidth > 0 && element.videoHeight > 0)
+      ? done(new Error('源文件没有可读取的视频画面')) : done(null, element.duration)
     element.onerror = () => done(new Error('无法读取参考媒体时长，请使用可播放的 MP4/MOV 视频或 MP3/WAV 音频直链'))
     element.src = objectUrl || source
   })

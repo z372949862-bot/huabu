@@ -117,3 +117,22 @@ describe('canvas connection receiving surface', () => {
     expect(connectionFrameOffset(1000, 1000, { left: 0, top: 0, width: 100, height: 100 }, 2)).toEqual({ x: 4, y: 4 })
   })
 })
+
+it('allows one video into a depth node and keeps a chosen local source exclusive', () => {
+  const inputs=[{id:'clip',type:'asset-ref',data:{assetType:'video'}},{id:'other',type:'ai-video'},{id:'image',type:'ai-image'}]
+  const depth={id:'depth',type:'video-depth',data:{depthSource:undefined as unknown}}
+  const nodes=[...inputs,depth]
+  expect(canConnectNodes('clip','depth',nodes,[])).toBe(true)
+  expect(canConnectNodes('image','depth',nodes,[])).toBe(false)
+  expect(canConnectNodes('other','depth',nodes,[{source:'clip',target:'depth'}])).toBe(false)
+  depth.data.depthSource={url:'local-upload:///C:/source.mp4'}
+  expect(canConnectNodes('other','depth',nodes,[])).toBe(false)
+  expect(canConnectNodes('depth','other',nodes,[])).toBe(true)
+})
+
+it('renders a persisted depth edge when Vue Flow revalidates it, while rejecting a new duplicate', () => {
+  const nodes=[{id:'clip',type:'ai-video'},{id:'depth',type:'video-depth'}], edges=[{id:'saved',source:'clip',target:'depth'}]
+  expect(canConnectNodes('clip','depth',nodes,edges,'saved')).toBe(true)
+  expect(canConnectNodes('clip','depth',nodes,edges)).toBe(false)
+  expect(canConnectNodes('clip','depth',nodes,edges,'new')).toBe(false)
+})

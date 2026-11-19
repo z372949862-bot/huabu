@@ -103,6 +103,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { inferCanvasMediaKind } from '@/utils/canvasMedia'
 import ContextMenu from '@/components/ContextMenu.vue'
 import type { CanvasMenuItem } from '@/utils/canvasMenu'
+import DepthVideoNode from '@/components/DepthVideoNode.vue'
 import CustomNode from '@/components/CustomNode.vue'
 import AnimatedEdge from '@/components/AnimatedEdge.vue'
 import ConnectionPreview from '@/components/ConnectionPreview.vue'
@@ -114,7 +115,7 @@ import type { ConnectionSurface } from '@/utils/canvasConnection'
 import { imageConnectionKey, videoConnectionKey, handleMagnetKey, magneticHandleOffset, isImageNode } from '@/utils/canvasConnection'
 import type { HandleMagnet } from '@/utils/canvasConnection'
 import { appearingNodesKey } from '@/utils/nodeAppearance'
-import { compatibleConnection, isVideoNode } from '@/utils/canvasConnection'
+import { isVideoNode } from '@/utils/canvasConnection'
 
 const nodeStore = useNodeStore()
 const materialStore = useMaterialStore()
@@ -176,13 +177,8 @@ const ALIGNMENT_THRESHOLD = 10 // 对齐阈值（像素）
 const MAX_ALIGNMENT_DISTANCE = 15 // 最大对齐距离（像素），超过不显示
 
 // 连接验证：只允许从source连接到target
-const isValidConnection = (connection: any) => {
-  const sourceNode = nodeStore.nodes.find(node => node.id === connection.source)
-  const targetNode = nodeStore.nodes.find(node => node.id === connection.target)
-  return Boolean(connection.source && connection.target && connection.source !== connection.target &&
-    sourceNode && targetNode &&
-    compatibleConnection(sourceNode, targetNode))
-}
+const isValidConnection = (connection: { id?: string; source: string; target: string }) =>
+  canConnectNodes(connection.source, connection.target, nodeStore.nodes, nodeStore.edges, connection.id)
 
 // 节点拖动时检测对齐
 const onNodeDrag = ({ node }: { node: Node }) => {
@@ -294,6 +290,7 @@ const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
 const {
+  findNode,
   screenToFlowCoordinate,
   zoomTo,
   fitView,
@@ -310,6 +307,7 @@ const {
   nodeTypes: {
     'ai-image': markRaw(CustomNode),
     'ai-video': markRaw(CustomNode),
+    'video-depth': markRaw(DepthVideoNode),
     'ai-text': markRaw(CustomNode),
     'asset-ref': markRaw(CustomNode),
     'post-process': markRaw(CustomNode),
@@ -366,7 +364,7 @@ watch(nodes, (newNodes) => {
   })
 }, { deep: true })
 
-const copyableNodeTypes = new Set(['ai-image', 'ai-video', 'asset-ref'])
+const copyableNodeTypes = new Set(['ai-image', 'ai-video', 'video-depth', 'asset-ref'])
 
 const isCopyableNode = (node: Node) => {
   if (!copyableNodeTypes.has(node.type || '')) return false
@@ -430,7 +428,9 @@ const pasteCopiedNodes = (at?: { clientX: number; clientY: number }) => {
     const newId = `${node.id}-copy-${stamp}-${index}`
     idMap.set(node.id, newId)
     const copied = cloneData(node)
-    if (copied.data?.aiideTask || copied.data?.piapiTask || copied.data?.piapiImageTask) {
+    if (copied.type === 'video-depth' || copied.data?.flyapiTask || copied.data?.aiideTask || copied.data?.piapiTask || copied.data?.piapiImageTask) {
+      delete copied.data.flyapiTask
+      delete copied.data.flyapiSubmission
       delete copied.data.aiideTask
       delete copied.data.piapiTask
       delete copied.data.piapiImageTask
@@ -631,6 +631,7 @@ onConnectEnd((event) => {
       contextMenu.items = [
         { label: '图片', icon: 'image', action: 'add-ai-image' },
         { label: '视频', icon: 'video', action: 'add-ai-video' },
+        ...(videoConnection.value ? [{label:'视频转深度',icon:'depth',action:'add-video-depth'}] : []),
         { label: '文本', icon: 'text', action: 'add-ai-text' },
         { label: '素材引用', icon: 'assets', action: 'add-asset-ref' },
         { label: '后处理', icon: 'effects', action: 'add-post-process' },
@@ -828,6 +829,7 @@ const onPaneContextMenu = (event: MouseEvent) => {
     { label: '新建节点', action: 'create-menu', children: [
       { label: '图片', icon: 'image', action: 'add-ai-image' },
       { label: '视频', icon: 'video', action: 'add-ai-video' },
+      { label: '视频转深度', icon: 'depth', action: 'add-video-depth' },
       { label: '素材引用', icon: 'assets', action: 'add-asset-ref' },
       { label: '素材库', icon: 'assets', action: 'assets', separatorBefore: true },
       { label: '本地上传', icon: 'upload', action: 'upload-asset' },
@@ -864,6 +866,7 @@ const onNodeContextMenu = (event: { event: MouseEvent; node: Node }) => {
   contextMenu.x = event.event.clientX
   contextMenu.y = event.event.clientY
   contextMenu.items = [
+    ...(isVideoNode(event.node) ? [{label:'视频转深度',icon:'depth',action:'depth-from-video'}] : []),
     { label: '复制', action: 'copy', shortcut: 'Ctrl+C', disabled: !isCopyableNode(event.node) },
     { label: '复制副本', action: 'duplicate', shortcut: 'Ctrl+D', disabled: !isCopyableNode(event.node) },
     { label: '粘贴', action: 'paste', shortcut: 'Ctrl+V', disabled: !nodeClipboard?.nodes.length },
@@ -1054,7 +1057,7 @@ const addNodeByType = (type: string, placement = contextMenu.data) => {
     id: nodeId,
     type: type,
     position,
-    data: {
+    data: type === 'video-depth' ? { label:getNodeLabel(type), status:'idle' } : {
       label: getNodeLabel(type),
       status: 'idle',
       prompt: '',
@@ -1123,6 +1126,14 @@ const handleNodeAction = (action: string) => {
   const node = contextMenu.data as Node
 
   switch (action) {
+    case 'depth-from-video': {
+      if (!isVideoNode(node)) break
+      const id = addNodeByType('video-depth', { clientX:contextMenu.x,clientY:contextMenu.y,connectFrom:{nodeId:node.id,handleType:'source'} })
+      const created = nodeStore.nodes.find(n => n.id === id)
+      if (created) created.position = { x:node.position.x + (findNode(node.id)?.dimensions.width || 360) + 75, y:node.position.y }
+      nodeStore.selectNode(id)
+      break
+    }
     case 'execute':
       nodeStore.executeNode(node.id)
       break
@@ -1146,6 +1157,7 @@ const getNodeLabel = (type: string): string => {
   const labels: Record<string, string> = {
     'ai-image': 'AI绘图',
     'ai-video': 'AI视频',
+    'video-depth': '视频转深度',
     'ai-text': 'AI文本',
     'asset-ref': '资产引用',
     'post-process': '后处理',

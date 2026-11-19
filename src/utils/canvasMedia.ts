@@ -16,7 +16,7 @@ export function connectedCanvasMedia(target: string, nodes: MediaNode[], edges: 
     const url = asset ? data.assetUrl : (data.outputImage || data.outputVideo || data.outputAudio)
     const name = (asset && data.assetName) || data.label || (asset ? '上传素材' : '节点输出')
     if (type && url) media.push({ id: `node_${source.id}`, type, url, name, fromNode: true })
-    else if (requireReady && (asset || source.type === 'ai-image' || source.type === 'ai-video')) {
+    else if (requireReady && (asset || source.type === 'ai-image' || source.type === 'ai-video' || source.type === 'video-depth')) {
       throw new Error(`已连接的参考素材「${name}」还没有可用内容，请先完成上游节点或断开连线`)
     }
   }

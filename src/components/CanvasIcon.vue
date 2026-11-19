@@ -13,6 +13,7 @@ const paths: Record<string, string[]> = {
   video: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z', 'M10 8l6 4-6 4Z'],
   audio: ['M3 10v4M7 6v12M12 3v18M17 6v12M21 10v4'],
   timeline: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z', 'M3 9h18M8 3v6M16 3v6M8 14h8M8 17h5'],
+  depth: ['M2 8l10-5 10 5-10 5Z', 'M2 12l10 5 10-5M2 16l10 5 10-5'],
   effects: ['M13 2L4 14h7l-1 8 10-12h-7Z'],
   assets: ['M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z', 'M3 10h18'],
   upload: ['M12 16V3M6 9l6-6 6 6M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4'],

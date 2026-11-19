@@ -24,7 +24,7 @@
     <div v-if="searchOpen" class="node-search" role="dialog" aria-label="搜索画布节点">
       <div class="search-input-row"><CanvasIcon name="search" /><input ref="searchInput" v-model="searchQuery" placeholder="搜索节点名称或提示词" aria-label="搜索节点名称或提示词" @keydown.escape.stop="searchOpen = false" /><button class="view-button" aria-label="关闭节点搜索" @click="searchOpen = false"><CanvasIcon name="close" /></button></div>
       <div class="search-results">
-        <button v-for="node in searchResults" :key="node.id" @click="emit('focusNode', node.id); searchOpen = false"><CanvasIcon :name="node.type === 'ai-video' ? 'video' : node.type === 'ai-text' ? 'text' : node.data.assetType === 'audio' ? 'audio' : 'image'" /><span>{{ node.data.label || '未命名节点' }}</span></button>
+        <button v-for="node in searchResults" :key="node.id" @click="emit('focusNode', node.id); searchOpen = false"><CanvasIcon :name="node.type === 'video-depth' ? 'depth' : node.type === 'ai-video' ? 'video' : node.type === 'ai-text' ? 'text' : node.data.assetType === 'audio' ? 'audio' : 'image'" /><span>{{ node.data.label || '未命名节点' }}</span></button>
         <p v-if="!searchResults.length">{{ nodes.length ? '没有匹配的节点' : '画布中还没有节点' }}</p>
       </div>
     </div>
@@ -51,6 +51,7 @@ const emit = defineEmits<{
 const creationTools = [
   { type: 'ai-image', icon: 'image', label: '图片节点' },
   { type: 'ai-video', icon: 'video', label: '视频节点' },
+  { type: 'video-depth', icon: 'depth', label: '视频转深度' },
 ]
 const toolbarRef = ref<HTMLElement>()
 const searchInput = ref<HTMLInputElement>()

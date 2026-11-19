@@ -182,7 +182,7 @@ export async function runUnmauNode({id,data,nodes,edges,provider,readFile,update
     const body = savedBody || (provider.buildBody ? provider.buildBody(data,refs) : buildUnmauBody(data,refs));
     const resumeTaskId = provider.canResumeTask && data.taskId ? String(data.taskId) : '';
     provider.validate();
-    update({status:'running',progress:resumeTaskId ? 10 : 0,error:undefined,referenceWarning:undefined,outputVideo:undefined,taskId:resumeTaskId || undefined});
+    update({status:'running',progress:resumeTaskId ? 10 : 0,error:undefined,referenceWarning:undefined,...(provider.keepOutputWhileRunning ? {} : {outputVideo:undefined}),taskId:resumeTaskId || undefined});
     let taskId = resumeTaskId, directVideoUrl;
     if (!taskId) {
       if (provider.prepareAssets && !savedBody) await provider.prepareAssets(body,readFile,signal,{

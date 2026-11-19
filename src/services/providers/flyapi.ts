@@ -4,6 +4,7 @@ import { localMediaMime } from '../imageHost'
 import { bindCanvasReferences, connectedCanvasMedia, legacyCanvasUploads, type MediaKind } from '@/utils/canvasMedia'
 
 export const FLYAPI_BASE = 'https://flyapi.vip'
+export const FLYAPI_DEPTH_MODEL = 'h3-shipinzhuanshendu'
 const MODEL = 'seedance2.5'
 const assetBase = '/kyyReactApiServer/asset/seedance2/'
 const ratios = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']
@@ -21,8 +22,9 @@ export const FLYAPI_MODELS: ModelTemplate[] = [{ id: MODEL, name: 'Seedance 2.5'
 type Params = { model: string; prompt: string; aspect_ratio: string; resolution: string; duration: number }
 type Body = Params & Partial<Record<typeof media[number]['field'], string[]>>
 type Inputs = ReturnType<typeof bindCanvasReferences>
+type SavedParams = Pick<Params, 'model' | 'prompt' | 'duration'> & Partial<Pick<Params, 'resolution' | 'aspect_ratio'>>
 interface Counts { images: number; videos: number; audios: number }
-export interface FlyapiPending { taskId?: string; providerId: string; submissionId?: string; params?: Params; counts?: Counts }
+export interface FlyapiPending { taskId?: string; providerId: string; submissionId?: string; params?: SavedParams; counts?: Counts }
 export interface FlyapiReceipt extends Counts { taskId: string; providerId: string; model: string }
 interface Journal {
   providerId: string
@@ -73,7 +75,7 @@ function unpack<T>(result: { ok: boolean; data?: T; error?: string; retryable?: 
   return result.data as T
 }
 const localLimit = 100 * 1024 * 1024
-async function stageLocal(url: string, kind: MediaKind, readFile: (url: string) => Promise<File>, signal: AbortSignal) {
+export async function stageFlyapiLocal(url: string, kind: MediaKind, readFile: (url: string) => Promise<File>, signal: AbortSignal) {
   let dataUrl = url
   if (url.startsWith('local-upload:///')) {
     const path = url.slice('local-upload:///'.length)
@@ -120,7 +122,7 @@ export class FlyapiProvider extends UnmauProvider {
   async testAuth(key: string) {
     try {
       const result = await new FlyapiProvider(key, this.baseUrl).request('/v1/models')
-      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: string }) => m.id === MODEL)) throw new Error('此 FlyAPI Key 的模型列表里没有 seedance2.5，请核对模型权限')
+      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: string }) => [MODEL, FLYAPI_DEPTH_MODEL].includes(m.id))) throw new Error('此 FlyAPI Key 的模型列表里没有 seedance2.5 或视频转深度，请核对模型权限')
       return { success: true }
     } catch (err) { return { success: false, error: err instanceof Error ? err.message : '查询 FlyAPI 模型权限失败' } }
   }
@@ -144,7 +146,7 @@ export class FlyapiProvider extends UnmauProvider {
           try {
             let id = assetId(source)
             if (!id) {
-              const url = /^(?:local-upload:|blob:|data:)/i.test(source) ? await stageLocal(source,spec.kind,readFile,signal) : flyapiReference(source)
+              const url = /^(?:local-upload:|blob:|data:)/i.test(source) ? await stageFlyapiLocal(source,spec.kind,readFile,signal) : flyapiReference(source)
               signal.throwIfAborted()
               const registered = await this.request(assetBase+'assetUpload', { assetType: spec.type, url })
               if (registered?.errorMessage) throw new Error(registered.errorMessage)
@@ -179,11 +181,14 @@ export class FlyapiProvider extends UnmauProvider {
     if (data.flyapiTask?.taskId) return data.flyapiTask.params ?? { model: MODEL, prompt: '', duration: undefined }
   }
   async createTask(body: Body, signal?: AbortSignal) {
-    // This route has no documented idempotency key. Save the attempt before sending it.
-    const submissionId = crypto.randomUUID(), providerId = this.journal?.providerId || ''
     const { model, prompt, duration, resolution, aspect_ratio } = body
     const counts = { images: body.reference_images?.length || 0, videos: body.reference_videos?.length || 0, audios: body.reference_audios?.length || 0 }
-    const pending = { submissionId, providerId, params: { model, prompt, duration, resolution, aspect_ratio }, counts }
+    return this.submitTracked(body, { model, prompt, duration, resolution, aspect_ratio }, counts, signal)
+  }
+  async submitTracked(body: unknown, params: SavedParams, counts: Counts, signal?: AbortSignal) {
+    // Neither FlyAPI video endpoint documents idempotency. Persist the attempt before sending it.
+    const submissionId = crypto.randomUUID(), providerId = this.journal?.providerId || ''
+    const pending = { submissionId, providerId, params, counts }
     await this.journal?.save(submissionId, pending)
     if (signal?.aborted) { await this.journal?.save(submissionId); signal.throwIfAborted() }
     let raw
@@ -192,10 +197,10 @@ export class FlyapiProvider extends UnmauProvider {
       if ([400,401,402,403,404,413,422].includes((err as {status?:number}).status || 0)) await this.journal?.save(submissionId)
       throw err
     }
-    if (!isFlyapiTaskId(raw?.id)) throw new Error('FlyAPI 未返回有效任务号，请先到平台核对上次提交')
-    const taskId = raw.id
+    const taskId = raw?.id || raw?.task_id
+    if (!isFlyapiTaskId(taskId)) throw new Error('FlyAPI 未返回有效任务号，请先到平台核对上次提交')
     // The response may arrive after the user switched projects or stopped polling.
-    try { await this.journal?.save(submissionId, { ...pending, taskId }, { ...counts, taskId, model, providerId }) }
+    try { await this.journal?.save(submissionId, { ...pending, taskId }, { ...counts, taskId, model: params.model, providerId }) }
     catch { throw new Error(`FlyAPI 已受理任务 ${taskId}，但本地记录未能保存。请保留任务号，使用原任务继续查询。`) }
     return { taskId }
   }

@@ -5,6 +5,7 @@ const { Readable } = require('node:stream')
 const { pipeline } = require('node:stream/promises')
 const { createMediaUploader } = require('./aiide.cjs')
 
+const depth = require('./flyapi-depth.cjs')
 const BASE = 'https://flyapi.vip'
 const ASSETS = '/kyyReactApiServer/asset/seedance2/'
 const validTask = id => typeof id === 'string' && /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,511}$/.test(id)
@@ -14,6 +15,7 @@ function keyFor(value) {
   return value.trim()
 }
 module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch }) {
+  const depthFiles = depth.depthMedia({net,app})
   const stage = createMediaUploader({ fetch: stagingFetch || ((...args) => net.fetch(...args)), serviceName: 'FlyAPI',
     extraFormats: { 'image/avif': 'avif', 'video/webm': 'webm', 'video/x-m4v': 'm4v', 'video/x-matroska': 'mkv', 'video/x-msvideo': 'avi', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/webm': 'webm' } })
   ipcMain.handle('flyapi:upload', (_event, { dataUrl } = {}) => stage({ dataUrl }))
@@ -25,6 +27,11 @@ module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch }) {
       return { ok: false, error: message, retryable: !!err.retryable, status: err.status }
     }
   }
+  ipcMain.handle('flyapi:depth-source', wrap(({source}) => depthFiles.checkSource(source)))
+  ipcMain.handle('flyapi:depth-result', wrap(({taskId,url}) => {
+    if (!validTask(taskId)) throw new Error('FlyAPI 任务 ID 无效')
+    return depthFiles.download(taskId,url)
+  }))
   async function request(apiKey, route, body, consume) {
     const key = keyFor(apiKey), creating = route === '/v1/videos'
     const controller = new AbortController()
@@ -47,6 +54,7 @@ module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch }) {
     } finally { clearTimeout(timer) }
   }
   ipcMain.handle('flyapi:request', wrap(async ({ apiKey, path: route, body }) => {
+    if (route === '/v1/videos' && body?.model === depth.MODEL) return request(apiKey,route,depth.depthRequest(body))
     const create = route === '/v1/videos' && body?.model === 'seedance2.5'
     const asset = [ASSETS + 'assetUpload', ASSETS + 'assetDetail'].includes(route) && body && typeof body === 'object'
     const poll = typeof route === 'string' && route.startsWith('/v1/videos/') && validTask(route.slice('/v1/videos/'.length))

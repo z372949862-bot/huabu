@@ -53,4 +53,4 @@ function createImageResultFetch({ fetch, timeoutMs = 120000, maxBytes = 100 * 10
     } finally { clearTimeout(timer) }
   }
 }
-module.exports = { createImageResultFetch }
+module.exports = { createImageResultFetch, publicResultUrl }

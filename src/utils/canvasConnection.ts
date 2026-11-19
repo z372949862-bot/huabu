@@ -10,9 +10,10 @@ export function isImageNode(node: { type?: string; data?: { assetType?: string }
   return node?.type === 'ai-image' || (node?.type === 'asset-ref' && node.data?.assetType === 'image')
 }
 export function isVideoNode(node: { type?: string; data?: { assetType?: string } } | null | undefined) {
-  return node?.type === 'ai-video' || (node?.type === 'asset-ref' && node.data?.assetType === 'video')
+  return node?.type === 'video-depth' || node?.type === 'ai-video' || (node?.type === 'asset-ref' && node.data?.assetType === 'video')
 }
 export function compatibleConnection(source: { type?: string; data?: { assetType?: string } }, target: { type?: string; data?: { assetType?: string } }) {
+  if (target.type === 'video-depth') return isVideoNode(source)
   return !(isVideoNode(source) && isImageNode(target))
 }
 export interface HandleMagnet { nodeId: string; side: 'source' | 'target'; x: number; y: number }
@@ -86,13 +87,16 @@ export function connectionDropNode(element: Element | null): string | null {
 export function canConnectNodes(
   source: string,
   target: string,
-  nodes: readonly { id: string; type?: string; data?: { assetType?: string } }[],
-  edges: readonly { source: string; target: string }[],
+  nodes: readonly { id: string; type?: string; data?: { assetType?: string; depthSource?: unknown } }[],
+  edges: readonly { id?: string; source: string; target: string }[],
+  existingEdgeId?: string,
 ): boolean {
-  return source !== target && nodes.some(n => n.id === source) &&
-    nodes.some(n => n.id === target) &&
-    compatibleConnection(nodes.find(n => n.id === source)!, nodes.find(n => n.id === target)!) &&
-    !edges.some(edge => edge.source === source && edge.target === target)
+  const from = nodes.find(n => n.id === source), to = nodes.find(n => n.id === target)
+  if (!from || !to || source === target || !compatibleConnection(from, to)) return false
+  // Vue Flow calls the same validator when rendering an already stored edge.
+  if (existingEdgeId && edges.some(e => e.id === existingEdgeId && e.source === source && e.target === target)) return true
+  if (to.type === 'video-depth' && (to.data?.depthSource || edges.some(e => e.target === target))) return false
+  return !edges.some(edge => edge.source === source && edge.target === target)
 }
 
 export function normalizeCanvasEdges(

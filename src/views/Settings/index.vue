@@ -91,7 +91,7 @@
 
           <div class="provider-body">
             <p v-if="provider.kind === 'flyapi'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
-              填写 FlyAPI 自己的 API Key；测试连接只查询 seedance2.5 的使用权限。支持 4–30 秒、480p / 720p / 1080p。本地素材会先上传至 imageproxy.zhongzhuan.chat，再登记到 FlyAPI；已有 FlyAPI 素材 ID 可以直接添加。
+              填写 FlyAPI 自己的 API Key；测试连接检查 Seedance 2.5 或视频转深度的权限。Seedance 2.5 支持 4–30 秒、480p / 720p / 1080p。本地素材会先上传至 imageproxy.zhongzhuan.chat，再登记到 FlyAPI；已有 FlyAPI 素材 ID 可以直接添加。画布里的「视频转深度」使用同一账号，只需一个不超过 30 秒的 MP4，按源视频 ¥0.20/秒估算。
             </p>
             <p v-if="provider.kind === 'fmgo' && provider.type === 'video'" class="empty-tip" style="text-align:left;padding:8px 0;line-height:1.6">
               飞喵可直接读取公网 HTTPS 素材链接。本地视频、音频会先上传至 imageproxy.zhongzhuan.chat 获取链接，上传时不携带飞喵 API Key。
@@ -274,7 +274,7 @@ const videoChoices = {
   luoci: { name: '洛辞 · Seedance 2.5', label: '洛辞 · Seedance 2.5 Uncensored' },
   aimi: { name: 'AIMI · Seedance 2.5', label: 'AIMI · Seedance 2.5 (aimiapi.com)' },
   fmgo: { name: '飞喵 FMGO · Seedance 2.5', label: '飞喵 FMGO · Seedance 2.5 Pro / Max (api.feimiaoapi.com)' },
-  flyapi: { name: 'FlyAPI · Seedance 2.5', label: 'FlyAPI · Seedance 2.5 (flyapi.vip)' },
+  flyapi: { name: 'FlyAPI · Seedance 2.5', label: 'FlyAPI · Seedance 2.5 / 视频转深度 (flyapi.vip)' },
   piapi: { name: 'PiAPI · Seedance 2.5', label: 'PiAPI · Seedance 2.5 (api.piapi.ai)' },
   suanliai: { name: '算力 AI · 008 系列', label: '算力 AI · 008 系列 · 480P / 720P (suanliai.top)' },
   ideagates: { name: IDEAGATES_GROUPS.ideagates.name, label: 'IDEA Gates · Seedance NSFW 可溯源 · 2.5 / 720P' },

@@ -17,6 +17,7 @@ import { UnmauProvider, cancelUnmauNode, runUnmauNode } from '@/services/provide
 import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services/dmxapiTask'
 import { runAiideNode, cancelAiideNode, type AiidePendingTask } from '@/services/aiideTask'
 import { ensureAiideMediaUrl } from '@/services/aiideMedia'
+import { DEPTH_MODEL, FlyapiDepthProvider, depthAccount, type DepthSource } from '@/services/providers/flyapiDepth'
 import { FlyapiProvider, type FlyapiPending } from '@/services/providers/flyapi'
 import { IdeaGatesProvider, isIdeaGatesKind } from '@/services/providers/ideagates'
 import { runIdeaGatesNode, cancelIdeaGatesNode, type IdeaGatesPendingTask } from '@/services/ideagatesTask'
@@ -39,6 +40,7 @@ export interface NodeData {
   referenceWarning?: string
   flyapiSubmission?: ReferenceSubmission
   flyapiTask?: FlyapiPending
+  depthSource?: DepthSource
   aimiSubmission?: ReferenceSubmission
   fmgoSubmission?: ReferenceSubmission & { params: { model: string; prompt: string; seconds: string; resolution: string; aspect_ratio: string } }
   // 节点输出
@@ -478,6 +480,12 @@ export const useNodeStore = defineStore('node', () => {
     const node = nodes.value.find((n) => n.id === nodeId)
     if (!node) return
 
+    const isDepth = node.type === 'video-depth'
+    if (isDepth && node.data?.status === 'running') return
+    if (isDepth && !currentProjectId.value) {
+      failNode(nodeId, '请先打开或创建画布项目，以便保存和恢复视频转深度任务')
+      return
+    }
     const selection = node.data
     const unready = selection?._uploads?.find((asset: { url?: string }) => !asset?.url?.trim())
     // Recovering a previously submitted job doesn't consume the current selection.
@@ -496,7 +504,7 @@ export const useNodeStore = defineStore('node', () => {
       console.log('[executeNode] → 走 executeTextNode')
       return executeTextNode(nodeId)
     }
-    if (node.type !== 'ai-video') {
+    if (node.type !== 'ai-video' && !isDepth) {
       console.log('[executeNode] → 走 executeMock（占位）')
       return executeMock(nodeId)
     }
@@ -504,9 +512,9 @@ export const useNodeStore = defineStore('node', () => {
     const aiStore = useAIStore()
     const data = node.data as NodeData
     const fmgoResumeProvider = data.taskId && data.fmgoSubmission?.taskId === data.taskId ? data.fmgoSubmission.providerId : undefined
-    const providerId = data.flyapiTask?.providerId || fmgoResumeProvider || data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.luociTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
+    const providerId = isDepth ? depthAccount(aiStore.videoProviders, data.flyapiTask?.providerId || data.providerId) : data.flyapiTask?.providerId || fmgoResumeProvider || data.ideagatesTask?.providerId || data.dmxTask?.providerId || data.aiideTask?.providerId || data.luociTask?.providerId || data.piapiTask?.providerId || data.providerId || aiStore.defaultProviderId
     if (!providerId) {
-      failNode(nodeId, '请先在「设置」中添加中转站')
+      failNode(nodeId, isDepth ? '请先在设置中添加 FlyAPI 账号并填写 API Key' : '请先在「设置」中添加中转站')
       return
     }
     const providerConfig = aiStore.getProviderConfig(providerId)
@@ -514,6 +522,7 @@ export const useNodeStore = defineStore('node', () => {
       failNode(nodeId, '原中转站已被删除，请在节点上重新选择')
       return
     }
+    if (isDepth && providerConfig.kind !== 'flyapi') { failNode(nodeId, '视频转深度只使用 FlyAPI 账号，请重新选择'); return }
     const provider = aiStore.getProvider(providerId)
     const apiKey = providerConfig.apiKey
     if (!provider || !apiKey) {
@@ -583,7 +592,12 @@ export const useNodeStore = defineStore('node', () => {
             if (!original || (original !== node && original.data?.flyapiTask?.submissionId !== submissionId)) return
             if (original.data?.flyapiTask && original.data.flyapiTask.submissionId !== submissionId) return
             updateNodeData(nodeId, patch)
-            await flushPersist(!!window.electronAPI?.store)
+            try { await flushPersist(isDepth || !!window.electronAPI?.store) }
+            catch (error) {
+              // This write precedes the paid POST. No task exists to recover if it fails.
+              if (isDepth && pending && !pending.taskId) updateNodeData(nodeId, { flyapiTask: undefined, taskId: undefined })
+              throw error
+            }
           } else if (projectId && window.electronAPI?.store) {
             const storage = window.electronAPI.store, key = PROJECT_PERSIST_PREFIX + projectId
             const raw = await storage.get(key)
@@ -596,10 +610,10 @@ export const useNodeStore = defineStore('node', () => {
       }) : undefined
       return runUnmauNode({
         id: nodeId,
-        data: { ...data, providerId, taskId: providerConfig.kind === 'flyapi' ? data.flyapiTask?.taskId : providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: data.model || providerConfig.models[0]?.id },
+        data: { ...data, providerId, taskId: providerConfig.kind === 'flyapi' ? data.flyapiTask?.taskId : providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: isDepth ? DEPTH_MODEL : data.model || providerConfig.models[0]?.id },
         nodes: nodes.value,
         edges: edges.value,
-        provider: flyapiRun ?? provider,
+        provider: isDepth && flyapiRun ? new FlyapiDepthProvider(flyapiRun) : flyapiRun ?? provider,
         readFile: urlToFile,
         update: (patch: Partial<NodeData>) => updateNodeData(nodeId, patch),
         persist: () => flushPersist(providerConfig.kind === 'luoci'),
@@ -614,7 +628,7 @@ export const useNodeStore = defineStore('node', () => {
           providerId,
           providerName: providerConfig.name,
           nodeId,
-          nodeType: 'ai-video',
+          nodeType: isDepth ? 'video-depth' : 'ai-video',
           projectId: projectId || undefined,
           ratio: body.aspect_ratio,
           resolution: body.resolution,
