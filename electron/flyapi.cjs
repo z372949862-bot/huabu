@@ -4,6 +4,7 @@ const crypto = require('node:crypto')
 const { Readable } = require('node:stream')
 const { pipeline } = require('node:stream/promises')
 const { createMediaUploader } = require('./aiide.cjs')
+const { createFlyapiVideoPreparer } = require('./flyapi-video.cjs')
 
 const depth = require('./flyapi-depth.cjs')
 const BASE = 'https://flyapi.vip'
@@ -14,11 +15,14 @@ function keyFor(value) {
   if (typeof value !== 'string' || !/^[!-~]+$/.test(value.trim()) || /[\r\n]/.test(value)) throw new Error('请填写有效的 FlyAPI Key')
   return value.trim()
 }
-module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch }) {
+module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch, prepareVideo = createFlyapiVideoPreparer() }) {
   const depthFiles = depth.depthMedia({net,app})
   const stage = createMediaUploader({ fetch: stagingFetch || ((...args) => net.fetch(...args)), serviceName: 'FlyAPI',
     extraFormats: { 'image/avif': 'avif', 'video/webm': 'webm', 'video/x-m4v': 'm4v', 'video/x-matroska': 'mkv', 'video/x-msvideo': 'avi', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/webm': 'webm' } })
-  ipcMain.handle('flyapi:upload', (_event, { dataUrl } = {}) => stage({ dataUrl }))
+  ipcMain.handle('flyapi:upload', async (_event, { dataUrl } = {}) => {
+    try { return await stage({ dataUrl: await prepareVideo(dataUrl) }) }
+    catch (error) { return { ok: false, error: error.message || '参考视频封装整理失败，尚未上传' } }
+  })
   const wrap = fn => async (_event, args) => {
     try { return { ok: true, data: await fn(args || {}) } }
     catch (err) {
@@ -55,7 +59,7 @@ module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch }) {
   }
   ipcMain.handle('flyapi:request', wrap(async ({ apiKey, path: route, body }) => {
     if (route === '/v1/videos' && body?.model === depth.MODEL) return request(apiKey,route,depth.depthRequest(body))
-    const create = route === '/v1/videos' && body?.model === 'seedance2.5'
+    const create = route === '/v1/videos' && body?.model === 'seedance2.5-D'
     const asset = [ASSETS + 'assetUpload', ASSETS + 'assetDetail'].includes(route) && body && typeof body === 'object'
     const poll = typeof route === 'string' && route.startsWith('/v1/videos/') && validTask(route.slice('/v1/videos/'.length))
     if (!create && !asset && !(body === undefined && (route === '/v1/models' || poll))) throw new Error('不支持的 FlyAPI 请求')

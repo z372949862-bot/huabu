@@ -18,7 +18,7 @@ import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services
 import { runAiideNode, cancelAiideNode, type AiidePendingTask } from '@/services/aiideTask'
 import { ensureAiideMediaUrl } from '@/services/aiideMedia'
 import { DEPTH_MODEL, FlyapiDepthProvider, depthAccount, type DepthSource } from '@/services/providers/flyapiDepth'
-import { FlyapiProvider, type FlyapiPending } from '@/services/providers/flyapi'
+import { FlyapiProvider, FLYAPI_VIDEO_MODEL, type FlyapiPending } from '@/services/providers/flyapi'
 import { IdeaGatesProvider, isIdeaGatesKind } from '@/services/providers/ideagates'
 import { runIdeaGatesNode, cancelIdeaGatesNode, type IdeaGatesPendingTask } from '@/services/ideagatesTask'
 
@@ -530,6 +530,11 @@ export const useNodeStore = defineStore('node', () => {
       return
     }
 
+    // Upgrade only new FlyAPI submissions; pending tasks retain their original model and task ID.
+    if (!isDepth && providerConfig.kind === 'flyapi' && data.model === 'seedance2.5' && !data.flyapiTask) {
+      data.model = FLYAPI_VIDEO_MODEL
+      updateNodeData(nodeId, { model: FLYAPI_VIDEO_MODEL })
+    }
     if (providerConfig.kind === 'qiling' && data.model && !providerConfig.models.some(m => m.id === data.model)) {
       failNode(nodeId, '器灵已移除此模型，请在节点选择 GF-480P 或 GF-720P 后生成')
       return

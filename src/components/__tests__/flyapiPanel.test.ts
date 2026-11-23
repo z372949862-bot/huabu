@@ -33,6 +33,6 @@ it('sends the chosen duration, resolution and audio asset from the actual video 
     expect(host.querySelector('.assets-preview')?.textContent).toContain('已登记音频')
     expect(host.querySelector('.mode-trigger')?.getAttribute('aria-label')).toContain('全能参考')
     await click('.generate-btn'); await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
-    expect(request.mock.calls[1][0]).toMatchObject({ path: '/v1/videos', body: { model: 'seedance2.5', duration: 27, resolution: '1080p', reference_audios: ['assetId://asset_music'] } })
+    expect(request.mock.calls[1][0]).toMatchObject({ path: '/v1/videos', body: { model: 'seedance2.5-D', duration: 27, resolution: '1080p', reference_audios: ['assetId://asset_music'] } })
   } finally { app.unmount(); host.remove() }
 })

@@ -16,7 +16,7 @@ it('replaces only the Qiling catalog, preserves accounts/defaults, and adds FlyA
     expect(store.getProviderConfig('existing')).toMatchObject({ name: old.name, baseUrl: old.baseUrl, apiKey: old.apiKey })
     expect(store.defaultProviderId).toBe('existing'); expect(store.getProviderConfig('other')?.models).toEqual(other.models)
     const fly = store.videoProviders.filter(p => p.kind === 'flyapi'); expect(fly).toHaveLength(1)
-    expect(fly[0]).toMatchObject({ baseUrl: 'https://flyapi.vip', apiKey: '', models: [{ id: 'seedance2.5' }] })
+    expect(fly[0]).toMatchObject({ baseUrl: 'https://flyapi.vip', apiKey: '', models: [{ id: 'seedance2.5-D' }] })
     await vi.advanceTimersByTimeAsync(300)
   }
 })

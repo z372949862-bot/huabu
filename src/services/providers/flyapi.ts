@@ -5,7 +5,8 @@ import { bindCanvasReferences, connectedCanvasMedia, legacyCanvasUploads, type M
 
 export const FLYAPI_BASE = 'https://flyapi.vip'
 export const FLYAPI_DEPTH_MODEL = 'h3-shipinzhuanshendu'
-const MODEL = 'seedance2.5'
+export const FLYAPI_VIDEO_MODEL = 'seedance2.5-D'
+const MODEL = FLYAPI_VIDEO_MODEL
 const assetBase = '/kyyReactApiServer/asset/seedance2/'
 const ratios = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']
 const resolutions = ['480p', '720p', '1080p']
@@ -14,7 +15,7 @@ const media = [
   { field: 'reference_videos', input: 'videos', type: 'Video', kind: 'video', label: '视频', max: 10 },
   { field: 'reference_audios', input: 'audios', type: 'Audio', kind: 'audio', label: '音频', max: 10 },
 ] as const
-export const FLYAPI_MODELS: ModelTemplate[] = [{ id: MODEL, name: 'Seedance 2.5',
+export const FLYAPI_MODELS: ModelTemplate[] = [{ id: MODEL, name: 'Seedance 2.5-D',
   description: '4–30 秒；支持 480p / 720p / 1080p，最多 30 张图片、10 段视频和 10 段音频。',
   capabilities: { ratios, resolutions, durationRange: { min: 4, max: 30 }, maxImages: 30, maxVideos: 10, maxAudios: 10, maxTotalReferences: 50, audioGeneration: false },
 }]
@@ -46,7 +47,7 @@ export function flyapiReference(value: string) {
   throw new Error('请填写公开 HTTP(S) 素材链接，或 FlyAPI 的 assetId://asset_… 素材 ID')
 }
 export function buildFlyapiBody(data: Record<string, any>, refs: Inputs): Body {
-  if (data.model !== MODEL) throw new Error('请选择 FlyAPI 的 Seedance 2.5')
+  if (data.model !== MODEL) throw new Error('请选择 FlyAPI 的 Seedance 2.5-D')
   const prompt = refs.prompt.trim()
   if (!prompt) throw new Error('请输入视频提示词')
   const duration = Number(data.duration ?? 4)
@@ -122,7 +123,7 @@ export class FlyapiProvider extends UnmauProvider {
   async testAuth(key: string) {
     try {
       const result = await new FlyapiProvider(key, this.baseUrl).request('/v1/models')
-      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: string }) => [MODEL, FLYAPI_DEPTH_MODEL].includes(m.id))) throw new Error('此 FlyAPI Key 的模型列表里没有 seedance2.5 或视频转深度，请核对模型权限')
+      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: string }) => [MODEL, FLYAPI_DEPTH_MODEL].includes(m.id))) throw new Error('此 FlyAPI Key 的模型列表里没有 seedance2.5-D 或视频转深度，请核对模型权限')
       return { success: true }
     } catch (err) { return { success: false, error: err instanceof Error ? err.message : '查询 FlyAPI 模型权限失败' } }
   }
@@ -170,7 +171,11 @@ export class FlyapiProvider extends UnmauProvider {
             ready.set(cacheKey, slots[index])
           } catch (err) {
             signal.throwIfAborted()
-            throw new Error(`${tag}：${err instanceof Error ? err.message : '素材处理失败'}；本次未提交视频生成`)
+            let reason = err instanceof Error ? err.message : '素材处理失败'
+            if (/video duration could not be determined/i.test(reason)) {
+              reason = 'FlyAPI 无法从参考视频链接读取时长。请确认视频链接可以直接下载；本地 MP4/MOV 会先无损整理封装，若仍报错，请核对平台素材解析服务或使用其他可访问的直链'
+            }
+            throw new Error(`${tag}：${reason}；本次未提交视频生成`)
           }
         }
       }
@@ -178,7 +183,7 @@ export class FlyapiProvider extends UnmauProvider {
   }
   resumeBody(data: Record<string, any>) {
     if (data.flyapiTask && !data.flyapiTask.taskId) throw new Error('上次提交尚未取得任务号，请先到 FlyAPI 核对任务记录')
-    if (data.flyapiTask?.taskId) return data.flyapiTask.params ?? { model: MODEL, prompt: '', duration: undefined }
+    if (data.flyapiTask?.taskId) return data.flyapiTask.params ?? { model: data.model || MODEL, prompt: '', duration: undefined }
   }
   async createTask(body: Body, signal?: AbortSignal) {
     const { model, prompt, duration, resolution, aspect_ratio } = body
