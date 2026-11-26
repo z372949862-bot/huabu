@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.3.45
+
+- 修复 FlyAPI Magi-2 使用固定模型 ID 导致路由找不到的问题。
+- 生成前按当前 API Key 的 `/v1/models` 目录选择实际可用的 `openai-video` 模型 ID。
+
 ## 0.3.44
 
 - 新增独立的 FlyAPI Magi-2 服务项，与 Seedance 2.5-D 分别保存 API Key，避免账号密钥互相覆盖。

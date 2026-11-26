@@ -21,14 +21,14 @@ it('sends D model unchanged, blocks ordinary model creation, and still polls exi
   expect(api).toHaveBeenLastCalledWith('https://flyapi.vip/v1/videos/task_old', expect.objectContaining({ method: 'GET' }))
 })
 
-it('forwards Magi-2 OpenAI video JSON with resolution, duration and multimodal references', async () => {
+it('forwards a discovered Magi-2 OpenAI video model with resolution, duration and multimodal references', async () => {
   const handlers = new Map<string, Function>()
   const api = vi.fn(async () => Response.json({ id: 'task_magi', status: 'queued' }))
   register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) },
     net: { fetch: api }, app: { getPath: () => tmpdir() } })
-  const body = { model: 'magi-2', prompt: 'test', duration: 30, resolution: '1080p', aspect_ratio: '16:9',
+  const body = { model: 'magi-2-vip', prompt: 'test', duration: 30, resolution: '1080p', aspect_ratio: '16:9',
     reference_images: ['assetId://asset_image'], reference_videos: ['assetId://asset_video'], reference_audios: ['assetId://asset_audio'] }
-  const result = await handlers.get('flyapi:request')!(null, { apiKey: 'fixture', path: '/v1/videos', body })
+  const result = await handlers.get('flyapi:request')!(null, { apiKey: 'fixture', path: '/v1/videos', catalog: 'magi2', body })
   expect(result.ok).toBe(true)
   expect(api).toHaveBeenCalledWith('https://flyapi.vip/v1/videos', expect.objectContaining({
     method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer fixture', 'Content-Type': 'application/json' }), body: JSON.stringify(body),

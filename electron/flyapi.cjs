@@ -57,9 +57,9 @@ module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch, prep
       throw err
     } finally { clearTimeout(timer) }
   }
-  ipcMain.handle('flyapi:request', wrap(async ({ apiKey, path: route, body }) => {
+  ipcMain.handle('flyapi:request', wrap(async ({ apiKey, path: route, body, catalog }) => {
     if (route === '/v1/videos' && body?.model === depth.MODEL) return request(apiKey,route,depth.depthRequest(body))
-    const create = route === '/v1/videos' && ['seedance2.5-D', 'magi-2'].includes(body?.model)
+    const create = route === '/v1/videos' && (body?.model === 'seedance2.5-D' || catalog === 'magi2')
     const asset = [ASSETS + 'assetUpload', ASSETS + 'assetDetail'].includes(route) && body && typeof body === 'object'
     const poll = typeof route === 'string' && route.startsWith('/v1/videos/') && validTask(route.slice('/v1/videos/'.length))
     if (!create && !asset && !(body === undefined && (route === '/v1/models' || poll))) throw new Error('不支持的 FlyAPI 请求')

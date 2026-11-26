@@ -25,7 +25,7 @@ interface Window {
     flyapi?: {
       checkDepthSource: (payload: { source: string }) => Promise<{ ok: boolean; error?: string }>
       downloadDepth: (payload: { taskId: string; url: string }) => Promise<{ ok: boolean; data?: { path: string }; error?: string }>
-      request: (payload: { apiKey: string; path: string; body?: unknown }) => Promise<{ ok: boolean; data?: any; error?: string; retryable?: boolean; status?: number }>
+      request: (payload: { apiKey: string; path: string; body?: unknown; catalog?: 'seedance' | 'magi2' }) => Promise<{ ok: boolean; data?: any; error?: string; retryable?: boolean; status?: number }>
       upload: (payload: { dataUrl: string }) => Promise<{ ok: boolean; data?: { url: string }; error?: string }>
       download: (payload: { apiKey: string; taskId: string }) => Promise<{ ok: boolean; data?: { path: string }; error?: string; retryable?: boolean }>
     }

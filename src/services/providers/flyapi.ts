@@ -29,7 +29,7 @@ export const FLYAPI_MAGI2_MODELS: ModelTemplate[] = [{ id: FLYAPI_MAGI2_MODEL, n
 }]
 
 type Params = { model: string; prompt: string; aspect_ratio: string; resolution: string; duration: number }
-type Body = Omit<Params, 'model'> & { model: typeof MODEL | typeof FLYAPI_MAGI2_MODEL } & Partial<Record<typeof media[number]['field'], string[]>>
+type Body = Omit<Params, 'model'> & { model: string } & Partial<Record<typeof media[number]['field'], string[]>>
 type Inputs = ReturnType<typeof bindCanvasReferences>
 type SavedParams = Pick<Params, 'model' | 'prompt' | 'duration'> & Partial<Pick<Params, 'resolution' | 'aspect_ratio'>>
 interface Counts { images: number; videos: number; audios: number }
@@ -75,6 +75,21 @@ export function buildFlyapiBody(data: Record<string, any>, refs: Inputs, catalog
     if (+number < 1 || +number > refs[list.input].length) throw new Error(`@${label}${number} 没有对应的参考素材`)
   }
   return body
+}
+function openaiVideoModel(model: unknown) {
+  if (!model || typeof model !== 'object' || typeof (model as { id?: unknown }).id !== 'string') return false
+  const endpoints = (model as { supported_endpoint_types?: unknown }).supported_endpoint_types
+  return !Array.isArray(endpoints) || endpoints.includes('openai-video')
+}
+function findMagi2ModelId(models: unknown) {
+  if (!Array.isArray(models)) return undefined
+  const available = models.filter(openaiVideoModel) as Array<{ id: string; supported_endpoint_types?: unknown }>
+  const exact = available.find(model => model.id.toLowerCase() === FLYAPI_MAGI2_MODEL)
+  if (exact) return exact.id
+  const named = available.find(model => /magi[-_]?2/i.test(model.id))
+  if (named) return named.id
+  const single = available[0]
+  return available.length === 1 && Array.isArray(single?.supported_endpoint_types) && !/(seedance|sora|kling|superresolution|h3|sd2(?:\.?5)?)/i.test(single.id) ? single.id : undefined
 }
 function bridge() {
   if (!window.electronAPI?.flyapi) throw new Error('请使用已接入 FlyAPI 的桌面版')
@@ -127,14 +142,15 @@ export class FlyapiProvider extends UnmauProvider {
   }
   async request(path: string, body?: unknown) {
     this.validate()
-    return unpack(await bridge().request({ apiKey: this.apiKey, path, ...(body === undefined ? {} : { body }) }))
+    return unpack(await bridge().request({ apiKey: this.apiKey, path, catalog: this.catalog, ...(body === undefined ? {} : { body }) }))
   }
   async testAuth(key: string) {
     try {
       const result = await new FlyapiProvider(key, this.baseUrl, undefined, this.catalog).request('/v1/models')
       const requiredModels = this.catalog === 'magi2' ? [FLYAPI_MAGI2_MODEL] : [MODEL, FLYAPI_DEPTH_MODEL]
-      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: unknown } | null) => typeof m?.id === 'string' && requiredModels.includes(m.id))) {
-        const label = this.catalog === 'magi2' ? 'magi-2' : 'seedance2.5-D 或视频转深度'
+      const available = this.catalog === 'magi2' ? findMagi2ModelId(result?.data) : Array.isArray(result?.data) && result.data.find((m: { id?: unknown } | null) => typeof m?.id === 'string' && requiredModels.includes(m.id))?.id
+      if (!available) {
+        const label = this.catalog === 'magi2' ? 'Magi-2（请以 /v1/models 返回的实际模型 ID 为准）' : 'seedance2.5-D 或视频转深度'
         throw new Error(`此 FlyAPI Key 的模型列表里没有 ${label}，请核对模型权限`)
       }
       return { success: true }
@@ -199,6 +215,12 @@ export class FlyapiProvider extends UnmauProvider {
     if (data.flyapiTask?.taskId) return data.flyapiTask.params ?? { model: data.model || MODEL, prompt: '', duration: undefined }
   }
   async createTask(body: Body, signal?: AbortSignal) {
+    if (this.catalog === 'magi2') {
+      const result = await this.request('/v1/models')
+      const modelId = findMagi2ModelId(result?.data)
+      if (!modelId) throw new Error('FlyAPI 未在 /v1/models 返回可用的 Magi-2 视频模型，请先测试连接并核对此 Key 的模型权限')
+      body.model = modelId
+    }
     const { model, prompt, duration, resolution, aspect_ratio } = body
     const params = { model, prompt, duration, resolution, aspect_ratio }
     const counts = { images: body.reference_images?.length || 0, videos: body.reference_videos?.length || 0, audios: body.reference_audios?.length || 0 }

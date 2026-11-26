@@ -42,7 +42,7 @@ function setup(issue = '') {
         value={id:'task_existing',status:'queued'};
       }
       else if(path==='/v1/videos/task_existing')value=issue==='taskError'?{status:'failed',error:{code:'bad_media',message:'平台无法读取视频'}}:{status:'completed'};
-      else if(path==='/v1/models')value={data:issue==='magiAuth'?[null,{id:42},{id:'magi-2'}]:[{id:issue==='noAccess'?'other':'seedance2.5-D'}]};else throw Error('unexpected path: '+path);
+      else if(path==='/v1/models')value={data:isMagiProvider&&issue!=='magiMissing'?[null,{id:42},{id:'magi-2-vip',supported_endpoint_types:['openai-video']}]:[{id:issue==='noAccess'?'other':'seedance2.5-D',supported_endpoint_types:['openai-video']} ]};else throw Error('unexpected path: '+path);
       return {ok:true,data:value}},download:async({taskId}:any)=>{downloads.push(taskId);return {ok:true,data:{path:'C:/result.mp4'}}}}})
   store.addNode({id:'out',type:'ai-video',position:{x:0,y:0},data:{label:'video',status:'idle',providerId,model:isMagiProvider ? 'magi-2' : 'seedance2.5-D',prompt:'让 @[角色](a) 跟随 @[运镜](v)',duration:30,resolution:'720p',ratio:'16:9',_uploads:sources} as any})
   const run=async()=>{const p=store.executeNode('out');await vi.advanceTimersByTimeAsync(20000);await p};return {store, ai, providerId, calls, uploads, downloads, run}
@@ -71,7 +71,7 @@ it('accepts a Magi-2-only model listing and ignores malformed model entries', as
 })
 it('does not accept a Seedance-only key for the separate Magi-2 account', async () => {
   const r = setup('magiMissing')
-  expect(await r.ai.testProviderConnection(r.providerId)).toMatchObject({ ok: false, error: expect.stringContaining('magi-2') })
+  expect(await r.ai.testProviderConnection(r.providerId)).toMatchObject({ ok: false, error: expect.stringMatching(/magi-2/i) })
   expect(r.calls.map(c=>c.path)).toEqual(['/v1/models'])
 })
 it('builds Magi-2 video requests with the selected size, duration and all three reference types', async()=>{
@@ -80,7 +80,7 @@ it('builds Magi-2 video requests with the selected size, duration and all three 
   await r.run()
   expect(r.store.nodes[0].data.error).toBeUndefined()
   expect(r.calls.find(c=>c.path==='/v1/videos')?.apiKey).toBe('magi-fixture')
-  expect(r.calls.find(c=>c.path==='/v1/videos')?.body).toEqual(expect.objectContaining({model:'magi-2',duration:22,resolution:'1080p',aspect_ratio:'9:16',reference_images:['asset://asset_a','asset://asset_b'],reference_videos:['asset://asset_v'],reference_audios:['asset://asset_audio']}))
+  expect(r.calls.find(c=>c.path==='/v1/videos')?.body).toEqual(expect.objectContaining({model:'magi-2-vip',duration:22,resolution:'1080p',aspect_ratio:'9:16',reference_images:['asset://asset_a','asset://asset_b'],reference_videos:['asset://asset_v'],reference_audios:['asset://asset_audio']}))
 })
 it('looks up model access without generating',async()=>{const r=setup();expect(await r.ai.testProviderConnection(r.providerId)).toEqual({ok:true});expect(r.calls.map(c=>c.path)).toEqual(['/v1/models']);expect(r.ai.getProviderConfig(r.providerId)?.baseUrl).toBe(host)})
 
