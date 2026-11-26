@@ -2020,7 +2020,10 @@ const isAiideSeedance25 = computed(() => {
   const config = aiStore.getProviderConfig(selectedProviderId.value)
   return props.type === 'ai-video' && config?.kind === 'aiide' && selectedModel.value === 'dreamina-seedance-2-5-hc'
 })
-const isFlyapiVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'flyapi')
+const isFlyapiVideo = computed(() => {
+  const kind = aiStore.getProviderConfig(selectedProviderId.value)?.kind
+  return props.type === 'ai-video' && (kind === 'flyapi' || kind === 'flyapi-magi2')
+})
 const isFmgoVideo = computed(() => props.type === 'ai-video' && aiStore.getProviderConfig(selectedProviderId.value)?.kind === 'fmgo')
 const lastReferenceSubmission = computed(() => {
   const receipt = isFlyapiVideo.value ? props.data.flyapiSubmission : isFmgoVideo.value ? props.data.fmgoSubmission : props.data.aimiSubmission

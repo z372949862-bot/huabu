@@ -8,7 +8,7 @@
  * 模型 ID 来自 api.aiid.edu.kg 各自的 OpenAPI 文档。
  */
 
-import { FLYAPI_MODELS } from './providers/flyapi'
+import { FLYAPI_MAGI2_MODELS, FLYAPI_MODELS } from './providers/flyapi'
 import type { VideoModelCapabilities } from './videoModelService'
 import { UNMAU_MODELS } from './providers/unmau'
 import { YU25_MODELS } from './providers/yu25'
@@ -19,7 +19,7 @@ import { AIMI_MODELS } from './providers/aimi'
 import { PIAPI_MODELS } from './providers/piapi'
 import { SUANLIAI_MODELS } from './providers/suanliai'
 
-export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'luoci' | 'aimi' | 'piapi' | 'suanliai' | 'flyapi' | 'ideagates' | 'ideagates-overseas'
+export type VideoProviderKind = 'seedance' | 'chuhaiying' | 'qiling' | 'unmau' | 'yu25' | 'xinshuju' | 'dmxapi' | 'fmgo' | 'aiide' | 'luoci' | 'aimi' | 'piapi' | 'suanliai' | 'flyapi' | 'flyapi-magi2' | 'ideagates' | 'ideagates-overseas'
 import { ideaGatesModels } from './providers/ideagates'
 
 export interface ModelTemplate {
@@ -180,6 +180,7 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
   dmxapi: DMXAPI_VIDEO_MODEL_TEMPLATES,
   fmgo: FMGO_VIDEO_MODEL_TEMPLATES,
   flyapi: FLYAPI_MODELS,
+  'flyapi-magi2': FLYAPI_MAGI2_MODELS,
   aiide: AIIDE_VIDEO_MODEL_TEMPLATES,
   luoci: LUOCI_VIDEO_MODELS,
   aimi: AIMI_VIDEO_MODEL_TEMPLATES,
@@ -191,7 +192,7 @@ const TEMPLATES_BY_KIND: Record<VideoProviderKind, ModelTemplate[]> = {
 export const MODEL_TEMPLATES: ModelTemplate[] = (() => {
   const seen = new Set<string>()
   const merged: ModelTemplate[] = []
-  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...LUOCI_VIDEO_MODELS, ...PIAPI_MODELS, ...SUANLIAI_MODELS, ...FLYAPI_MODELS]) {
+  for (const t of [...SEEDANCE_MODEL_TEMPLATES, ...CHUHAIYING_VIDEO_MODEL_TEMPLATES, ...QILING_VIDEO_MODEL_TEMPLATES, ...UNMAU_MODELS, ...YU25_MODELS, ...XINSHUJU_MODELS, ...FMGO_VIDEO_MODEL_TEMPLATES, ...AIIDE_VIDEO_MODEL_TEMPLATES, ...AIMI_VIDEO_MODEL_TEMPLATES, ...LUOCI_VIDEO_MODELS, ...PIAPI_MODELS, ...SUANLIAI_MODELS, ...FLYAPI_MODELS, ...FLYAPI_MAGI2_MODELS]) {
     if (!seen.has(t.id)) {
       seen.add(t.id)
       merged.push(t)

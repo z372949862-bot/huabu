@@ -6,22 +6,30 @@ import { bindCanvasReferences, connectedCanvasMedia, legacyCanvasUploads, type M
 export const FLYAPI_BASE = 'https://flyapi.vip'
 export const FLYAPI_DEPTH_MODEL = 'h3-shipinzhuanshendu'
 export const FLYAPI_VIDEO_MODEL = 'seedance2.5-D'
+export const FLYAPI_MAGI2_MODEL = 'magi-2'
 const MODEL = FLYAPI_VIDEO_MODEL
 const assetBase = '/kyyReactApiServer/asset/seedance2/'
 const ratios = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']
 const resolutions = ['480p', '720p', '1080p']
+export type FlyapiCatalog = 'seedance' | 'magi2'
 const media = [
   { field: 'reference_images', input: 'images', type: 'Image', kind: 'image', label: '图片', max: 30 },
   { field: 'reference_videos', input: 'videos', type: 'Video', kind: 'video', label: '视频', max: 10 },
   { field: 'reference_audios', input: 'audios', type: 'Audio', kind: 'audio', label: '音频', max: 10 },
 ] as const
+const seedanceCapabilities = { ratios, resolutions, durationRange: { min: 4, max: 30 }, maxImages: 30, maxVideos: 10, maxAudios: 10, maxTotalReferences: 50, audioGeneration: false }
+const magi2Capabilities = { ratios: [...ratios], resolutions: [...resolutions], durationRange: { min: 4, max: 30 }, maxImages: 30, maxVideos: 10, maxAudios: 10, maxTotalReferences: 50, audioGeneration: false }
 export const FLYAPI_MODELS: ModelTemplate[] = [{ id: MODEL, name: 'Seedance 2.5-D',
   description: '4–30 秒；支持 480p / 720p / 1080p，最多 30 张图片、10 段视频和 10 段音频。',
-  capabilities: { ratios, resolutions, durationRange: { min: 4, max: 30 }, maxImages: 30, maxVideos: 10, maxAudios: 10, maxTotalReferences: 50, audioGeneration: false },
+  capabilities: { ...seedanceCapabilities },
+}]
+export const FLYAPI_MAGI2_MODELS: ModelTemplate[] = [{ id: FLYAPI_MAGI2_MODEL, name: 'Magi-2 · OpenAI Video',
+  description: '独立模型；4–30 秒，480p / 720p / 1080p，支持图片、视频和音频参考。',
+  capabilities: { ...magi2Capabilities },
 }]
 
 type Params = { model: string; prompt: string; aspect_ratio: string; resolution: string; duration: number }
-type Body = Params & Partial<Record<typeof media[number]['field'], string[]>>
+type Body = Omit<Params, 'model'> & { model: typeof MODEL | typeof FLYAPI_MAGI2_MODEL } & Partial<Record<typeof media[number]['field'], string[]>>
 type Inputs = ReturnType<typeof bindCanvasReferences>
 type SavedParams = Pick<Params, 'model' | 'prompt' | 'duration'> & Partial<Pick<Params, 'resolution' | 'aspect_ratio'>>
 interface Counts { images: number; videos: number; audios: number }
@@ -34,7 +42,7 @@ interface Journal {
 export const isFlyapiTaskId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,511}$/.test(value)
 const assetPattern = /^asset_[A-Za-z0-9_-]+$/
 function assetId(value: string) {
-  const id = value.replace(/^assetId:\/\//i, '')
+  const id = value.replace(/^(?:assetId|asset):\/\//i, '')
   return assetPattern.test(id) ? id : undefined
 }
 export function flyapiReference(value: string) {
@@ -46,8 +54,9 @@ export function flyapiReference(value: string) {
   } catch { /* handled below */ }
   throw new Error('请填写公开 HTTP(S) 素材链接，或 FlyAPI 的 assetId://asset_… 素材 ID')
 }
-export function buildFlyapiBody(data: Record<string, any>, refs: Inputs): Body {
-  if (data.model !== MODEL) throw new Error('请选择 FlyAPI 的 Seedance 2.5-D')
+export function buildFlyapiBody(data: Record<string, any>, refs: Inputs, catalog: FlyapiCatalog = 'seedance'): Body {
+  const expectedModel = catalog === 'magi2' ? FLYAPI_MAGI2_MODEL : MODEL
+  if (data.model !== expectedModel) throw new Error(catalog === 'magi2' ? '请选择 FlyAPI 的 Magi-2 模型' : '请选择 FlyAPI 的 Seedance 2.5-D 模型')
   const prompt = refs.prompt.trim()
   if (!prompt) throw new Error('请输入视频提示词')
   const duration = Number(data.duration ?? 4)
@@ -55,7 +64,7 @@ export function buildFlyapiBody(data: Record<string, any>, refs: Inputs): Body {
   const ratio = data.ratio === 'auto' ? 'adaptive' : data.ratio || '16:9'
   const resolution = String(data.resolution || '720p').toLowerCase()
   if (!ratios.includes(ratio) || !resolutions.includes(resolution)) throw new Error('FlyAPI 不支持所选画幅或分辨率')
-  const body: Body = { model: MODEL, prompt, duration, aspect_ratio: ratio, resolution }
+  const body: Body = { model: data.model, prompt, duration, aspect_ratio: ratio, resolution }
   for (const { field, input, label, max } of media) {
     const slots = refs[input]
     if (slots.length > max) throw new Error(`FlyAPI 最多支持 ${max} 个参考${label}，当前 ${slots.length} 个`)
@@ -110,7 +119,7 @@ export class FlyapiProvider extends UnmauProvider {
   declare apiKey: string
   declare baseUrl: string
   downloadTimeoutMs = 15 * 60_000
-  constructor(key = '', base = FLYAPI_BASE, private readonly journal?: Journal) { super(key,base) }
+  constructor(key = '', base = FLYAPI_BASE, private readonly journal?: Journal, private readonly catalog: FlyapiCatalog = 'seedance') { super(key,base) }
   setBaseUrl(url: string) { this.baseUrl = (url || FLYAPI_BASE).trim().replace(/\/+$/, '').replace(/\/v1$/, '') }
   validate() {
     if (this.baseUrl !== FLYAPI_BASE) throw new Error('FlyAPI 地址应为 ' + FLYAPI_BASE)
@@ -122,8 +131,12 @@ export class FlyapiProvider extends UnmauProvider {
   }
   async testAuth(key: string) {
     try {
-      const result = await new FlyapiProvider(key, this.baseUrl).request('/v1/models')
-      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: string }) => [MODEL, FLYAPI_DEPTH_MODEL].includes(m.id))) throw new Error('此 FlyAPI Key 的模型列表里没有 seedance2.5-D 或视频转深度，请核对模型权限')
+      const result = await new FlyapiProvider(key, this.baseUrl, undefined, this.catalog).request('/v1/models')
+      const requiredModels = this.catalog === 'magi2' ? [FLYAPI_MAGI2_MODEL] : [MODEL, FLYAPI_DEPTH_MODEL]
+      if (!Array.isArray(result?.data) || !result.data.some((m: { id?: unknown } | null) => typeof m?.id === 'string' && requiredModels.includes(m.id))) {
+        const label = this.catalog === 'magi2' ? 'magi-2' : 'seedance2.5-D 或视频转深度'
+        throw new Error(`此 FlyAPI Key 的模型列表里没有 ${label}，请核对模型权限`)
+      }
       return { success: true }
     } catch (err) { return { success: false, error: err instanceof Error ? err.message : '查询 FlyAPI 模型权限失败' } }
   }
@@ -131,7 +144,7 @@ export class FlyapiProvider extends UnmauProvider {
     const connected = connectedCanvasMedia(id,nodes,edges,true)
     return bindCanvasReferences(data.prompt, [...connected, ...(data._uploads ?? legacyCanvasUploads(data,connected))])
   }
-  buildBody(data: Record<string, any>, refs: Inputs) { return buildFlyapiBody(data,refs) }
+  buildBody(data: Record<string, any>, refs: Inputs) { return buildFlyapiBody(data,refs,this.catalog) }
   async prepareAssets(body: Body, readFile: (url: string) => Promise<File>, signal: AbortSignal, { update }: { update: (patch: { referenceWarning?: string }) => void }) {
     // Keep ordered slots (and @ labels); register identical inputs only once within this request.
     const ready = new Map<string, string>()
@@ -167,7 +180,7 @@ export class FlyapiProvider extends UnmauProvider {
               if (Date.now() >= deadline) throw new Error(`素材 ${id} 仍在处理中，可稍后用原素材 ID 再试`)
               await waitForAsset(signal)
             }
-            slots[index] = 'assetId://' + id
+            slots[index] = (body.model === FLYAPI_MAGI2_MODEL ? 'asset://' : 'assetId://') + id
             ready.set(cacheKey, slots[index])
           } catch (err) {
             signal.throwIfAborted()
@@ -187,8 +200,9 @@ export class FlyapiProvider extends UnmauProvider {
   }
   async createTask(body: Body, signal?: AbortSignal) {
     const { model, prompt, duration, resolution, aspect_ratio } = body
+    const params = { model, prompt, duration, resolution, aspect_ratio }
     const counts = { images: body.reference_images?.length || 0, videos: body.reference_videos?.length || 0, audios: body.reference_audios?.length || 0 }
-    return this.submitTracked(body, { model, prompt, duration, resolution, aspect_ratio }, counts, signal)
+    return this.submitTracked(body, params, counts, signal)
   }
   async submitTracked(body: unknown, params: SavedParams, counts: Counts, signal?: AbortSignal) {
     // Neither FlyAPI video endpoint documents idempotency. Persist the attempt before sending it.

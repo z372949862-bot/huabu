@@ -101,13 +101,14 @@ const VIDEO_DEFAULT_BASE_URL: Record<VideoProviderKind, string> = {
   dmxapi: 'https://www.dmxapi.cn',
   fmgo: FMGO_BASE,
   flyapi: FLYAPI_BASE,
+  'flyapi-magi2': FLYAPI_BASE,
   aiide: AIIDE_BASE,
   luoci: LUOCI_BASE,
   aimi: AIMI_BASE,
   piapi: PIAPI_BASE,
   suanliai: SUANLIAI_BASE,
 }
-const CURRENT_MIGRATION = 24
+const CURRENT_MIGRATION = 25
 
 declare global {
   interface Window {
@@ -175,6 +176,7 @@ function videoKindOf(conf: Provider): VideoProviderKind {
   if (conf.kind === 'xinshuju') return 'xinshuju'
   if (conf.kind === 'dmxapi') return 'dmxapi'
   if (conf.kind === 'flyapi') return 'flyapi'
+  if (conf.kind === 'flyapi-magi2') return 'flyapi-magi2'
   if (conf.kind === 'fmgo') return 'fmgo'
   if (conf.kind === 'aiide') return 'aiide'
   if (conf.kind === 'luoci') return 'luoci'
@@ -243,6 +245,8 @@ export const useAIStore = defineStore('ai', () => {
           ? new SuanliaiProvider(conf.apiKey, conf.baseUrl)
         : kind === 'flyapi'
           ? new FlyapiProvider(conf.apiKey, conf.baseUrl)
+        : kind === 'flyapi-magi2'
+          ? new FlyapiProvider(conf.apiKey, conf.baseUrl, undefined, 'magi2')
         : kind === 'fmgo'
           ? new FmgoProvider(conf.apiKey, conf.baseUrl)
         : kind === 'dmxapi'
@@ -348,7 +352,7 @@ export const useAIStore = defineStore('ai', () => {
       defaultName = textKind === 'deepseek' ? 'DeepSeek' : 'OpenAI Chat'
     } else {
       const vidKind: VideoProviderKind =
-        (isIdeaGatesKind(input.kind) || input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'flyapi' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'luoci' || input.kind === 'aimi' || input.kind === 'piapi' || input.kind === 'suanliai')
+        (isIdeaGatesKind(input.kind) || input.kind === 'chuhaiying' || input.kind === 'seedance' || input.kind === 'qiling' || input.kind === 'unmau' || input.kind === 'yu25' || input.kind === 'xinshuju' || input.kind === 'dmxapi' || input.kind === 'flyapi' || input.kind === 'flyapi-magi2' || input.kind === 'fmgo' || input.kind === 'aiide' || input.kind === 'luoci' || input.kind === 'aimi' || input.kind === 'piapi' || input.kind === 'suanliai')
           ? input.kind
           : 'seedance'
       kind = vidKind
@@ -367,6 +371,8 @@ export const useAIStore = defineStore('ai', () => {
           ? '算力 AI · 008 系列'
         : vidKind === 'flyapi'
           ? 'FlyAPI · Seedance 2.5'
+        : vidKind === 'flyapi-magi2'
+          ? 'FlyAPI · Magi-2 · OpenAI Video'
         : vidKind === 'fmgo'
           ? '飞喵 FMGO · Seedance 2.5'
         : vidKind === 'xinshuju'
@@ -389,7 +395,7 @@ export const useAIStore = defineStore('ai', () => {
       kind,
       baseUrl: input.baseUrl || defaultBase,
       apiKey: input.apiKey || '',
-      models: type === 'video' && (kind === 'qiling' || kind === 'flyapi') ? defaultModels : input.models?.length ? input.models : defaultModels,
+      models: type === 'video' && (kind === 'qiling' || kind === 'flyapi' || kind === 'flyapi-magi2') ? defaultModels : input.models?.length ? input.models : defaultModels,
       status: input.apiKey ? 'connected' : 'unconfigured',
     })
     if (type === 'video' && !defaultProviderId.value) defaultProviderId.value = id
@@ -409,7 +415,7 @@ export const useAIStore = defineStore('ai', () => {
       p.apiKey = patch.apiKey
       p.status = patch.apiKey ? (p.status === 'error' ? 'connected' : p.status) : 'unconfigured'
     }
-    if (patch.models !== undefined) p.models = p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi') ? defaultVideoModelSet(p.kind) : patch.models
+    if (patch.models !== undefined) p.models = p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi' || p.kind === 'flyapi-magi2') ? defaultVideoModelSet(p.kind) : patch.models
     if (patch.status !== undefined) p.status = patch.status
     if (patch.error !== undefined) p.error = patch.error
     invalidateInstance(id)
@@ -451,7 +457,7 @@ export const useAIStore = defineStore('ai', () => {
   function addModel(providerId: string, modelId: string, override?: Partial<ProviderModel>) {
     const p = getProviderConfig(providerId)
     if (!p) return
-    if (p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi')) return
+    if (p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi' || p.kind === 'flyapi-magi2')) return
     if (isIdeaGatesKind(p.kind)) {
       p.models = ideaGatesModels(p.kind)
       persist()
@@ -502,7 +508,7 @@ export const useAIStore = defineStore('ai', () => {
   function removeModel(providerId: string, modelId: string) {
     const p = getProviderConfig(providerId)
     if (!p) return
-    if (p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi')) return
+    if (p.type === 'video' && (p.kind === 'qiling' || p.kind === 'flyapi' || p.kind === 'flyapi-magi2')) return
     p.models = p.models.filter((m) => m.id !== modelId)
     persist()
   }
@@ -710,6 +716,9 @@ export const useAIStore = defineStore('ai', () => {
     if (migrationVersion.value < 24 && !providers.value.some(p => p.type === 'video' && p.kind === 'flyapi')) {
       addProvider({ type: 'video', kind: 'flyapi' })
     }
+    if (migrationVersion.value < 25 && !providers.value.some(p => p.type === 'video' && p.kind === 'flyapi-magi2')) {
+      addProvider({ type: 'video', kind: 'flyapi-magi2' })
+    }
 
     // Keep built-in provider catalogs in sync for existing installations while
     // preserving user-added model IDs.
@@ -745,10 +754,10 @@ export const useAIStore = defineStore('ai', () => {
       }
     }
     for (const provider of providers.value) {
-      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'luoci' && provider.kind !== 'aimi' && provider.kind !== 'piapi' && provider.kind !== 'suanliai' && provider.kind !== 'flyapi')) continue
+      if (provider.type !== 'video' || (provider.kind !== 'unmau' && provider.kind !== 'yu25' && provider.kind !== 'xinshuju' && provider.kind !== 'qiling' && provider.kind !== 'aiide' && provider.kind !== 'luoci' && provider.kind !== 'aimi' && provider.kind !== 'piapi' && provider.kind !== 'suanliai' && provider.kind !== 'flyapi' && provider.kind !== 'flyapi-magi2')) continue
       const defaults = defaultVideoModelSet(provider.kind)
       const storedModels = provider.models || []
-      const fixedCatalog = provider.kind === 'qiling' || provider.kind === 'aimi' || provider.kind === 'flyapi'
+      const fixedCatalog = provider.kind === 'qiling' || provider.kind === 'aimi' || provider.kind === 'flyapi' || provider.kind === 'flyapi-magi2'
       const current = fixedCatalog ? [] : storedModels
       const merged = [
         ...defaults,

@@ -18,7 +18,7 @@ import { runDmxApiNode, cancelDmxApiNode, type DmxPendingTask } from '@/services
 import { runAiideNode, cancelAiideNode, type AiidePendingTask } from '@/services/aiideTask'
 import { ensureAiideMediaUrl } from '@/services/aiideMedia'
 import { DEPTH_MODEL, FlyapiDepthProvider, depthAccount, type DepthSource } from '@/services/providers/flyapiDepth'
-import { FlyapiProvider, FLYAPI_VIDEO_MODEL, type FlyapiPending } from '@/services/providers/flyapi'
+import { FlyapiProvider, FLYAPI_MAGI2_MODEL, FLYAPI_VIDEO_MODEL, type FlyapiPending } from '@/services/providers/flyapi'
 import { IdeaGatesProvider, isIdeaGatesKind } from '@/services/providers/ideagates'
 import { runIdeaGatesNode, cancelIdeaGatesNode, type IdeaGatesPendingTask } from '@/services/ideagatesTask'
 
@@ -588,7 +588,8 @@ export const useNodeStore = defineStore('node', () => {
 
     if (provider instanceof UnmauProvider) {
       const projectId = currentProjectId.value
-      const flyapiRun = providerConfig.kind === 'flyapi' ? new FlyapiProvider(apiKey, providerConfig.baseUrl, {
+      const isFlyapiProvider = providerConfig.kind === 'flyapi' || providerConfig.kind === 'flyapi-magi2'
+      const flyapiRun = isFlyapiProvider ? new FlyapiProvider(apiKey, providerConfig.baseUrl, {
         providerId,
         save: async (submissionId, pending, receipt) => {
           const patch = { flyapiTask: pending, taskId: pending?.taskId, ...(receipt ? { flyapiSubmission: receipt } : {}) }
@@ -612,10 +613,10 @@ export const useNodeStore = defineStore('node', () => {
             if (original) { Object.assign(original.data, patch); await storage.set(key, JSON.stringify(saved)) }
           }
         },
-      }) : undefined
+      }, providerConfig.kind === 'flyapi-magi2' ? 'magi2' : 'seedance') : undefined
       return runUnmauNode({
         id: nodeId,
-        data: { ...data, providerId, taskId: providerConfig.kind === 'flyapi' ? data.flyapiTask?.taskId : providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: isDepth ? DEPTH_MODEL : data.model || providerConfig.models[0]?.id },
+        data: { ...data, providerId, taskId: isFlyapiProvider ? data.flyapiTask?.taskId : providerConfig.kind === 'luoci' ? data.luociTask?.taskId : data.piapiTask?.taskId || data.taskId, model: isDepth ? DEPTH_MODEL : data.model || providerConfig.models[0]?.id || (providerConfig.kind === 'flyapi-magi2' ? FLYAPI_MAGI2_MODEL : undefined) },
         nodes: nodes.value,
         edges: edges.value,
         provider: isDepth && flyapiRun ? new FlyapiDepthProvider(flyapiRun) : flyapiRun ?? provider,

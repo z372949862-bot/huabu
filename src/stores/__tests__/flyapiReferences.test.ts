@@ -29,21 +29,22 @@ it('preserves ordinary-model pending tasks and never creates a replacement D job
 })
 function setup(issue = '') {
   vi.useFakeTimers(); setActivePinia(createPinia()); const ai=useAIStore(), store=useNodeStore()
-  const providerId=ai.addProvider({ name:'FlyAPI', kind:'flyapi', type:'video', apiKey:'fixture' }); const calls:{path:string;body?:any}[]=[], uploads:string[]=[], downloads:string[]=[]
-  const sources = [ {id:'a',type:'image',name:'角色',url:'https://media.example/a.jpg'}, {id:'b',type:'image',name:'场景',url:'assetId://asset_b'}, {id:'v',type:'video',name:'运镜',url:'C:\\fixtures\\motion.mp4'} ]; let checks=0
+  const isMagiProvider = issue === 'magi' || issue === 'magiAuth' || issue === 'magiMissing'
+  const providerId=ai.addProvider({ name:isMagiProvider ? 'FlyAPI Magi-2' : 'FlyAPI Seedance', kind:isMagiProvider ? 'flyapi-magi2' : 'flyapi', type:'video', apiKey:isMagiProvider ? 'magi-fixture' : 'fixture' }); const calls:{path:string;body?:any;apiKey?:string}[]=[], uploads:string[]=[], downloads:string[]=[]
+  const sources = [ {id:'a',type:'image',name:'角色',url:'https://media.example/a.jpg'}, {id:'b',type:'image',name:'场景',url:'assetId://asset_b'}, {id:'v',type:'video',name:'运镜',url:'C:\\fixtures\\motion.mp4'}, ...(issue==='magi' ? [{id:'aud',type:'audio',name:'音效',url:'https://media.example/a.mp3'}] : []) ]; let checks=0
   vi.stubGlobal('fetch',vi.fn(async()=>{throw Error('unexpected network')})); vi.stubGlobal('electronAPI',{upload:{read: async()=>({data:'AAAAFGZ0eXBpc29t',size:12})},flyapi:{
     upload:async(arg:any)=>{expect(Object.keys(arg)).toEqual(['dataUrl']);uploads.push(arg.dataUrl);return {ok:true,data:{url:'https://media.example/staged.mp4'}}},
-    request:async({path,body}:any)=>{calls.push({path,body}); let value:any;
-      if(path===reg){if(issue==='duration'&&body.assetType==='Video')return {ok:false,status:400,error:'FlyAPI (HTTP 400): video duration could not be determined'};value={assetId:body.assetType==='Video'?'asset_v':'asset_a',status:'PROCESSING'};}
-      else if(path===detail){const video=body.assetId==='asset_v';const wait=issue==='wait'&&video&&++checks===1;value={assetId:body.assetId,assetType:video?'Video':'Image',status:video&&issue==='reject'?'FAILED':wait?'PROCESSING':'ACTIVE',errorMessage:video&&issue==='reject'?'视频无法解码':null};}
+    request:async({path,body,apiKey}:any)=>{calls.push({path,body,apiKey}); let value:any;
+      if(path===reg){if(issue==='duration'&&body.assetType==='Video')return {ok:false,status:400,error:'FlyAPI (HTTP 400): video duration could not be determined'};value={assetId:body.assetType==='Video'?'asset_v':body.assetType==='Audio'?'asset_audio':'asset_a',status:'PROCESSING'};}
+      else if(path===detail){const video=body.assetId==='asset_v',audio=body.assetId==='asset_audio';const wait=issue==='wait'&&video&&++checks===1;value={assetId:body.assetId,assetType:video?'Video':audio?'Audio':'Image',status:video&&issue==='reject'?'FAILED':wait?'PROCESSING':'ACTIVE',errorMessage:video&&issue==='reject'?'视频无法解码':null};}
       else if(path==='/v1/videos'&&body){
         if(issue==='lostResponse')return {ok:false,error:'响应中断'};
         value={id:'task_existing',status:'queued'};
       }
       else if(path==='/v1/videos/task_existing')value=issue==='taskError'?{status:'failed',error:{code:'bad_media',message:'平台无法读取视频'}}:{status:'completed'};
-      else if(path==='/v1/models')value={data:[{id:issue==='noAccess'?'other':'seedance2.5-D'}]};else throw Error('unexpected path: '+path);
+      else if(path==='/v1/models')value={data:issue==='magiAuth'?[null,{id:42},{id:'magi-2'}]:[{id:issue==='noAccess'?'other':'seedance2.5-D'}]};else throw Error('unexpected path: '+path);
       return {ok:true,data:value}},download:async({taskId}:any)=>{downloads.push(taskId);return {ok:true,data:{path:'C:/result.mp4'}}}}})
-  store.addNode({id:'out',type:'ai-video',position:{x:0,y:0},data:{label:'video',status:'idle',providerId,model:'seedance2.5-D',prompt:'让 @[角色](a) 跟随 @[运镜](v)',duration:30,resolution:'720p',ratio:'16:9',_uploads:sources} as any})
+  store.addNode({id:'out',type:'ai-video',position:{x:0,y:0},data:{label:'video',status:'idle',providerId,model:isMagiProvider ? 'magi-2' : 'seedance2.5-D',prompt:'让 @[角色](a) 跟随 @[运镜](v)',duration:30,resolution:'720p',ratio:'16:9',_uploads:sources} as any})
   const run=async()=>{const p=store.executeNode('out');await vi.advanceTimersByTimeAsync(20000);await p};return {store, ai, providerId, calls, uploads, downloads, run}
 }
 it('registers the local motion video, waits for ACTIVE, then sends two pictures + one video and downloads the accepted task',async()=>{const r=setup('wait');await r.run();expect(r.store.nodes[0].data.error).toBeUndefined();expect(r.uploads).toEqual(['data:video/mp4;base64,AAAAFGZ0eXBpc29t']);
@@ -62,6 +63,24 @@ it('never submits twice after losing the creation response', async () => {
 it('reports absent model permission without creating a test job', async () => {
   const r = setup('noAccess'); expect(await r.ai.testProviderConnection(r.providerId)).toMatchObject({ ok: false, error: expect.stringContaining('seedance2.5') })
   expect(r.calls.map(c=>c.path)).toEqual(['/v1/models'])
+})
+it('accepts a Magi-2-only model listing and ignores malformed model entries', async () => {
+  const r = setup('magiAuth')
+  expect(await r.ai.testProviderConnection(r.providerId)).toEqual({ ok: true })
+  expect(r.calls.map(c=>c.path)).toEqual(['/v1/models'])
+})
+it('does not accept a Seedance-only key for the separate Magi-2 account', async () => {
+  const r = setup('magiMissing')
+  expect(await r.ai.testProviderConnection(r.providerId)).toMatchObject({ ok: false, error: expect.stringContaining('magi-2') })
+  expect(r.calls.map(c=>c.path)).toEqual(['/v1/models'])
+})
+it('builds Magi-2 video requests with the selected size, duration and all three reference types', async()=>{
+  const r=setup('magi');r.store.updateNodeData('out',{model:'magi-2',duration:22,resolution:'1080p',ratio:'9:16'} as any)
+  expect(r.ai.getProviderConfig(r.providerId)).toMatchObject({kind:'flyapi-magi2',apiKey:'magi-fixture',models:[{id:'magi-2'}]})
+  await r.run()
+  expect(r.store.nodes[0].data.error).toBeUndefined()
+  expect(r.calls.find(c=>c.path==='/v1/videos')?.apiKey).toBe('magi-fixture')
+  expect(r.calls.find(c=>c.path==='/v1/videos')?.body).toEqual(expect.objectContaining({model:'magi-2',duration:22,resolution:'1080p',aspect_ratio:'9:16',reference_images:['asset://asset_a','asset://asset_b'],reference_videos:['asset://asset_v'],reference_audios:['asset://asset_audio']}))
 })
 it('looks up model access without generating',async()=>{const r=setup();expect(await r.ai.testProviderConnection(r.providerId)).toEqual({ok:true});expect(r.calls.map(c=>c.path)).toEqual(['/v1/models']);expect(r.ai.getProviderConfig(r.providerId)?.baseUrl).toBe(host)})
 
