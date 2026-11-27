@@ -15,9 +15,9 @@ function keyFor(value) {
   if (typeof value !== 'string' || !/^[!-~]+$/.test(value.trim()) || /[\r\n]/.test(value)) throw new Error('请填写有效的 FlyAPI Key')
   return value.trim()
 }
-module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch, prepareVideo = createFlyapiVideoPreparer() }) {
-  const depthFiles = depth.depthMedia({net,app})
-  const stage = createMediaUploader({ fetch: stagingFetch || ((...args) => net.fetch(...args)), serviceName: 'FlyAPI',
+module.exports = function registerFlyapi({ ipcMain, fetch, app, prepareVideo = createFlyapiVideoPreparer() }) {
+  const depthFiles = depth.depthMedia({ fetch, app })
+  const stage = createMediaUploader({ fetch, serviceName: 'FlyAPI',
     extraFormats: { 'image/avif': 'avif', 'video/webm': 'webm', 'video/x-m4v': 'm4v', 'video/x-matroska': 'mkv', 'video/x-msvideo': 'avi', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/webm': 'webm' } })
   ipcMain.handle('flyapi:upload', async (_event, { dataUrl } = {}) => {
     try { return await stage({ dataUrl: await prepareVideo(dataUrl) }) }
@@ -41,7 +41,7 @@ module.exports = function registerFlyapi({ ipcMain, net, app, stagingFetch, prep
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), creating || consume ? 300000 : 60000)
     try {
-      const response = await net.fetch(BASE + route, { method: body === undefined ? 'GET' : 'POST',
+      const response = await fetch(BASE + route, { method: body === undefined ? 'GET' : 'POST',
         headers: { Authorization: `Bearer ${key}`, Accept: consume ? 'video/*, application/octet-stream' : 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal, redirect: 'error' })
       if (!response.ok) {

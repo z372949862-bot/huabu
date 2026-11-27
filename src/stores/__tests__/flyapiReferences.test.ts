@@ -74,6 +74,36 @@ it('does not accept a Seedance-only key for the separate Magi-2 account', async 
   expect(await r.ai.testProviderConnection(r.providerId)).toMatchObject({ ok: false, error: expect.stringMatching(/magi-2/i) })
   expect(r.calls.map(c=>c.path)).toEqual(['/v1/models'])
 })
+it.each([
+  { records: [{ id: 'magi-2', supported_endpoint_types: [] }], accepted: true },
+  { records: [{ id: 'Magi-2', supported_endpoint_types: 'openai-video' }], accepted: true },
+  { records: [{ id: 'magi-2', supported_endpoint_types: ['openai'] }], accepted: true },
+  { records: [{ id: 'magi-2', supported_endpoint_types: 'openai' }], accepted: true },
+  { records: [{ id: 'magi-2', supported_endpoint_types: ['anthropic'] }], error: /magi-2.*anthropic.*视频路由/ },
+  { records: [{ id: 'magi-2-vip', supported_endpoint_types: ['openai'] }], error: /magi-2-vip.*openai.*视频路由/ },
+  { records: [{ id: 'wan3', supported_endpoint_types: ['openai-video'] }], error: /wan3.*没有 Magi-2/ },
+  { records: [], error: /目录为空/ },
+  { records: null, error: /目录格式异常/ },
+])('distinguishes catalog visibility and endpoint information before generation ($records)', async ({ records, accepted, error }) => {
+  const r = setup('magi')
+  const api = window.electronAPI!.flyapi!
+  const original = api.request
+  const request = vi.spyOn(api, 'request').mockImplementation(async args =>
+    args.path === '/v1/models' ? { ok: true, data: { data: records } } : original(args))
+  const auth = await r.ai.testProviderConnection(r.providerId)
+  if (accepted) {
+    expect(auth.ok).toBe(true)
+    await r.run()
+    expect(r.calls.filter(c => c.path === '/v1/videos').map(c => c.body.model)).toEqual([records![0].id])
+  } else {
+    expect(auth.error).toMatch(error!)
+    await r.run()
+    expect(r.store.nodes[0].data.error).toBe(auth.error)
+    expect(r.uploads).toEqual([])
+    expect(r.calls).toEqual([])
+  }
+  expect(request.mock.calls.filter(([args]) => args.path === '/v1/models')).toHaveLength(2)
+})
 it('builds Magi-2 video requests with the selected size, duration and all three reference types', async()=>{
   const r=setup('magi');r.store.updateNodeData('out',{model:'magi-2',duration:22,resolution:'1080p',ratio:'9:16'} as any)
   expect(r.ai.getProviderConfig(r.providerId)).toMatchObject({kind:'flyapi-magi2',apiKey:'magi-fixture',models:[{id:'magi-2'}]})

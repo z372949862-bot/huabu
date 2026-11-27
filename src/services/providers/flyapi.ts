@@ -29,7 +29,7 @@ export const FLYAPI_MAGI2_MODELS: ModelTemplate[] = [{ id: FLYAPI_MAGI2_MODEL, n
 }]
 
 type Params = { model: string; prompt: string; aspect_ratio: string; resolution: string; duration: number }
-type Body = Omit<Params, 'model'> & { model: string } & Partial<Record<typeof media[number]['field'], string[]>>
+type Body = Params & Partial<Record<typeof media[number]['field'], string[]>>
 type Inputs = ReturnType<typeof bindCanvasReferences>
 type SavedParams = Pick<Params, 'model' | 'prompt' | 'duration'> & Partial<Pick<Params, 'resolution' | 'aspect_ratio'>>
 interface Counts { images: number; videos: number; audios: number }
@@ -76,20 +76,33 @@ export function buildFlyapiBody(data: Record<string, any>, refs: Inputs, catalog
   }
   return body
 }
-function openaiVideoModel(model: unknown) {
-  if (!model || typeof model !== 'object' || typeof (model as { id?: unknown }).id !== 'string') return false
-  const endpoints = (model as { supported_endpoint_types?: unknown }).supported_endpoint_types
-  return !Array.isArray(endpoints) || endpoints.includes('openai-video')
+interface CatalogModel { id: string; supported_endpoint_types?: string[] | string }
+function catalogModels(response: { data?: unknown }): CatalogModel[] {
+  if (!Array.isArray(response?.data)) throw new Error('FlyAPI 返回的模型目录格式异常，缺少 data 列表')
+  return response.data.filter((m): m is CatalogModel => typeof m?.id === 'string' && !!m.id.trim())
 }
-function findMagi2ModelId(models: unknown) {
-  if (!Array.isArray(models)) return undefined
-  const available = models.filter(openaiVideoModel) as Array<{ id: string; supported_endpoint_types?: unknown }>
-  const exact = available.find(model => model.id.toLowerCase() === FLYAPI_MAGI2_MODEL)
+function selectMagiModel(models: CatalogModel[]) {
+  const named = models.filter(m => /(?:^|[^a-z0-9])magi[-_ ]?2(?:$|[^a-z0-9])/i.test(m.id))
+  const supported = named.filter(m => {
+    const raw = m.supported_endpoint_types
+    const endpoints = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : []
+    const types = endpoints.filter((e): e is string => typeof e === 'string').map(e => e.trim().toLowerCase())
+    if (types.includes('openai-video')) return true
+    // FlyAPI documents magi-2 at /v1/videos, but its token catalog can label it
+    // simply "openai" or omit endpoint types. This is specific to the canonical ID.
+    return m.id.toLowerCase() === FLYAPI_MAGI2_MODEL && (!endpoints.length || types.includes('openai'))
+  })
+  const exact = supported.find(m => m.id.toLowerCase() === FLYAPI_MAGI2_MODEL)
   if (exact) return exact.id
-  const named = available.find(model => /magi[-_]?2/i.test(model.id))
-  if (named) return named.id
-  const single = available[0]
-  return available.length === 1 && Array.isArray(single?.supported_endpoint_types) && !/(seedance|sora|kling|superresolution|h3|sd2(?:\.?5)?)/i.test(single.id) ? single.id : undefined
+  if (supported.length === 1) return supported[0].id
+  if (supported.length > 1) throw new Error('此令牌列出了多个 Magi-2 视频模型，请在 FlyAPI 令牌的模型限制中选定一个：' + supported.map(m => m.id).join('、'))
+  if (named.length) {
+    const listed = named.map(m => `${m.id}（${String(m.supported_endpoint_types || '') || '未标注接口'}）`)
+    throw new Error('此令牌列出了 ' + listed.join('、') + '，但未确认其 openai-video 接口，请核对 FlyAPI 的视频路由')
+  }
+  const visible = models.slice(0, 5).map(m => m.id).join('、')
+  const detail = models.length ? `此令牌可见 ${models.length} 个模型（${visible}${models.length > 5 ? '等' : ''}），其中没有 Magi-2` : '此令牌的模型目录为空'
+  throw new Error(`${detail}。请在 FlyAPI「令牌」中核对分组 MAGI-2 和模型限制 magi-2`)
 }
 function bridge() {
   if (!window.electronAPI?.flyapi) throw new Error('请使用已接入 FlyAPI 的桌面版')
@@ -144,14 +157,18 @@ export class FlyapiProvider extends UnmauProvider {
     this.validate()
     return unpack(await bridge().request({ apiKey: this.apiKey, path, catalog: this.catalog, ...(body === undefined ? {} : { body }) }))
   }
+  async magiModelId() {
+    const result = await this.request('/v1/models')
+    return selectMagiModel(catalogModels(result))
+  }
   async testAuth(key: string) {
     try {
-      const result = await new FlyapiProvider(key, this.baseUrl, undefined, this.catalog).request('/v1/models')
-      const requiredModels = this.catalog === 'magi2' ? [FLYAPI_MAGI2_MODEL] : [MODEL, FLYAPI_DEPTH_MODEL]
-      const available = this.catalog === 'magi2' ? findMagi2ModelId(result?.data) : Array.isArray(result?.data) && result.data.find((m: { id?: unknown } | null) => typeof m?.id === 'string' && requiredModels.includes(m.id))?.id
-      if (!available) {
-        const label = this.catalog === 'magi2' ? 'Magi-2（请以 /v1/models 返回的实际模型 ID 为准）' : 'seedance2.5-D 或视频转深度'
-        throw new Error(`此 FlyAPI Key 的模型列表里没有 ${label}，请核对模型权限`)
+      const provider = new FlyapiProvider(key, this.baseUrl, undefined, this.catalog)
+      if (this.catalog === 'magi2') {
+        await provider.magiModelId()
+      } else {
+        const models = catalogModels(await provider.request('/v1/models'))
+        if (!models.some(m => m.id === MODEL || m.id === FLYAPI_DEPTH_MODEL)) throw new Error('此 FlyAPI Key 的模型列表里没有 seedance2.5-D 或视频转深度，请核对模型权限')
       }
       return { success: true }
     } catch (err) { return { success: false, error: err instanceof Error ? err.message : '查询 FlyAPI 模型权限失败' } }
@@ -162,6 +179,11 @@ export class FlyapiProvider extends UnmauProvider {
   }
   buildBody(data: Record<string, any>, refs: Inputs) { return buildFlyapiBody(data,refs,this.catalog) }
   async prepareAssets(body: Body, readFile: (url: string) => Promise<File>, signal: AbortSignal, { update }: { update: (patch: { referenceWarning?: string }) => void }) {
+    if (this.catalog === 'magi2') {
+      signal.throwIfAborted()
+      body.model = await this.magiModelId()
+      signal.throwIfAborted()
+    }
     // Keep ordered slots (and @ labels); register identical inputs only once within this request.
     const ready = new Map<string, string>()
     try {
@@ -196,7 +218,7 @@ export class FlyapiProvider extends UnmauProvider {
               if (Date.now() >= deadline) throw new Error(`素材 ${id} 仍在处理中，可稍后用原素材 ID 再试`)
               await waitForAsset(signal)
             }
-            slots[index] = (body.model === FLYAPI_MAGI2_MODEL ? 'asset://' : 'assetId://') + id
+            slots[index] = (this.catalog === 'magi2' ? 'asset://' : 'assetId://') + id
             ready.set(cacheKey, slots[index])
           } catch (err) {
             signal.throwIfAborted()
@@ -215,12 +237,6 @@ export class FlyapiProvider extends UnmauProvider {
     if (data.flyapiTask?.taskId) return data.flyapiTask.params ?? { model: data.model || MODEL, prompt: '', duration: undefined }
   }
   async createTask(body: Body, signal?: AbortSignal) {
-    if (this.catalog === 'magi2') {
-      const result = await this.request('/v1/models')
-      const modelId = findMagi2ModelId(result?.data)
-      if (!modelId) throw new Error('FlyAPI 未在 /v1/models 返回可用的 Magi-2 视频模型，请先测试连接并核对此 Key 的模型权限')
-      body.model = modelId
-    }
     const { model, prompt, duration, resolution, aspect_ratio } = body
     const params = { model, prompt, duration, resolution, aspect_ratio }
     const counts = { images: body.reference_images?.length || 0, videos: body.reference_videos?.length || 0, audios: body.reference_audios?.length || 0 }

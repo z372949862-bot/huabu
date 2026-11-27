@@ -7,6 +7,14 @@ function byteString(value) {
   return /[^\x00-\xff]/.test(text) ? Buffer.from(text, 'utf8').toString('latin1') : text
 }
 
+function responseHeaders(raw) {
+  const headers = new Headers()
+  for (const [name, values] of Object.entries(raw)) {
+    for (const value of Array.isArray(values) ? values : [values]) headers.append(name, byteString(value))
+  }
+  return headers
+}
+
 function createMediaFetch(net) {
   return async function mediaFetch(input, init) {
     const request = new Request(input, init)
@@ -29,16 +37,29 @@ function createMediaFetch(net) {
       function onAbort() { fail(signal.reason || new DOMException('The operation was aborted', 'AbortError')) }
       signal.addEventListener('abort', onAbort, { once: true })
       try {
-        client = net.request({ url: request.url, method: request.method, redirect: request.redirect })
+        client = net.request({ url: request.url, method: request.method, redirect: request.redirect,
+          ...(request.credentials === 'omit' ? { credentials: 'omit' } : {}) })
         client.on('error', fail)
         client.on('abort', () => fail(new DOMException('The operation was aborted', 'AbortError')))
+        if (request.redirect === 'manual') {
+          // Electron cancels a manual redirect after this event. Return the 3xx
+          // response so the caller can check the destination before requesting it.
+          client.on('redirect', (status, _method, destination, rawHeaders) => {
+            if (finished) return
+            try {
+              const headers = responseHeaders(rawHeaders)
+              if (!headers.has('location')) headers.set('location', destination)
+              const result = new Response(null, { status, headers })
+              finished = true
+              cleanup()
+              resolve(result)
+            } catch (error) { fail(error) }
+          })
+        }
         client.on('response', response => {
           if (finished) return
           try {
-            const headers = new Headers()
-            for (const [name, values] of Object.entries(response.headers)) {
-              for (const value of Array.isArray(values) ? values : [values]) headers.append(name, byteString(value))
-            }
+            const headers = responseHeaders(response.headers)
             const hasBody = request.method !== 'HEAD' && ![204, 205, 304].includes(response.statusCode)
             const body = hasBody ? new ReadableStream({
               start(controller) { bodyController = controller },

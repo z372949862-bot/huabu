@@ -10,7 +10,7 @@ it('sends D model unchanged, blocks ordinary model creation, and still polls exi
   const handlers = new Map<string, Function>()
   const api = vi.fn(async () => Response.json({ id: 'task_old', status: 'queued' }))
   register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) },
-    net: { fetch: api }, app: { getPath: () => tmpdir() } })
+    fetch: api, app: { getPath: () => tmpdir() } })
   const run = (args: object) => handlers.get('flyapi:request')!(null, { apiKey: 'fixture', ...args })
   const body = { model: 'seedance2.5-D', prompt: 'test', duration: 4, reference_videos: ['assetId://asset_video'] }
   expect((await run({ path: '/v1/videos', body })).ok).toBe(true)
@@ -25,7 +25,7 @@ it('forwards a discovered Magi-2 OpenAI video model with resolution, duration an
   const handlers = new Map<string, Function>()
   const api = vi.fn(async () => Response.json({ id: 'task_magi', status: 'queued' }))
   register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) },
-    net: { fetch: api }, app: { getPath: () => tmpdir() } })
+    fetch: api, app: { getPath: () => tmpdir() } })
   const body = { model: 'magi-2-vip', prompt: 'test', duration: 30, resolution: '1080p', aspect_ratio: '16:9',
     reference_images: ['assetId://asset_image'], reference_videos: ['assetId://asset_video'], reference_audios: ['assetId://asset_audio'] }
   const result = await handlers.get('flyapi:request')!(null, { apiKey: 'fixture', path: '/v1/videos', catalog: 'magi2', body })
@@ -47,7 +47,8 @@ it('uses separate upload and authenticated FlyAPI routes, and streams the protec
     return Response.json({ assetId: 'asset_test', status: 'ACTIVE' })
   })
   const prepareVideo = vi.fn(async (dataUrl: string) => dataUrl)
-  register({ ipcMain: { handle: (k: string, cb: Function) => handlers.set(k, cb) }, stagingFetch: stage, net: { fetch: api }, app: { getPath: () => profile }, prepareVideo })
+  const fetch = (url: string, opts: RequestInit) => new URL(url).origin === 'https://flyapi.vip' ? api(url, opts) : stage(url, opts)
+  register({ ipcMain: { handle: (k: string, cb: Function) => handlers.set(k, cb) }, fetch, app: { getPath: () => profile }, prepareVideo })
   const run = (handler: string, data: unknown) => handlers.get('flyapi:' + handler)!(null, data)
   try {
     const staged = await run('upload', { dataUrl: 'data:video/mp4;base64,AAAAEGZ0eXA=', apiKey: key })
@@ -71,9 +72,9 @@ it('uses separate upload and authenticated FlyAPI routes, and streams the protec
 })
 
 it('does not upload or call FlyAPI when lossless preparation fails', async () => {
-  const handlers = new Map<string, Function>(), stage = vi.fn(), api = vi.fn()
-  register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) }, stagingFetch: stage,
-    net: { fetch: api }, app: { getPath: () => tmpdir() }, prepareVideo: async () => { throw Error('参考视频缺少有效时长') } })
+  const handlers = new Map<string, Function>(), fetch = vi.fn()
+  register({ ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) }, fetch,
+    app: { getPath: () => tmpdir() }, prepareVideo: async () => { throw Error('参考视频缺少有效时长') } })
   expect(await handlers.get('flyapi:upload')!(null, { dataUrl: 'data:video/mp4;base64,invalid' })).toEqual({ ok: false, error: '参考视频缺少有效时长' })
-  expect(stage).not.toHaveBeenCalled(); expect(api).not.toHaveBeenCalled()
+  expect(fetch).not.toHaveBeenCalled()
 })

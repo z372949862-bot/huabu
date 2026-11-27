@@ -17,11 +17,11 @@ function checkHeader(b) {
   for (let i=16; i+4<=end; i+=4) brands.push(b.toString('ascii',i,i+4))
   if (end < 16 || b.toString('ascii',4,8) !== 'ftyp' || /^(qt  |avif|avis|mif1|heic|3g..|M4A )$/.test(brands[0]) || !brands.some(v => /^(isom|iso[2-9]|mp4[12]|avc1|hvc1|hev1|dash|M4V |MSNV|mp71|cmf[cv])$/.test(v))) throw new Error('源文件不是 MP4 视频，请先导出为 MP4')
 }
-function depthMedia({ net, app }) {
+function depthMedia({ fetch, app }) {
   const publicFetch = async (source, options = {}) => {
     let url = publicResultUrl(source)
     for (let redirects=0; redirects<=5; redirects++) {
-      const res = await net.fetch(url, { ...options, credentials: 'omit', redirect: 'manual' })
+      const res = await fetch(url, { ...options, credentials: 'omit', redirect: 'manual' })
       if (![301,302,303,307,308].includes(res.status)) return res
       const next = res.headers.get('location'); await res.body?.cancel()
       if (!next) throw new Error('视频跳转未返回地址')

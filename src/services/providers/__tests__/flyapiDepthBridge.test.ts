@@ -33,7 +33,7 @@ it('reads real MP4 bytes from disk or a signed source and saves metadata.url wit
       if (url === 'https://out.example/signed.mp4?one=two') return new Response(bytes,{headers:{'Content-Type':'video/mp4'}})
       throw Error('unexpected network request: '+url)
     })
-    register({ipcMain:{handle:(k:string,cb:Function)=>handlers.set(k,cb)},net:{fetch},app:{getPath:()=>dir}})
+    register({ipcMain:{handle:(k:string,cb:Function)=>handlers.set(k,cb)},fetch,app:{getPath:()=>dir}})
     const local = (p:string) => 'local-upload:///'+p.replaceAll('\\','/')
     expect((await run('depth-source',{source:local(mp4)})).ok).toBe(true)
     expect((await run('depth-source',{source:local(bad)})).error).toContain('MP4')

@@ -8,12 +8,13 @@ const os = require('node:os')
 const path = require('node:path')
 const { createMediaFetch } = require('../electron/mediaFetch.cjs')
 const { createVideoSaver } = require('../electron/videoStorage.cjs')
+const registerFlyapi = require('../electron/flyapi.cjs')
 const fetch = createMediaFetch(net)
 const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(128 * 1024)])
 const largeVideo = Buffer.concat([mp4, Buffer.alloc(16 * 1024 * 1024, 0x5a)])
 const disposition = 'attachment; filename="自动生成的视频.mp4"'
 const sockets = new Set()
-let uploads = 0, redirects = 0, profile, server
+let uploads = 0, redirects = 0, flyapiPosts = 0, profile, server
 
 async function test() {
   profile = await fs.mkdtemp(path.join(os.tmpdir(), 'wuhu-media-fetch-'))
@@ -21,6 +22,21 @@ async function test() {
   await app.whenReady()
   server = http.createServer(async (req, res) => {
     try {
+      if (req.url === '/v1/videos') {
+        assert.equal(req.method, 'POST')
+        assert.equal(req.headers.authorization, 'Bearer local-fixture')
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        assert.equal(JSON.parse(Buffer.concat(chunks)).prompt, '午后')
+        flyapiPosts++
+        raw(res, Buffer.from('{"error":{"code":"route_exhausted","message":"通道不可用"}}'), 'application/json', undefined, '503 Service Unavailable')
+        return
+      }
+      if (req.url === '/v1/videos/task_fixture/content') {
+        assert.equal(req.headers.authorization, 'Bearer local-fixture')
+        raw(res, mp4, 'video/mp4')
+        return
+      }
       if (req.url === '/redirect') {
         redirects++
         res.writeHead(302, { location: '/video' }); res.end(); return
@@ -72,6 +88,27 @@ async function test() {
   assert.deepEqual(Buffer.from(await result.arrayBuffer()), mp4)
   console.log('PASS UTF-8 response filename / exact video bytes')
 
+  const handlers = new Map()
+  registerFlyapi({
+    ipcMain: { handle: (name, callback) => handlers.set(name, callback) },
+    app: { getPath: () => profile },
+    fetch: (url, options) => fetch(base + new URL(url).pathname, options),
+  })
+  const fly = (name, args) => handlers.get('flyapi:' + name)(null, args)
+  const failure = await fly('request', { apiKey: 'local-fixture', path: '/v1/videos', catalog: 'magi2',
+    body: { model: 'magi-2', prompt: '午后', duration: 4 } })
+  assert.equal(failure.status, 503)
+  assert.match(failure.error, /route_exhausted.*通道不可用/)
+  assert.equal(flyapiPosts, 1)
+  const clip = await fly('download', { apiKey: 'local-fixture', taskId: 'task_fixture' })
+  assert.equal(clip.ok, true, clip.error)
+  assert.deepEqual(await fs.readFile(clip.data.path), mp4)
+  const depth = await fly('depth-result', { taskId: 'task_depth', url: 'https://cdn.example/redirect' })
+  assert.equal(depth.ok, true, depth.error)
+  assert.deepEqual(await fs.readFile(depth.data.path), mp4)
+  assert.equal(redirects, 1)
+  console.log('PASS FlyAPI Unicode response headers on error, authenticated download and redirected depth result')
+
   const form = new FormData()
   form.append('file', new Blob([Buffer.from([0, 255, 128, 10])], { type: 'image/png' }), 'reference.png')
   result = await fetch(base + '/redirect-upload', { method: 'POST', body: form })
@@ -88,7 +125,7 @@ async function test() {
   const save = createVideoSaver({ root: path.join(profile, 'videos'), fetch, timeoutMs: 2000 })
   const saved = await save({ url: base + '/redirect' })
   assert.deepEqual(await fs.readFile(saved.path), mp4)
-  assert.equal(redirects, 1)
+  assert.equal(redirects, 2)
   console.log('PASS redirected video atomically saved with Unicode filename header')
 
   assert.equal((await fetch(base + '/error')).status, 502)
@@ -119,11 +156,11 @@ async function test() {
   assert.notEqual(process.exitCode, 1)
 }
 
-function raw(res, body, type, length = body.length) {
+function raw(res, body, type, length = body.length, status = '200 OK') {
   // Chromium decodes raw UTF-8 header bytes to Unicode; Node's writeHead rejects
   // such header values, so intentionally emit the fixture at the socket level.
   res.socket.end(Buffer.concat([
-    Buffer.from(`HTTP/1.1 200 OK\r\nContent-Type: ${type}\r\nContent-Disposition: ${disposition}\r\nContent-Length: ${length}\r\nConnection: close\r\n\r\n`, 'utf8'), body,
+    Buffer.from(`HTTP/1.1 ${status}\r\nContent-Type: ${type}\r\nContent-Disposition: ${disposition}\r\nContent-Length: ${length}\r\nConnection: close\r\n\r\n`, 'utf8'), body,
   ]))
 }
 const watchdog = setTimeout(() => { console.error('FAIL test timeout'); app.exit(1) }, 20000)
